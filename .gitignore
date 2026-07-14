@@ -1,0 +1,21 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+backend/uploads/
+backend/*.db
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Env
+.env
+backend/.env
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+
+# Claude Code local config (machine-specific)
+.claude/
