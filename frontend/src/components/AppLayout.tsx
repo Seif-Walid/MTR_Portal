@@ -1,11 +1,14 @@
 import {
   CheckSquareOutlined,
   LogoutOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
   SendOutlined,
   SettingOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
-import { Avatar, Dropdown, Layout, Menu, Space, Typography, theme } from 'antd';
+import { Avatar, Button, Dropdown, Layout, Menu, Space, Typography, theme } from 'antd';
+import { useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
@@ -22,6 +25,7 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { token } = theme.useToken();
+  const [collapsed, setCollapsed] = useState(false);
 
   if (!me) return null;
 
@@ -40,7 +44,15 @@ export default function AppLayout() {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider breakpoint="lg" collapsedWidth="0" theme="dark">
+      <Sider
+        breakpoint="lg"
+        collapsedWidth={0}
+        theme="dark"
+        collapsible
+        collapsed={collapsed}
+        trigger={null}
+        onBreakpoint={(broken) => setCollapsed(broken)}
+      >
         <div
           style={{
             display: 'flex',
@@ -65,16 +77,23 @@ export default function AppLayout() {
         <Header
           style={{
             background: token.colorBgContainer,
-            padding: '0 24px',
+            padding: '0 24px 0 12px',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'flex-end',
+            justifyContent: 'space-between',
             gap: 12,
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
           }}
         >
-          <ThemeToggle />
-          <NotificationsBell />
+          <Button
+            type="text"
+            aria-label="Toggle navigation"
+            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => setCollapsed((c) => !c)}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <ThemeToggle />
+            <NotificationsBell />
           <Dropdown
             menu={{
               items: [
@@ -103,6 +122,7 @@ export default function AppLayout() {
               </div>
             </Space>
           </Dropdown>
+          </div>
         </Header>
         <Content style={{ margin: 24 }}>
           <Outlet />
