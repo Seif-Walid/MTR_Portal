@@ -195,13 +195,21 @@ the 100-Arduino inventory example.
 
 There are no organization-issued emails — people join with personal addresses:
 
-- **Register** on the login page (name, email, password), or
-- **Continue with Google** — first sign-in auto-creates the account.
+- **Register** on the login page (name, email, password) — open self-signup, or
+- an **admin creates the account** in User Management.
 
 Either way, new accounts start with **no roles and no hierarchy position**: they can
 sign in and send requests, but can't be tasked or see anyone else's work until the
-admin assigns roles, a department, and a manager in User Management. Deactivated
-accounts are blocked on both login paths.
+admin assigns roles, a department, and a manager. Deactivated accounts are blocked on
+every sign-in path.
+
+**Google sign-in is an identity check, not a signup path** — it never creates an
+account. Signing in with an email that has no portal account lands on a clear
+"no account" message instead. An existing **password** account's first Google
+sign-in doesn't log you in either: sign in with the password once, then choose
+**Link Google account** from the account menu — only after that explicit link does
+Google sign-in work for that account. This avoids ever matching an account by email
+address alone.
 
 ## Sign in with Google (optional)
 
@@ -216,6 +224,8 @@ To enable the Google button:
    GOOGLE_CLIENT_ID=<client id>
    GOOGLE_CLIENT_SECRET=<client secret>
    FRONTEND_URL=http://localhost:5173
+   # optional: restrict which domains may sign in with Google at all
+   # GOOGLE_ALLOWED_DOMAINS=mindtechrobotics.org,gmail.com
    ```
 4. Restart the backend. The "Sign in with Google" button on the login page enables
    itself automatically (it reads `GET /api/auth/config`).
@@ -227,7 +237,7 @@ cd backend
 .venv\Scripts\python -m pytest tests -q
 ```
 
-106 tests cover the permission layer: assignment allowed/denied (down, up, across,
+114 tests cover the permission layer: assignment allowed/denied (down, up, across,
 self), subtree visibility and drill-down, request accept/decline/delegate, status
 workflow rights (assignee vs. reviewer), multi-role union, hierarchy moves and
 cycle rejection; inventory scoping, allocation capacity math, over-allocation/shrink
@@ -236,8 +246,9 @@ requests (submit→approve/reject→issue→return, overdue); competition nestin
 competition-scoped PM / team-lead authority (a lead touches only their team); Google
 Sheet import (mocked) with upsert; the **Positions** org tree (single root, no cycles,
 occupant→manager derivation with vacant-seat skip, audit log); admin/CEO-wide user
-management; and the general audit log + soft-delete-by-default with admin-only
-permanent delete.
+management; the general audit log + soft-delete-by-default with admin-only permanent
+delete; and Google sign-in hardening (never auto-provisions, domain allowlist, and
+explicit-link-not-silent-match, with the OAuth round-trip mocked).
 
 ## Project layout
 

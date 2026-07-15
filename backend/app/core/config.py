@@ -22,6 +22,16 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/api/auth/google/callback"
+    # Domain allowlist for Google sign-in: comma-separated, checked against the
+    # Workspace `hd` claim, or the email's own domain for personal accounts
+    # (Gmail has no `hd`). Empty = no restriction. Set explicitly to lock down
+    # to your org's Workspace domain, and add e.g. "gmail.com" to permit
+    # personal accounts deliberately rather than by accident.
+    google_allowed_domains: str = ""
+
+    @property
+    def google_allowed_domains_list(self) -> list[str]:
+        return [d.strip().lower() for d in self.google_allowed_domains.split(",") if d.strip()]
 
     # Google Sheets inventory mirror (optional). The portal is the source of
     # truth; "Sync to Sheets" pushes a read-only snapshot into this spreadsheet.

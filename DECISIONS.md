@@ -152,3 +152,41 @@ each, so nothing is a silent surprise.
   normal API (list/get/visibility queries all filter `deleted_at IS NULL`);
   there is no "view deleted / restore" UI yet — recovery today means an admin
   querying the DB directly, which is an acceptable gap for a first pass.
+
+## Auth hardening (Phase 5)
+
+- **Google sign-in no longer auto-provisions.** This was a real gap: the
+  code's own docstring already claimed "accounts are provisioned by the
+  admin... Google is only an authentication method, never a signup path," but
+  the implementation directly below it silently created a new `User` on any
+  unrecognized-but-verified email. Fixed to match the stated intent (and the
+  spec): an unknown email now redirects to `/login?error=no_account` and
+  creates nothing. Note this app keeps a **separate, deliberate** open
+  self-registration path (`POST /auth/register`, pre-existing) — Phase 5 only
+  hardens the *Google* path per the spec's "Google sign-in — specifics"
+  section; it doesn't touch that pre-existing password-registration feature.
+- **Domain allowlist** (`GOOGLE_ALLOWED_DOMAINS`, comma-separated) is checked
+  against the Workspace `hd` claim when present, or the email's own domain
+  otherwise (personal Gmail has no `hd`). Empty allowlist = no restriction —
+  this org's existing default is open personal-email accounts (see the
+  "Accounts & sign-in" section of the README), so the safer-by-default
+  posture the spec describes is opt-in via env var here rather than
+  hard-locked to a Workspace domain that doesn't exist yet for this org. This
+  single mechanism also satisfies the spec's "let personal Gmail in
+  deliberately" ask: add `gmail.com` to the same list.
+- **Explicit link, not silent match**, implemented without new schema beyond
+  one `users.google_linked_at` column: an existing password account's first
+  Google sign-in doesn't log the user in — it redirects to
+  `link_required`, which tells them to sign in with their password once, then
+  use "Link Google account" from the account-menu dropdown. That dropdown
+  action re-hits `/google/login` → `/google/callback`; because the browser
+  still carries the valid password-session cookie from step one, the callback
+  detects it and treats the round-trip as an explicit link (sets
+  `google_linked_at`) instead of a sign-in attempt — rather than adding a
+  separate "confirm password" form or a new linking endpoint. A Google email
+  that doesn't match the currently-signed-in account's email is rejected
+  (`google_account_mismatch`) rather than silently switching accounts.
+- Service-account credentials for the Sheets mirror remain entirely separate
+  from user sign-in credentials (already true before Phase 5 — no change
+  needed, just confirming the spec's "do not conflate the two credentials"
+  point holds).

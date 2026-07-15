@@ -2,6 +2,7 @@ import {
   ApartmentOutlined,
   AuditOutlined,
   CheckSquareOutlined,
+  GoogleOutlined,
   InboxOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
@@ -11,10 +12,11 @@ import {
   TeamOutlined,
   TrophyOutlined,
 } from '@ant-design/icons';
-import { Avatar, Button, Dropdown, Layout, Menu, Space, Typography, theme } from 'antd';
-import { useState } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Avatar, Button, Dropdown, Layout, Menu, Space, Typography, message, theme } from 'antd';
+import { useEffect, useState } from 'react';
+import { Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
+import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { brand } from '../theme/brand';
 import { LogoImage, Wordmark } from './Logo';
@@ -30,6 +32,23 @@ export default function AppLayout() {
   const location = useLocation();
   const { token } = theme.useToken();
   const [collapsed, setCollapsed] = useState(false);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  useEffect(() => {
+    api.get<{ google_enabled: boolean }>('/api/auth/config').then((c) => setGoogleEnabled(c.google_enabled)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (searchParams.get('linked') === 'true') {
+      message.success('Google account linked — you can now sign in with it.');
+      setSearchParams((p) => {
+        const next = new URLSearchParams(p);
+        next.delete('linked');
+        return next;
+      });
+    }
+  }, [searchParams, setSearchParams]);
 
   if (!me) return null;
 
@@ -110,6 +129,18 @@ export default function AppLayout() {
           <Dropdown
             menu={{
               items: [
+                ...(googleEnabled && !me.google_linked
+                  ? [
+                      {
+                        key: 'link-google',
+                        icon: <GoogleOutlined />,
+                        label: 'Link Google account',
+                        onClick: () => {
+                          window.location.href = '/api/auth/google/login';
+                        },
+                      },
+                    ]
+                  : []),
                 {
                   key: 'logout',
                   icon: <LogoutOutlined />,

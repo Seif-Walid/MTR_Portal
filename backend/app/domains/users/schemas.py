@@ -30,11 +30,13 @@ class MeOut(UserBrief):
     is_staff: bool
     is_high_staff: bool
     has_team: bool
+    google_linked: bool
 
 
 class UserAdminOut(UserBrief):
     manager_id: int | None
     is_active: bool
+    google_linked: bool
     created_at: datetime
 
 
