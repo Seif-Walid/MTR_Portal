@@ -10,6 +10,7 @@ import InventoryPage from './pages/InventoryPage';
 import LoginPage from './pages/LoginPage';
 import OrganizationPage from './pages/OrganizationPage';
 import RequestsPage from './pages/RequestsPage';
+import SheetsSyncPage from './pages/SheetsSyncPage';
 import TasksPage from './pages/TasksPage';
 import TeamPage from './pages/TeamPage';
 
@@ -37,6 +38,7 @@ export default function App() {
           <Route path="/organization" element={<OrganizationPage />} />
           <Route path="/admin/users" element={<AdminUsersPage />} />
           <Route path="/admin/audit" element={<AuditLogPage />} />
+          <Route path="/admin/sync" element={<SheetsSyncPage />} />
           <Route path="*" element={<Navigate to="/tasks" replace />} />
         </Route>
       ) : (

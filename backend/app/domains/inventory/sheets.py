@@ -12,13 +12,10 @@ UI disables the Sync button instead of erroring.
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
-
+from app.core import gsheets
 from app.core.config import settings
+from app.core.gsheets import credentials_available, parse_spreadsheet_id, read_worksheet
 from app.domains.inventory.models import AllocationPurpose, InventoryItem
-
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 PURPOSE_LABELS = {
     AllocationPurpose.TRAINING: "Training",
@@ -44,65 +41,13 @@ HEADER = [
     "Notes",
 ]
 
-
-def credentials_available() -> bool:
-    """True if the libraries import and a service-account key file is present.
-    Enough to read/import from any sheet shared with the service account."""
-    if not settings.google_sheets_credentials_file:
-        return False
-    if not Path(settings.google_sheets_credentials_file).is_file():
-        return False
-    try:
-        import gspread  # noqa: F401
-        import google.auth  # noqa: F401
-    except ImportError:
-        return False
-    return True
+__all__ = ["credentials_available", "parse_spreadsheet_id", "read_worksheet", "is_configured", "push_inventory"]
 
 
 def is_configured() -> bool:
     """True when both credentials AND a default push-target spreadsheet are set
     (drives the 'Sync to Sheets' button)."""
     return credentials_available() and bool(settings.google_sheets_spreadsheet_id)
-
-
-def parse_spreadsheet_id(url_or_id: str) -> str:
-    """Accept a full Google Sheets URL or a bare spreadsheet id."""
-    value = (url_or_id or "").strip()
-    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", value)
-    return match.group(1) if match else value
-
-
-def _open(spreadsheet_id: str):
-    """Authorize with the service account and open a spreadsheet by id."""
-    import gspread
-    from google.oauth2.service_account import Credentials
-
-    creds = Credentials.from_service_account_file(
-        settings.google_sheets_credentials_file, scopes=SCOPES
-    )
-    return gspread.authorize(creds).open_by_key(spreadsheet_id)
-
-
-def read_worksheet(
-    spreadsheet_id: str, worksheet: str | None = None
-) -> tuple[list[str], list[dict[str, str]]]:
-    """Return (headers, rows) from a sheet, rows keyed by header. The first row
-    is treated as the header row. Raises RuntimeError if credentials are missing."""
-    if not credentials_available():
-        raise RuntimeError("Google Sheets credentials are not configured")
-    spreadsheet = _open(spreadsheet_id)
-    ws = spreadsheet.worksheet(worksheet) if worksheet else spreadsheet.sheet1
-    values = ws.get_all_values()
-    if not values:
-        return [], []
-    headers = [h.strip() for h in values[0]]
-    rows = [
-        {headers[i]: (cell if i < len(row) else "") for i, cell in enumerate(row[: len(headers)])}
-        for row in values[1:]
-        if any(c.strip() for c in row)  # skip blank rows
-    ]
-    return headers, rows
 
 
 def _usage_breakdown(item: InventoryItem) -> str:
@@ -151,19 +96,10 @@ def push_inventory(items: list[InventoryItem]) -> dict[str, object]:
     if not is_configured():
         raise RuntimeError("Google Sheets sync is not configured")
 
-    import gspread
-
-    spreadsheet = _open(settings.google_sheets_spreadsheet_id)
-
-    try:
-        worksheet = spreadsheet.worksheet(settings.google_sheets_worksheet)
-    except gspread.WorksheetNotFound:
-        worksheet = spreadsheet.add_worksheet(
-            title=settings.google_sheets_worksheet, rows=100, cols=len(HEADER)
-        )
-
-    rows = [HEADER] + [_row(i) for i in items]
-    worksheet.clear()
-    worksheet.update(rows, "A1")
-
+    gsheets.write_worksheet(
+        settings.google_sheets_spreadsheet_id,
+        settings.google_sheets_worksheet,
+        HEADER,
+        [_row(i) for i in items],
+    )
     return {"synced": len(items), "worksheet": settings.google_sheets_worksheet}

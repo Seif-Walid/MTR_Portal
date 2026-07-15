@@ -286,6 +286,34 @@ export interface AuditEntry {
   created_at: string;
 }
 
+export interface SheetExportStatus {
+  tab: string;
+  row_count: number;
+  is_dirty: boolean;
+  last_synced_at: string | null;
+  last_error: string;
+}
+
+export interface RebuildReport {
+  ok: boolean;
+  tab_counts: Record<string, number>;
+  errors: string[];
+  would_delete: Record<string, number>;
+  committed: boolean;
+  snapshot_path: string | null;
+  batch_id: number | null;
+}
+
+export interface RebuildBatch {
+  id: number;
+  status: 'dry_run' | 'succeeded' | 'failed';
+  tab_counts: string; // JSON
+  errors: string; // JSON
+  snapshot_path: string;
+  started_at: string;
+  finished_at: string | null;
+}
+
 export interface AppNotification {
   id: number;
   type: string;

@@ -131,6 +131,43 @@ GOOGLE_SHEETS_WORKSHEET=Inventory
 Create a Google Cloud **service account**, download its JSON key, enable the Google
 Sheets API, and **share the target spreadsheet with the service account's email**.
 
+## Data Sync / Rebuild from Sheets
+
+Beyond the inventory-only mirror above, an org manager (admin or CEO) can mirror the
+portal's full **structural data** — people, positions, competitions, categories,
+teams, PMs, team members, inventory locations, inventory items, and inventory
+movements — to a multi-tab spreadsheet from **Admin → Data Sync**, and, in the other
+direction, **rebuild the entire database from that spreadsheet**. This uses the same
+service-account credentials as the inventory mirror above; nothing extra to configure.
+
+- **Export** (`Sync all tabs`) pushes the current database out, one tab per entity,
+  preserving each row's real database ID so cross-references (a team's PM, a
+  position's parent, a movement's item) stay resolvable in the sheet.
+- **Rebuild** (`Rebuild from Sheets…`) is the opposite, **destructive** direction: it
+  replaces the database with whatever is in the sheet. This is a restore from
+  spreadsheet, not a two-way sync — anything created in the portal since the last
+  export and not present in the sheet is destroyed.
+  1. **Dry-run** parses and cross-validates every tab (unknown roles, dangling
+     references, bad enum values, cyclical positions, ...) and reports counts and
+     errors without touching the database.
+  2. If there are no errors, typing the org's exact name to confirm unlocks
+     **commit**, which snapshots every managed table to a timestamped JSON file
+     under `backend/snapshots/` (gitignored — treat it like `.env`, it can contain
+     real org data), clears/de-references anything that depends on the data being
+     replaced (tasks, requests, notifications, sessions, inventory allocations and
+     checkout requests, audit-log actor references), truncates and re-imports the
+     ten structural tables with the sheet's IDs preserved, and finally re-exports
+     so the sheet and database are provably identical again.
+  3. Everyone is signed out by a commit (every session is invalidated), and rebuilt
+     accounts get a password nobody knows — sign back in via Google (if linked and
+     within the allowed domains) or the "forgot password" flow.
+- **Permissions**: export, dry-run, and rebuild history are available to any org
+  manager (admin or CEO); **commit is one step stricter** — only `is_admin` or
+  `is_ceo` specifically — matching the phrase-confirmation gate in the UI.
+- Degrades the same way as the inventory mirror: without credentials configured,
+  every `/sync/*` action beyond `status` returns a clear "not configured" error
+  instead of silently doing nothing.
+
 ## Quick start
 
 ### 1. Database
@@ -237,7 +274,7 @@ cd backend
 .venv\Scripts\python -m pytest tests -q
 ```
 
-114 tests cover the permission layer: assignment allowed/denied (down, up, across,
+123 tests cover the permission layer: assignment allowed/denied (down, up, across,
 self), subtree visibility and drill-down, request accept/decline/delegate, status
 workflow rights (assignee vs. reviewer), multi-role union, hierarchy moves and
 cycle rejection; inventory scoping, allocation capacity math, over-allocation/shrink
@@ -247,8 +284,12 @@ competition-scoped PM / team-lead authority (a lead touches only their team); Go
 Sheet import (mocked) with upsert; the **Positions** org tree (single root, no cycles,
 occupant→manager derivation with vacant-seat skip, audit log); admin/CEO-wide user
 management; the general audit log + soft-delete-by-default with admin-only permanent
-delete; and Google sign-in hardening (never auto-provisions, domain allowlist, and
-explicit-link-not-silent-match, with the OAuth round-trip mocked).
+delete; Google sign-in hardening (never auto-provisions, domain allowlist, and
+explicit-link-not-silent-match, with the OAuth round-trip mocked); and the Sheets
+export/rebuild cycle — org-manager-only export and dry-run, admin/CEO-only commit
+gated on an exact confirm phrase, cross-tab reference validation, and a full
+rebuild round-trip (snapshot → clear dependents → truncate → import → auto
+re-export) with Sheets I/O mocked.
 
 ## Project layout
 
@@ -265,6 +306,9 @@ backend/
       notifications/       in-app notifications
       inventory/           items + allocations, capacity, Sheets sync + import
       competitions/        first-class competitions linked from allocations
+      positions/           org-chart Position tree, resync_managers() bridge
+      audit/               general audit log (domain/action/entity, JSON detail)
+      sync/                multi-tab Sheets export + destructive rebuild
       (finance/)           future module — same pattern
     seed.py
   alembic/                 migrations
@@ -302,6 +346,10 @@ frontend/
   · `PATCH/DELETE /competitions/teams/{id}` · `POST/DELETE /competitions/teams/{id}/members`
 - `GET /org/tree` · `POST /org/positions` · `PATCH/DELETE /org/positions/{id}` · `GET /org/audit`
 - `GET /audit` — admin-only general audit log (permissions / inventory quantity / competition roles)
+- `GET /sync/status` (any user) · `GET /sync/exports` · `POST /sync/export` · `GET /sync/rebuild/history`
+  (org manager: admin or CEO) · `POST /sync/rebuild/dry-run` (org manager, read-only)
+  · `POST /sync/rebuild/commit` (admin/CEO only, requires exact `confirm_phrase`) — see
+  [Data Sync / Rebuild from Sheets](#data-sync--rebuild-from-sheets) below
 - `GET /team` — subtree members with per-status task counts
 - `GET /team/tree` — nested org chart (admin: whole org; others: own subtree)
 - `GET /users/assignable` (my subtree) · `GET /users/staff` (request recipients)

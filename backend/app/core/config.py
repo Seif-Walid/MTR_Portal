@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     frontend_url: str = "http://localhost:5173"
 
+    # Confirmation phrase for the destructive Rebuild-from-Sheets action — the
+    # admin must type this exact string to commit. Change it per deployment.
+    org_name: str = "Mind-Tech Robotics"
+    # Where pre-rebuild DB snapshots (JSON dumps of every managed table,
+    # written before truncation) are kept.
+    snapshot_dir: Path = BASE_DIR / "snapshots"
+
     # Google SSO (optional). Create OAuth credentials in Google Cloud Console
     # and register google_redirect_uri as an authorized redirect URI.
     google_client_id: str = ""
