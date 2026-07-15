@@ -113,11 +113,11 @@ export default function InventoryItemDrawer({
     }
   };
 
-  const deleteItem = async () => {
+  const deleteItem = async (permanent = false) => {
     if (!item) return;
     try {
-      await api.delete(`/api/inventory/${item.id}`);
-      message.success('Item deleted');
+      await api.delete(`/api/inventory/${item.id}${permanent ? '?permanent=true' : ''}`);
+      message.success(permanent ? 'Item permanently deleted' : 'Item deleted');
       onChanged();
       onClose();
     } catch (e) {
@@ -264,11 +264,26 @@ export default function InventoryItemDrawer({
               </Form>
 
               <Divider />
-              <Popconfirm title="Delete this item and all its allocations?" onConfirm={deleteItem}>
+              <Popconfirm
+                title="Delete this item?"
+                description="It's kept for history (allocations, movements, past requests) but hidden everywhere."
+                onConfirm={() => deleteItem(false)}
+              >
                 <Button danger icon={<DeleteOutlined />} block>
                   Delete item
                 </Button>
               </Popconfirm>
+              {me.is_admin && (
+                <Popconfirm
+                  title="Permanently delete this item?"
+                  description="This really removes it, including all its allocation, movement and request history. Admin-only — use for genuine mistakes."
+                  onConfirm={() => deleteItem(true)}
+                >
+                  <Button danger type="text" icon={<DeleteOutlined />} block style={{ marginTop: 4 }}>
+                    Permanently delete (admin)
+                  </Button>
+                </Popconfirm>
+              )}
             </>
           )}
         </>

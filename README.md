@@ -41,6 +41,20 @@ single root, leaf-only delete). Assigning or moving a position **derives** each 
 editable structure. Every structural change is written to an `OrgAuditLog`. People are still
 given roles/accounts in the admin's **User Management** table.
 
+## Audit log & soft delete
+
+Beyond the org-structure log above, a general **Audit Log** (admin-only, `/admin/audit`)
+records every **permission change** (role, manager, active/inactive), **inventory quantity
+change**, and **competition-role change** (PM/lead/member) — actor, before/after, when.
+
+**Delete defaults to soft delete**: inventory items and competition teams carry a
+`deleted_at` — removing one hides it everywhere (it's invisible via the normal API) but
+keeps its allocation / stock-movement / checkout-request / membership history intact,
+since those rows reference it. A **permanent** hard delete (`?permanent=true`, or the
+"Permanently delete (admin)" button) is available for genuine mistakes and is **admin-only**.
+Users are already soft-deleted via `is_active`; competitions have their own `archived`
+status and a can't-delete-while-referenced guard, so they didn't need a second mechanism.
+
 ## Inventory
 
 The portal is the **single source of truth** for equipment. Each item carries a total
@@ -213,14 +227,17 @@ cd backend
 .venv\Scripts\python -m pytest tests -q
 ```
 
-99 tests cover the permission layer: assignment allowed/denied (down, up, across,
+106 tests cover the permission layer: assignment allowed/denied (down, up, across,
 self), subtree visibility and drill-down, request accept/decline/delegate, status
 workflow rights (assignee vs. reviewer), multi-role union, hierarchy moves and
 cycle rejection; inventory scoping, allocation capacity math, over-allocation/shrink
-guards, and the who-holds-what breakdown; competition nesting with competition-scoped
-PM / team-lead authority (a lead touches only their team); Google Sheet import (mocked)
-with upsert; the **Positions** org tree (single root, no cycles, occupant→manager
-derivation with vacant-seat skip, audit log); and admin/CEO-wide user management.
+guards, the who-holds-what breakdown, and the stock-movement ledger with checkout
+requests (submit→approve/reject→issue→return, overdue); competition nesting with
+competition-scoped PM / team-lead authority (a lead touches only their team); Google
+Sheet import (mocked) with upsert; the **Positions** org tree (single root, no cycles,
+occupant→manager derivation with vacant-seat skip, audit log); admin/CEO-wide user
+management; and the general audit log + soft-delete-by-default with admin-only
+permanent delete.
 
 ## Project layout
 
@@ -273,6 +290,7 @@ frontend/
   · `DELETE /competitions/categories/{id}` · `POST /competitions/categories/{id}/teams`
   · `PATCH/DELETE /competitions/teams/{id}` · `POST/DELETE /competitions/teams/{id}/members`
 - `GET /org/tree` · `POST /org/positions` · `PATCH/DELETE /org/positions/{id}` · `GET /org/audit`
+- `GET /audit` — admin-only general audit log (permissions / inventory quantity / competition roles)
 - `GET /team` — subtree members with per-status task counts
 - `GET /team/tree` — nested org chart (admin: whole org; others: own subtree)
 - `GET /users/assignable` (my subtree) · `GET /users/staff` (request recipients)

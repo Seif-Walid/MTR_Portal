@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.database import Base, SessionLocal, engine
 
 # import all model modules so Base.metadata is complete
+from app.domains.audit import models as _audit_models  # noqa: F401
 from app.domains.auth import models as _auth_models  # noqa: F401
 from app.domains.competitions import models as _comp_models  # noqa: F401
 from app.domains.inventory import models as _inv_models  # noqa: F401

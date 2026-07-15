@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
+from app.domains.audit.router import router as audit_router
 from app.domains.auth.router import router as auth_router
 from app.domains.competitions.router import router as competitions_router
 from app.domains.hierarchy.router import router as team_router
@@ -40,6 +41,7 @@ for domain_router in (
     inventory_router,
     competitions_router,
     positions_router,
+    audit_router,
 ):
     app.include_router(domain_router, prefix="/api")
 

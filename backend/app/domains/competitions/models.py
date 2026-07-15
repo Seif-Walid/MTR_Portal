@@ -82,6 +82,10 @@ class CompetitionTeam(Base):
     lead_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Soft delete: a team is historical context (who competed, allocation
+    # linkage, task history) — removing the row would lose that. A genuine
+    # hard delete is a separate admin-only escape hatch.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     category: Mapped[CompetitionCategory] = relationship(back_populates="teams")
     lead = relationship("User", foreign_keys=[lead_id], lazy="joined")

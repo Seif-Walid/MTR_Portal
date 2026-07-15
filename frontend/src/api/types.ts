@@ -273,6 +273,17 @@ export interface PositionNode {
   children: PositionNode[];
 }
 
+export interface AuditEntry {
+  id: number;
+  actor: string;
+  domain: string;
+  action: string;
+  entity_type: string;
+  entity_id: number | null;
+  detail: string; // JSON string
+  created_at: string;
+}
+
 export interface AppNotification {
   id: number;
   type: string;

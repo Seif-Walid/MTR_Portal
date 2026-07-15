@@ -1,6 +1,9 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
+from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.competitions.models import Competition
 from app.domains.inventory import sheets, stock
@@ -288,8 +291,10 @@ def get_item(item_id: int, db: DB, user: CurrentUser) -> ItemOut:
 def edit_item(item_id: int, payload: ItemEdit, db: DB, user: CurrentUser) -> ItemOut:
     item = get_item_or_404(db, user, item_id)
     require_manage(user)
-    if payload.quantity is not None:
+    if payload.quantity is not None and payload.quantity != item.quantity:
         assert_quantity_covers_allocations(item, payload.quantity)
+        audit_log(db, user.id, "inventory", "quantity_changed", "inventory_item", item.id,
+                  {"name": item.name, "before": item.quantity, "after": payload.quantity})
         item.quantity = payload.quantity
     for field in ("name", "category", "asset_tag", "sku", "low_stock_threshold",
                   "unit", "location", "condition", "notes"):
@@ -306,10 +311,24 @@ def edit_item(item_id: int, payload: ItemEdit, db: DB, user: CurrentUser) -> Ite
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_item(item_id: int, db: DB, user: CurrentUser) -> None:
+def delete_item(item_id: int, db: DB, user: CurrentUser, permanent: bool = False) -> None:
+    """Soft-deletes by default: allocations, movements and requests all
+    reference this item, so removing the row would destroy their history.
+    `permanent=true` really removes it — a genuine mistake, admin only."""
     item = get_item_or_404(db, user, item_id)
     require_manage(user)
-    db.delete(item)
+    if permanent:
+        if not user.is_admin:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "Only an admin can permanently delete an item"
+            )
+        audit_log(db, user.id, "inventory", "item_purged", "inventory_item", item.id,
+                  {"name": item.name})
+        db.delete(item)
+    else:
+        audit_log(db, user.id, "inventory", "item_deleted", "inventory_item", item.id,
+                  {"name": item.name})
+        item.deleted_at = datetime.now(timezone.utc)
     db.commit()
 
 

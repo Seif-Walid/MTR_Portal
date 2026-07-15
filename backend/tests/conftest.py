@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base, get_db
 
 # import all model modules so create_all sees every table
+from app.domains.audit import models as _audit  # noqa: F401
 from app.domains.auth import models as _auth  # noqa: F401
 from app.domains.competitions import models as _competitions  # noqa: F401
 from app.domains.inventory import models as _inventory  # noqa: F401
