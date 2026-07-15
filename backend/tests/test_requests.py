@@ -99,3 +99,33 @@ def test_requests_private_to_participants(login, org):
     assert login("cfo").get(f"/api/requests/{req['id']}").status_code == 404
     assert login("sw_emp").get(f"/api/requests/{req['id']}").status_code == 200
     assert login("media_mgr").get(f"/api/requests/{req['id']}").status_code == 200
+
+
+def test_request_can_attach_an_inventory_item(login, org):
+    item_id = login("cto").post("/api/inventory", json={"name": "Arduino", "quantity": 10}).json()["id"]
+    r = login("pm").post(
+        "/api/requests",
+        json={"recipient_id": org["cto"].id, "title": "need parts", "item_id": item_id, "quantity": 5},
+    )
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["item"]["id"] == item_id and data["quantity"] == 5
+
+    # a non-staff requester can attach an item outside their own visibility —
+    # that's the point of the directory endpoint bypassing scoping
+    directory = login("student").get("/api/inventory/directory").json()
+    assert any(i["id"] == item_id for i in directory)
+
+
+def test_request_item_requires_quantity(login, org):
+    item_id = login("cto").post("/api/inventory", json={"name": "Arduino", "quantity": 10}).json()["id"]
+    r = login("pm").post(
+        "/api/requests",
+        json={"recipient_id": org["cto"].id, "title": "need parts", "item_id": item_id},
+    )
+    assert r.status_code == 422  # quantity required when an item is attached
+
+
+def test_request_without_item_has_no_quantity(login, org):
+    req = send(login, org, "pm", "cto").json()
+    assert req["item"] is None and req["quantity"] is None

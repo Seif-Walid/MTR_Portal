@@ -90,3 +90,27 @@ each, so nothing is a silent surprise.
   specific location that has enough on hand (`stock.record_movement`'s
   on-hand guard applies here too, so issuing can't oversell a location).
   Returning is allowed by the requester themselves or any inventory manager.
+
+## Attaching an inventory item to a work request
+
+- `WorkRequest` (the general "send a request up/across the hierarchy" flow,
+  distinct from `InventoryRequest`'s checkout lifecycle) can optionally carry
+  `item_id` + `quantity` — a way to say "I need 5 Arduinos" to someone you
+  can't task directly, with a searchable item picker instead of typing it all
+  into free text. Quantity is required whenever an item is attached
+  (`model_validator` on `RequestCreate`).
+- **This is informational only** — it does not create an `InventoryRequest` or
+  touch the stock ledger. The recipient sees what's being asked for and
+  decides how to fulfill it (including manually starting a real checkout via
+  Inventory → Requests). Auto-creating a linked checkout request was
+  considered and deliberately skipped: it would mean accepting a work request
+  silently commits to a specific fulfillment mechanism, and the two systems
+  have different audiences (work requests go to any staff member up/across the
+  tree; checkout approval is any inventory manager) — conflating them removes
+  a recipient's ability to say "yes, that's approved" without immediately
+  deciding logistics.
+- The item picker deliberately reads from a new **unscoped** endpoint
+  (`GET /inventory/directory` — id/name/unit only, any signed-in user) rather
+  than the visibility-scoped `GET /inventory`. A request is precisely the
+  mechanism for asking for something outside your normal reach, so scoping the
+  picker to what the requester can already see would defeat the purpose.

@@ -5,6 +5,7 @@ from sqlalchemy import or_, select
 
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.hierarchy.service import can_assign_task, can_send_request
+from app.domains.inventory.models import InventoryItem
 from app.domains.notifications.models import NotificationType
 from app.domains.notifications.service import notify
 from app.domains.requests.models import RequestStatus, WorkRequest
@@ -64,6 +65,11 @@ def create_request(payload: RequestCreate, db: DB, user: CurrentUser) -> Request
             "Requests go to staff members outside your own subtree — "
             "assign a task directly to people below you",
         )
+    item = None
+    if payload.item_id is not None:
+        item = db.get(InventoryItem, payload.item_id)
+        if item is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Item not found")
     req = WorkRequest(
         requester_id=user.id,
         recipient_id=recipient.id,
@@ -71,14 +77,17 @@ def create_request(payload: RequestCreate, db: DB, user: CurrentUser) -> Request
         description=payload.description,
         priority=payload.priority,
         due_date=payload.due_date,
+        item_id=payload.item_id,
+        quantity=payload.quantity,
     )
     db.add(req)
     db.flush()
+    item_note = f" — {payload.quantity} x {item.name}" if item else ""
     notify(
         db,
         recipient.id,
         NotificationType.REQUEST_RECEIVED,
-        f"{user.full_name} sent you a request: '{req.title}'",
+        f"{user.full_name} sent you a request: '{req.title}'{item_note}",
         request_id=req.id,
     )
     db.commit()
