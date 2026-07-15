@@ -4,12 +4,14 @@ import {
   DatePicker,
   Form,
   Input,
+  InputNumber,
   Modal,
   Radio,
   Select,
   Space,
   Table,
   Tabs,
+  Tag,
   Tooltip,
   Typography,
   message,
@@ -19,7 +21,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
-import type { UserBrief, WorkRequest } from '../api/types';
+import type { ItemBrief, UserBrief, WorkRequest } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { PriorityTag, RequestStatusTag, StatusTag } from '../components/tags';
 
@@ -34,10 +36,15 @@ function NewRequestModal({
 }) {
   const [form] = Form.useForm();
   const [staff, setStaff] = useState<UserBrief[]>([]);
+  const [items, setItems] = useState<ItemBrief[]>([]);
   const [busy, setBusy] = useState(false);
+  const itemId = Form.useWatch('item_id', form) as number | undefined;
 
   useEffect(() => {
-    if (open) api.get<UserBrief[]>('/api/users/staff').then(setStaff).catch(() => {});
+    if (open) {
+      api.get<UserBrief[]>('/api/users/staff').then(setStaff).catch(() => {});
+      api.get<ItemBrief[]>('/api/inventory/directory').then(setItems).catch(() => {});
+    }
   }, [open]);
 
   const submit = async (values: {
@@ -46,12 +53,16 @@ function NewRequestModal({
     description?: string;
     priority: string;
     due_date?: Dayjs;
+    item_id?: number;
+    quantity?: number;
   }) => {
     setBusy(true);
     try {
       await api.post('/api/requests', {
         ...values,
         due_date: values.due_date?.format('YYYY-MM-DD') ?? null,
+        item_id: values.item_id ?? null,
+        quantity: values.item_id ? values.quantity ?? null : null,
       });
       message.success('Request sent');
       form.resetFields();
@@ -82,6 +93,38 @@ function NewRequestModal({
             }))}
           />
         </Form.Item>
+        <Space style={{ display: 'flex' }} align="start">
+          <Form.Item
+            name="item_id"
+            label="Item (optional — search your inventory)"
+            style={{ flex: 1, minWidth: 260 }}
+          >
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="Type to search…"
+              options={items.map((i) => ({ value: i.id, label: i.name }))}
+              onChange={(v) => {
+                if (v && !form.getFieldValue('title')) {
+                  const picked = items.find((i) => i.id === v);
+                  if (picked) form.setFieldValue('title', `${picked.name}`);
+                }
+              }}
+            />
+          </Form.Item>
+          {itemId != null && (
+            <Form.Item
+              name="quantity"
+              label="Quantity"
+              rules={[{ required: true, message: 'How many?' }]}
+              initialValue={1}
+              style={{ width: 120 }}
+            >
+              <InputNumber min={1} style={{ width: '100%' }} />
+            </Form.Item>
+          )}
+        </Space>
         <Form.Item name="title" label="Title" rules={[{ required: true, max: 255 }]}>
           <Input placeholder="What do you need?" />
         </Form.Item>
@@ -159,6 +202,12 @@ function AcceptModal({
       confirmLoading={busy}
       okButtonProps={{ disabled: mode === 'delegate' && assignee === undefined }}
     >
+      {request?.item && (
+        <Typography.Paragraph>
+          Requesting <Typography.Text strong>{request.quantity}</Typography.Text> x{' '}
+          <Typography.Text strong>{request.item.name}</Typography.Text>
+        </Typography.Paragraph>
+      )}
       <Radio.Group
         value={mode}
         onChange={(e) => setMode(e.target.value)}
@@ -254,7 +303,21 @@ export default function RequestsPage() {
         dataSource={rows}
         pagination={{ pageSize: 15, hideOnSinglePage: true }}
         columns={[
-          { title: 'Title', dataIndex: 'title', ellipsis: true },
+          {
+            title: 'Title',
+            dataIndex: 'title',
+            ellipsis: true,
+            render: (title: string, r) => (
+              <Space size={6}>
+                <span>{title}</span>
+                {r.item && (
+                  <Tag color="geekblue">
+                    {r.quantity} x {r.item.name}
+                  </Tag>
+                )}
+              </Space>
+            ),
+          },
           {
             title: box === 'received' ? 'From' : 'To',
             width: 180,

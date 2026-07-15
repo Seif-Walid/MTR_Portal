@@ -20,7 +20,11 @@ Everything derives from one data-driven tree (`users.manager_id`):
 - **Tasks flow down** — you can task anyone in your recursive subtree, and only them.
 - **Requests flow up/across** — anyone can request work from staff they *can't* task.
   The recipient accepts (spawns a task they own, optionally delegated into their own
-  subtree) or declines with a reason. The requester tracks the resulting task.
+  subtree) or declines with a reason. The requester tracks the resulting task. A request
+  can optionally attach an **inventory item + quantity** (searchable across the whole
+  catalogue, not just what you can normally see — the request is exactly how you ask for
+  something outside your reach); it's informational context for the recipient, not a
+  checkout — issuing that item still goes through Inventory → Requests.
 - **Visibility** — own tasks + everything in your subtree, computed by a recursive CTE.
 - **Multi-role users** hold the union of their roles (one tree node, e.g. CTO + Software Lead).
 - **Admin** is a technical account outside the tree: user management + full access.
@@ -209,7 +213,7 @@ cd backend
 .venv\Scripts\python -m pytest tests -q
 ```
 
-96 tests cover the permission layer: assignment allowed/denied (down, up, across,
+99 tests cover the permission layer: assignment allowed/denied (down, up, across,
 self), subtree visibility and drill-down, request accept/decline/delegate, status
 workflow rights (assignee vs. reviewer), multi-role union, hierarchy moves and
 cycle rejection; inventory scoping, allocation capacity math, over-allocation/shrink
@@ -252,7 +256,9 @@ frontend/
 - `GET/POST /tasks` · `GET/PATCH /tasks/{id}` · `PATCH /tasks/{id}/status`
   · `POST /tasks/{id}/attachments` · `GET /tasks/attachments/{id}`
 - `GET/POST /requests` · `POST /requests/{id}/accept` · `POST /requests/{id}/decline`
+  (`RequestCreate` accepts an optional `item_id` + `quantity`)
 - `GET/POST /inventory` · `GET/PATCH/DELETE /inventory/{id}` — items (scoped by role)
+  · `GET /inventory/directory` (unscoped id/name/unit, for pickers)
   · `POST /inventory/{id}/allocations` · `PATCH/DELETE /inventory/allocations/{id}`
   · `GET /inventory/holders` · `GET /inventory/sheets/status` · `POST /inventory/sync`
   · `POST /inventory/import/preview` · `POST /inventory/import`

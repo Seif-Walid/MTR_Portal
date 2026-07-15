@@ -18,6 +18,7 @@ from app.domains.inventory.schemas import (
     ImportPreviewRequest,
     ImportRequest,
     ImportResult,
+    ItemBrief,
     ItemCreate,
     ItemEdit,
     ItemOut,
@@ -69,6 +70,16 @@ def holder_options(db: DB, user: CurrentUser) -> list[UserBrief]:
         select(User).where(User.is_active).order_by(User.full_name)
     )
     return [UserBrief.model_validate(u) for u in users]
+
+
+@router.get("/directory")
+def item_directory(db: DB, user: CurrentUser) -> list[ItemBrief]:
+    """Minimal item list (id/name/unit) for pickers — e.g. attaching an item to
+    a cross-branch work request. Any signed-in user may read it: a request is
+    precisely the mechanism for asking for something outside your normal
+    inventory visibility, so this deliberately bypasses that scoping."""
+    items = db.scalars(select(InventoryItem).order_by(InventoryItem.name)).unique()
+    return [ItemBrief.model_validate(i) for i in items]
 
 
 @router.get("/sheets/status")

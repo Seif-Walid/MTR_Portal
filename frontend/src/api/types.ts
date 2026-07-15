@@ -70,6 +70,8 @@ export interface WorkRequest {
   description: string;
   priority: Priority;
   due_date: string | null;
+  item: ItemBrief | null;
+  quantity: number | null;
   status: RequestStatus;
   decline_reason: string | null;
   created_task_id: number | null;

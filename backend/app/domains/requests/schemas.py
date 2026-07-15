@@ -1,7 +1,8 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domains.inventory.schemas import ItemBrief
 from app.domains.tasks.models import TaskPriority
 from app.domains.users.schemas import UserBrief
 
@@ -16,6 +17,8 @@ class RequestOut(BaseModel):
     description: str
     priority: str
     due_date: date | None
+    item: ItemBrief | None = None
+    quantity: int | None = None
     status: str
     decline_reason: str | None
     created_task_id: int | None
@@ -30,6 +33,14 @@ class RequestCreate(BaseModel):
     description: str = ""
     priority: TaskPriority = TaskPriority.MEDIUM
     due_date: date | None = None
+    item_id: int | None = None
+    quantity: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _quantity_required_with_item(self) -> "RequestCreate":
+        if self.item_id is not None and self.quantity is None:
+            raise ValueError("Specify a quantity for the requested item")
+        return self
 
 
 class RequestAccept(BaseModel):

@@ -1,3 +1,4 @@
+import { PlusOutlined } from '@ant-design/icons';
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Drawer, Input, Modal, Segmented, Select, Space, Table, Tag, Typography, message } from 'antd';
 import dayjs from 'dayjs';
@@ -5,6 +6,7 @@ import dayjs from 'dayjs';
 import { api, ApiError } from '../api/client';
 import type { InventoryRequest, InventoryRequestStatus, Location, Whereabouts } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
+import RequestUnitsModal from './RequestUnitsModal';
 
 const STATUS_META: Record<InventoryRequestStatus, { label: string; color: string }> = {
   submitted: { label: 'Submitted', color: 'processing' },
@@ -120,6 +122,7 @@ export default function InventoryRequestsDrawer({ open, onClose }: { open: boole
   const [returning, setReturning] = useState<InventoryRequest | null>(null);
   const [rejecting, setRejecting] = useState<InventoryRequest | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -204,7 +207,7 @@ export default function InventoryRequestsDrawer({ open, onClose }: { open: boole
   return (
     <>
       <Drawer open={open} onClose={onClose} width={760} title="Inventory requests">
-        <Space style={{ marginBottom: 12 }}>
+        <Space style={{ marginBottom: 12, width: '100%', justifyContent: 'space-between' }}>
           <Segmented
             value={view}
             onChange={(v) => setView(v as 'mine' | 'to_review')}
@@ -213,6 +216,9 @@ export default function InventoryRequestsDrawer({ open, onClose }: { open: boole
               ...(canManage ? [{ label: 'To review', value: 'to_review' }] : []),
             ]}
           />
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
+            New request
+          </Button>
         </Space>
         <Table rowKey="id" loading={loading} dataSource={requests} columns={columns} pagination={{ pageSize: 10, hideOnSinglePage: true }} />
       </Drawer>
@@ -227,6 +233,7 @@ export default function InventoryRequestsDrawer({ open, onClose }: { open: boole
       >
         <Input.TextArea rows={2} placeholder="Reason (optional)" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} />
       </Modal>
+      <RequestUnitsModal open={creating} onClose={() => setCreating(false)} onRequested={load} />
     </>
   );
 }
