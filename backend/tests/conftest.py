@@ -11,7 +11,10 @@ from app.core.database import Base, get_db
 
 # import all model modules so create_all sees every table
 from app.domains.auth import models as _auth  # noqa: F401
+from app.domains.competitions import models as _competitions  # noqa: F401
+from app.domains.inventory import models as _inventory  # noqa: F401
 from app.domains.notifications import models as _notifications  # noqa: F401
+from app.domains.positions import models as _positions  # noqa: F401
 from app.domains.requests import models as _requests  # noqa: F401
 from app.domains.tasks import models as _tasks  # noqa: F401
 from app.domains.users import models as _users  # noqa: F401
@@ -128,6 +131,9 @@ class As:
 
     def patch(self, url: str, **kw):
         return self._go("PATCH", url, **kw)
+
+    def delete(self, url: str, **kw):
+        return self._go("DELETE", url, **kw)
 
 
 @pytest.fixture()

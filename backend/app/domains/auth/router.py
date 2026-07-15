@@ -40,6 +40,7 @@ def _me_payload(db: Session, user: User) -> MeOut:
         manager_id=user.manager_id,
         is_admin=user.is_admin,
         is_staff=user.is_staff,
+        is_high_staff=user.is_high_staff,
         has_team=len(subtree_ids(db, user.id)) > 0,
     )
 

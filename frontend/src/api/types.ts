@@ -16,6 +16,7 @@ export interface Me extends UserBrief {
   manager_id: number | null;
   is_admin: boolean;
   is_staff: boolean;
+  is_high_staff: boolean;
   has_team: boolean;
 }
 
@@ -83,6 +84,122 @@ export interface TeamMember {
   is_direct_report: boolean;
   task_counts: Partial<Record<TaskStatus, number>>;
   total_tasks: number;
+}
+
+export type Condition = 'new' | 'good' | 'fair' | 'poor' | 'damaged';
+
+export type AllocationPurpose =
+  | 'training'
+  | 'competition'
+  | 'research'
+  | 'borrowed'
+  | 'other';
+
+export type CompetitionStatus = 'active' | 'archived';
+
+export interface CompetitionCategory {
+  id: number;
+  name: string;
+}
+
+export interface CompetitionBrief {
+  id: number;
+  name: string;
+  status: CompetitionStatus;
+  category: CompetitionCategory | null;
+}
+
+export interface CompetitionMember {
+  id: number; // membership row id
+  user: UserBrief;
+}
+
+export interface Competition extends CompetitionBrief {
+  start_date: string | null;
+  end_date: string | null;
+  notes: string;
+  team_name: string | null;
+  team_lead: UserBrief | null;
+  member_count: number;
+  allocation_count: number;
+  created_at: string;
+}
+
+export interface CompetitionDetail extends Competition {
+  members: CompetitionMember[];
+}
+
+export interface Allocation {
+  id: number;
+  quantity: number;
+  purpose: AllocationPurpose;
+  label: string;
+  competition: CompetitionBrief | null;
+  display_label: string; // competition name if linked, else the free-text label
+  holder: UserBrief | null;
+  notes: string;
+  created_at: string;
+}
+
+export interface InventoryItem {
+  id: number;
+  name: string;
+  category: string | null;
+  asset_tag: string | null;
+  quantity: number; // total pool
+  unit: string;
+  location: string | null;
+  condition: Condition;
+  notes: string;
+  team_lead: UserBrief | null;
+  in_use: number;
+  free: number;
+  by_purpose: Partial<Record<AllocationPurpose, number>>;
+  allocations: Allocation[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SheetsStatus {
+  configured: boolean; // has a default push target (drives Sync)
+  credentials: boolean; // has a service-account key (drives Import)
+  can_sync: boolean;
+}
+
+export interface ImportPreview {
+  spreadsheet_id: string;
+  worksheet: string | null;
+  headers: string[];
+  rows: Record<string, string>[];
+  total: number;
+}
+
+export interface ImportResult {
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+}
+
+export interface OrgTreeNode {
+  id: number;
+  full_name: string;
+  email: string;
+  department: string | null;
+  roles: Role[];
+  manager_id: number | null;
+  is_active: boolean;
+  can_manage: boolean;
+  children: OrgTreeNode[];
+}
+
+export interface PositionNode {
+  id: number;
+  title: string;
+  is_technical: boolean;
+  parent_id: number | null;
+  occupant: UserBrief | null;
+  children: PositionNode[];
 }
 
 export interface AppNotification {

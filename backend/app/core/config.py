@@ -23,5 +23,13 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/api/auth/google/callback"
 
+    # Google Sheets inventory mirror (optional). The portal is the source of
+    # truth; "Sync to Sheets" pushes a read-only snapshot into this spreadsheet.
+    # Point google_sheets_credentials_file at a service-account JSON key and
+    # share the target spreadsheet with that service account's email.
+    google_sheets_credentials_file: str = ""
+    google_sheets_spreadsheet_id: str = ""
+    google_sheets_worksheet: str = "Inventory"
+
 
 settings = Settings()

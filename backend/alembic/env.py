@@ -8,7 +8,10 @@ from app.core.database import Base
 
 # import every domain's models so autogenerate sees the full metadata
 from app.domains.auth import models as _auth  # noqa: F401
+from app.domains.competitions import models as _competitions  # noqa: F401
+from app.domains.inventory import models as _inventory  # noqa: F401
 from app.domains.notifications import models as _notifications  # noqa: F401
+from app.domains.positions import models as _positions  # noqa: F401
 from app.domains.requests import models as _requests  # noqa: F401
 from app.domains.tasks import models as _tasks  # noqa: F401
 from app.domains.users import models as _users  # noqa: F401

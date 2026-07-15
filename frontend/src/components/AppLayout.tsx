@@ -1,11 +1,17 @@
 import {
+  ApartmentOutlined,
   CheckSquareOutlined,
+  InboxOutlined,
   LogoutOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
   SendOutlined,
   SettingOutlined,
   TeamOutlined,
+  TrophyOutlined,
 } from '@ant-design/icons';
-import { Avatar, Dropdown, Layout, Menu, Space, Typography, theme } from 'antd';
+import { Avatar, Button, Dropdown, Layout, Menu, Space, Typography, theme } from 'antd';
+import { useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
@@ -22,15 +28,21 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { token } = theme.useToken();
+  const [collapsed, setCollapsed] = useState(false);
 
   if (!me) return null;
 
   const items = [
     { key: '/tasks', icon: <CheckSquareOutlined />, label: 'My Tasks' },
+    { key: '/inventory', icon: <InboxOutlined />, label: 'Inventory' },
+    ...(me.is_high_staff
+      ? [{ key: '/competitions', icon: <TrophyOutlined />, label: 'Competitions' }]
+      : []),
     { key: '/requests', icon: <SendOutlined />, label: 'Requests' },
     ...(me.has_team || me.is_admin
       ? [{ key: '/team', icon: <TeamOutlined />, label: 'My Team' }]
       : []),
+    { key: '/organization', icon: <ApartmentOutlined />, label: 'Organization' },
     ...(me.is_admin
       ? [{ key: '/admin/users', icon: <SettingOutlined />, label: 'User Management' }]
       : []),
@@ -40,7 +52,15 @@ export default function AppLayout() {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider breakpoint="lg" collapsedWidth="0" theme="dark">
+      <Sider
+        breakpoint="lg"
+        collapsedWidth="0"
+        theme="dark"
+        trigger={null}
+        collapsible
+        collapsed={collapsed}
+        onBreakpoint={(broken) => setCollapsed(broken)}
+      >
         <div
           style={{
             display: 'flex',
@@ -65,16 +85,24 @@ export default function AppLayout() {
         <Header
           style={{
             background: token.colorBgContainer,
-            padding: '0 24px',
+            padding: '0 24px 0 12px',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'flex-end',
+            justifyContent: 'space-between',
             gap: 12,
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
           }}
         >
-          <ThemeToggle />
-          <NotificationsBell />
+          <Button
+            type="text"
+            aria-label={collapsed ? 'Open menu' : 'Collapse menu'}
+            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => setCollapsed((c) => !c)}
+            style={{ fontSize: 18 }}
+          />
+          <Space size={12} align="center">
+            <ThemeToggle />
+            <NotificationsBell />
           <Dropdown
             menu={{
               items: [
@@ -103,6 +131,7 @@ export default function AppLayout() {
               </div>
             </Space>
           </Dropdown>
+          </Space>
         </Header>
         <Content style={{ margin: 24 }}>
           <Outlet />

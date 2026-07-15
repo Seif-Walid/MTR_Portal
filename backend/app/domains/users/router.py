@@ -3,8 +3,13 @@ from sqlalchemy import select
 
 from app.core.security import hash_password
 from app.domains.auth.deps import DB, AdminUser, CurrentUser
-from app.domains.hierarchy.service import assert_no_cycle, subtree_ids
-from app.domains.users.models import NON_STAFF_ROLES, Role, User, UserRole
+from app.domains.hierarchy.service import (
+    assert_no_cycle,
+    can_manage_user,
+    can_place_under,
+    subtree_ids,
+)
+from app.domains.users.models import NON_STAFF_ROLES, Role, RoleSlug, User, UserRole
 from app.domains.users.schemas import UserAdminOut, UserBrief, UserCreate, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -66,7 +71,20 @@ def list_users(db: DB, _: AdminUser) -> list[UserAdminOut]:
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def create_user(payload: UserCreate, db: DB, _: AdminUser) -> UserAdminOut:
+def create_user(payload: UserCreate, db: DB, actor: CurrentUser) -> UserAdminOut:
+    # Admin can add anyone anywhere; a staff manager can add people under
+    # themselves or anyone already in their subtree.
+    if not actor.is_admin:
+        if not (actor.is_staff and can_place_under(db, actor, payload.manager_id)):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "You can only add people under yourself or your team.",
+            )
+        if RoleSlug.ADMIN in payload.roles:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "Only an admin can grant the admin role."
+            )
+
     email = payload.email.lower()
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
@@ -89,10 +107,31 @@ def create_user(payload: UserCreate, db: DB, _: AdminUser) -> UserAdminOut:
 
 
 @router.patch("/{user_id}")
-def update_user(user_id: int, payload: UserUpdate, db: DB, admin: AdminUser) -> UserAdminOut:
+def update_user(user_id: int, payload: UserUpdate, db: DB, actor: CurrentUser) -> UserAdminOut:
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+
+    # Non-admins may only manage people inside their own subtree, may not grant
+    # the admin role, and may not detach someone from the tree or move them
+    # outside their reach.
+    if not actor.is_admin:
+        if not can_manage_user(db, actor, user):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "You can only manage people in your team."
+            )
+        if payload.roles is not None and RoleSlug.ADMIN in payload.roles:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "Only an admin can grant the admin role."
+            )
+        if payload.clear_manager:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "Only an admin can detach a person from the tree."
+            )
+        if payload.manager_id is not None and not can_place_under(db, actor, payload.manager_id):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "You can only move people within your team."
+            )
 
     if payload.full_name is not None:
         user.full_name = payload.full_name
@@ -116,7 +155,7 @@ def update_user(user_id: int, payload: UserUpdate, db: DB, admin: AdminUser) -> 
         user.manager_id = payload.manager_id
 
     if payload.is_active is not None:
-        if user.id == admin.id and payload.is_active is False:
+        if user.id == actor.id and payload.is_active is False:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot deactivate yourself")
         user.is_active = payload.is_active
 
