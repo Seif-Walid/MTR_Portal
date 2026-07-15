@@ -80,6 +80,13 @@ class User(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Set the first time this account is explicitly linked to a Google
+    # identity (see app.domains.auth.router). NULL means password-only —
+    # Google sign-in for this email must prove password ownership first,
+    # rather than being silently matched by email alone.
+    google_linked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -104,6 +111,10 @@ class User(Base):
     def is_high_staff(self) -> bool:
         """Leadership tier (or admin) — may manage competitions."""
         return self.is_admin or bool(self.role_slugs & {r.value for r in HIGH_STAFF_ROLES})
+
+    @property
+    def google_linked(self) -> bool:
+        return self.google_linked_at is not None
 
     @property
     def is_ceo(self) -> bool:

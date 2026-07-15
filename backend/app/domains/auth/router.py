@@ -42,6 +42,7 @@ def _me_payload(db: Session, user: User) -> MeOut:
         is_staff=user.is_staff,
         is_high_staff=user.is_high_staff,
         has_team=len(subtree_ids(db, user.id)) > 0,
+        google_linked=user.google_linked,
     )
 
 
@@ -117,6 +118,37 @@ def _login_error(reason: str) -> RedirectResponse:
     return RedirectResponse(f"{settings.frontend_url}/login?error={reason}")
 
 
+def _domain_allowed(email: str, hd: str | None) -> bool:
+    """Checked against the Workspace `hd` claim, or the email's own domain for
+    personal accounts (Gmail has no `hd`). No configured allowlist = no
+    restriction — this org's default is open personal-email accounts."""
+    allowed = settings.google_allowed_domains_list
+    if not allowed:
+        return True
+    domain = (hd or email.rsplit("@", 1)[-1]).lower()
+    return domain in allowed
+
+
+def _peek_session_user(db: Session, session_token: str | None) -> User | None:
+    """Like get_current_user, but returns None instead of raising — used to
+    detect "the browser already has a valid password-login session" so a
+    Google round-trip can be treated as an explicit link action."""
+    if not session_token:
+        return None
+    session = db.get(AuthSession, session_token)
+    if session is None:
+        return None
+    expires = session.expires_at
+    if expires.tzinfo is None:  # SQLite drops tzinfo
+        expires = expires.replace(tzinfo=timezone.utc)
+    if expires < datetime.now(timezone.utc):
+        return None
+    user = db.get(User, session.user_id)
+    if user is None or not user.is_active:
+        return None
+    return user
+
+
 @router.get("/google/login")
 def google_login() -> RedirectResponse:
     """Kick off the Google OAuth flow (accounts are provisioned by the admin;
@@ -153,6 +185,7 @@ def google_callback(
     state: str | None = None,
     error: str | None = None,
     g_oauth_state: Annotated[str | None, Cookie(alias=STATE_COOKIE)] = None,
+    portal_session: Annotated[str | None, Cookie(alias=settings.session_cookie_name)] = None,
 ) -> RedirectResponse:
     if not _google_enabled():
         return _login_error("google_not_configured")
@@ -190,21 +223,35 @@ def google_callback(
     email = (info.get("email") or "").lower()
     if not email or not info.get("email_verified", False):
         return _login_error("google_email_unverified")
+    if not _domain_allowed(email, info.get("hd")):
+        return _login_error("google_domain_not_allowed")
 
+    # If the browser already carries a valid password-login session, this
+    # round-trip is an explicit "link my Google account" action (reached via
+    # the account menu), not a sign-in attempt.
+    linking_user = _peek_session_user(db, portal_session)
+    if linking_user is not None:
+        if linking_user.email != email:
+            return _login_error("google_account_mismatch")
+        linking_user.google_linked_at = datetime.now(timezone.utc)
+        db.commit()
+        response = RedirectResponse(f"{settings.frontend_url}/tasks?linked=true")
+        response.delete_cookie(STATE_COOKIE)
+        return response
+
+    # A Google identity is not an authorization: a successful sign-in from an
+    # email with no portal account creates nothing. Accounts are provisioned
+    # by an admin (or via open self-registration) — never auto-created here.
     user = db.scalar(select(User).where(User.email == email))
     if user is None:
-        # first Google sign-in doubles as registration: no roles, no hierarchy
-        # position until the admin assigns them
-        user = User(
-            email=email,
-            full_name=info.get("name") or email.split("@")[0],
-            hashed_password=hash_password(secrets.token_urlsafe(32)),
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+        return _login_error("no_account")
     if not user.is_active:
         return _login_error("account_disabled")
+    if user.google_linked_at is None:
+        # First-time collision with an existing password account: prove
+        # ownership by signing in with the password once, then link
+        # explicitly from the account menu — never silently match by email.
+        return _login_error("link_required")
 
     response = RedirectResponse(f"{settings.frontend_url}/tasks")
     response.delete_cookie(STATE_COOKIE)

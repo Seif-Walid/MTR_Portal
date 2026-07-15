@@ -18,11 +18,13 @@ export interface Me extends UserBrief {
   is_staff: boolean;
   is_high_staff: boolean;
   has_team: boolean;
+  google_linked: boolean;
 }
 
 export interface AdminUser extends UserBrief {
   manager_id: number | null;
   is_active: boolean;
+  google_linked: boolean;
   created_at: string;
 }
 
