@@ -1,12 +1,14 @@
+import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.competitions.models import Competition
-from app.domains.inventory import sheets, stock
+from app.domains.inventory import file_import, sheets, stock
 from app.domains.inventory.models import (
     Condition,
     InventoryAllocation,
@@ -17,6 +19,7 @@ from app.domains.inventory.models import (
 from app.domains.inventory.schemas import (
     AllocationCreate,
     AllocationEdit,
+    FileImportPreviewOut,
     ImportPreviewOut,
     ImportPreviewRequest,
     ImportRequest,
@@ -147,6 +150,45 @@ def _row_to_fields(row: dict[str, str], mapping: dict[str, str]) -> dict:
     }
 
 
+def _import_rows(
+    db: DB,
+    rows: list[dict[str, str]],
+    mapping: dict[str, str],
+    team_lead_id: int | None,
+    upsert: bool,
+) -> ImportResult:
+    created = updated = skipped = 0
+    errors: list[str] = []
+    for row in rows:
+        fields = _row_to_fields(row, mapping)
+        if not fields["name"]:
+            skipped += 1
+            continue
+        existing = None
+        if fields["asset_tag"]:
+            existing = db.scalar(
+                select(InventoryItem).where(InventoryItem.asset_tag == fields["asset_tag"])
+            )
+        if existing is None:
+            existing = db.scalar(
+                select(InventoryItem).where(InventoryItem.name == fields["name"])
+            )
+        if existing is not None:
+            if not upsert:
+                skipped += 1
+                continue
+            for key, value in fields.items():
+                setattr(existing, key, value)
+            if team_lead_id is not None:
+                existing.team_lead_id = team_lead_id
+            updated += 1
+        else:
+            db.add(InventoryItem(**fields, team_lead_id=team_lead_id))
+            created += 1
+    db.commit()
+    return ImportResult(created=created, updated=updated, skipped=skipped, errors=errors)
+
+
 @router.post("/import/preview")
 def import_preview(payload: ImportPreviewRequest, db: DB, user: CurrentUser) -> ImportPreviewOut:
     """Read a sheet's headers + first rows so the UI can map columns."""
@@ -179,37 +221,70 @@ def import_items(payload: ImportRequest, db: DB, user: CurrentUser) -> ImportRes
         _, rows = sheets.read_worksheet(payload.spreadsheet_id, payload.worksheet)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Could not read the sheet: {exc}") from exc
+    return _import_rows(db, rows, payload.mapping, team_lead_id, payload.upsert)
 
-    created = updated = skipped = 0
-    errors: list[str] = []
-    for i, row in enumerate(rows, start=2):  # row 1 is the header
-        fields = _row_to_fields(row, payload.mapping)
-        if not fields["name"]:
-            skipped += 1
-            continue
-        existing = None
-        if fields["asset_tag"]:
-            existing = db.scalar(
-                select(InventoryItem).where(InventoryItem.asset_tag == fields["asset_tag"])
-            )
-        if existing is None:
-            existing = db.scalar(
-                select(InventoryItem).where(InventoryItem.name == fields["name"])
-            )
-        if existing is not None:
-            if not payload.upsert:
-                skipped += 1
-                continue
-            for key, value in fields.items():
-                setattr(existing, key, value)
-            if team_lead_id is not None:
-                existing.team_lead_id = team_lead_id
-            updated += 1
-        else:
-            db.add(InventoryItem(**fields, team_lead_id=team_lead_id))
-            created += 1
-    db.commit()
-    return ImportResult(created=created, updated=updated, skipped=skipped, errors=errors)
+
+def _read_upload(file: UploadFile) -> bytes:
+    data = file.file.read(settings.max_upload_mb * 1024 * 1024 + 1)
+    if len(data) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"File exceeds {settings.max_upload_mb} MB limit",
+        )
+    return data
+
+
+@router.post("/import/file/preview")
+def import_file_preview(
+    db: DB,
+    user: CurrentUser,
+    file: UploadFile,
+    sheet: str | None = Form(None),
+) -> FileImportPreviewOut:
+    """Read an uploaded .xlsx/.csv's headers + first rows — no Google Sheets
+    credentials needed. For workbooks with multiple tabs, omit `sheet` to get
+    the first one plus the full tab list, then re-call with a chosen tab."""
+    require_manage(user)
+    data = _read_upload(file)
+    try:
+        sheet_names = file_import.list_sheets(data, file.filename or "")
+        chosen, headers, rows = file_import.read_uploaded(data, file.filename or "", sheet)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return FileImportPreviewOut(
+        sheets=sheet_names,
+        sheet=chosen,
+        headers=headers,
+        rows=rows[:15],
+        total=len(rows),
+    )
+
+
+@router.post("/import/file")
+def import_file(
+    db: DB,
+    user: CurrentUser,
+    file: UploadFile,
+    mapping: str = Form(...),
+    sheet: str | None = Form(None),
+    team_lead_id: int | None = Form(None),
+    upsert: bool = Form(True),
+) -> ImportResult:
+    """Create (or upsert) inventory items from an uploaded .xlsx/.csv."""
+    require_manage(user)
+    try:
+        mapping_dict = json.loads(mapping)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid column mapping") from exc
+    if not isinstance(mapping_dict, dict) or not mapping_dict.get("name"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Map a column to the item name.")
+    resolved_lead_id = _resolve_user(db, team_lead_id, "Team lead")
+    data = _read_upload(file)
+    try:
+        _, _, rows = file_import.read_uploaded(data, file.filename or "", sheet)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return _import_rows(db, rows, mapping_dict, resolved_lead_id, upsert)
 
 
 # --- locations (whereabouts) ----------------------------------------------

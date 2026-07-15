@@ -176,6 +176,15 @@ class ImportResult(BaseModel):
     errors: list[str] = []
 
 
+# --- local file (.xlsx/.csv) import, no Google Sheets needed --------------
+class FileImportPreviewOut(BaseModel):
+    sheets: list[str] | None  # workbook tab names (xlsx); None for CSV
+    sheet: str | None  # which tab this preview came from
+    headers: list[str]
+    rows: list[dict[str, str]]
+    total: int
+
+
 # --- checkout requests (submit -> approve/reject -> issue -> return) ------
 class ItemBrief(BaseModel):
     model_config = ConfigDict(from_attributes=True)

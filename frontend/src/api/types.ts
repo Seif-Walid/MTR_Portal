@@ -254,6 +254,14 @@ export interface ImportResult {
   errors: string[];
 }
 
+export interface FileImportPreview {
+  sheets: string[] | null; // workbook tab names (xlsx); null for CSV
+  sheet: string | null;
+  headers: string[];
+  rows: Record<string, string>[];
+  total: number;
+}
+
 export interface OrgTreeNode {
   id: number;
   full_name: string;

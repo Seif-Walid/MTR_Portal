@@ -14,3 +14,6 @@ httpx>=0.27
 gspread>=6.0
 google-auth>=2.0
 
+# Local .xlsx/.csv import (Inventory -> Import from file, no Google Sheets needed)
+openpyxl>=3.1
+
