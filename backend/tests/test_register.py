@@ -54,7 +54,7 @@ def test_registered_user_can_send_requests_but_not_tasks(client, org):
     # no subtree -> cannot assign tasks to anyone
     t = client.post(
         "/api/tasks",
-        json={"title": "x", "assignee_id": org["student"].id},
+        json={"title": "x", "assignee_ids": [org["student"].id]},
         cookies=cookies,
     )
     assert t.status_code == 403

@@ -274,7 +274,7 @@ cd backend
 .venv\Scripts\python -m pytest tests -q
 ```
 
-123 tests cover the permission layer: assignment allowed/denied (down, up, across,
+136 tests cover the permission layer: assignment allowed/denied (down, up, across,
 self), subtree visibility and drill-down, request accept/decline/delegate, status
 workflow rights (assignee vs. reviewer), multi-role union, hierarchy moves and
 cycle rejection; inventory scoping, allocation capacity math, over-allocation/shrink
@@ -285,11 +285,14 @@ Sheet import (mocked) with upsert; the **Positions** org tree (single root, no c
 occupant→manager derivation with vacant-seat skip, audit log); admin/CEO-wide user
 management; the general audit log + soft-delete-by-default with admin-only permanent
 delete; Google sign-in hardening (never auto-provisions, domain allowlist, and
-explicit-link-not-silent-match, with the OAuth round-trip mocked); and the Sheets
+explicit-link-not-silent-match, with the OAuth round-trip mocked); the Sheets
 export/rebuild cycle — org-manager-only export and dry-run, admin/CEO-only commit
 gated on an exact confirm phrase, cross-tab reference validation, and a full
 rebuild round-trip (snapshot → clear dependents → truncate → import → auto
-re-export) with Sheets I/O mocked.
+re-export) with Sheets I/O mocked; and task blocked/comments/history/team-assignment
+— toggle rights, comment visibility matching task visibility, the history trail
+ordering and its participant-not-admin-only access, multi-assignee batch creation
+(atomic on a bad assignee, batch view limited to the assigner).
 
 ## Project layout
 
@@ -325,7 +328,10 @@ frontend/
 ## API surface (all under `/api`)
 
 - `POST /auth/login` · `POST /auth/logout` · `GET /auth/me`
-- `GET/POST /tasks` · `GET/PATCH /tasks/{id}` · `PATCH /tasks/{id}/status`
+- `GET/POST /tasks` (`TaskCreate.assignee_ids` — one or more; >1 = a linked team
+  assignment) · `GET/PATCH /tasks/{id}` · `PATCH /tasks/{id}/status`
+  · `PATCH /tasks/{id}/blocked` · `POST /tasks/{id}/comments`
+  · `GET /tasks/{id}/history` · `GET /tasks/batch/{batch_id}` (assigner/admin only)
   · `POST /tasks/{id}/attachments` · `GET /tasks/attachments/{id}`
 - `GET/POST /requests` · `POST /requests/{id}/accept` · `POST /requests/{id}/decline`
   (`RequestCreate` accepts an optional `item_id` + `quantity`)
@@ -365,3 +371,20 @@ Interactive docs: http://localhost:8000/docs
 The assignee drives progress; only the assigner **or anyone above the assigner** can
 approve or request revision. Every assignment, status change, and request resolution
 produces an in-app notification.
+
+**Blocked** is a flag on top of status, not a workflow step — a task can be blocked
+while still `To Do` or `In Progress`. The assignee, the assigner, or an admin can mark
+it blocked (with a reason) or clear it; the other side gets notified either way.
+
+**Comments** are open to anyone who can already see the task — not just the assigner
+and assignee. Post one from the task drawer; the other side is notified.
+
+**History** shows every status change, edit, and blocked/unblocked toggle for a task,
+newest first, visible to the task's own participants (not admin-only, unlike the
+general audit log). It's the same audit trail mechanism as [Audit log & soft
+delete](#audit-log--soft-delete), just scoped and exposed per-task.
+
+**Team assignment**: pick more than one person when assigning a task (Tasks → Assign
+task) and the portal creates one independent task per person — each moves through the
+workflow on their own — linked as a batch so the assigner can see everyone's progress
+together from any one of the tasks in the group.

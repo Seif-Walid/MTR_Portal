@@ -2,11 +2,12 @@ from fastapi import HTTPException, status as http_status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.domains.audit.service import log as audit_log
 from app.domains.hierarchy.service import can_review_task, visible_user_ids
 from app.domains.notifications.models import NotificationType
 from app.domains.notifications.service import notify
 from app.domains.requests.models import WorkRequest
-from app.domains.tasks.models import Task, TaskStatus
+from app.domains.tasks.models import Task, TaskComment, TaskStatus
 from app.domains.users.models import User
 
 # transition -> "assignee" (doing the work) or "reviewer" (assigner or above)
@@ -85,8 +86,13 @@ def change_status(db: Session, user: User, task: Task, new_status: TaskStatus) -
                 "Only the assigner or someone above them can review this task",
             )
 
+    old_status = task.status
     task.status = new_status
     label = STATUS_LABELS[new_status]
+    audit_log(
+        db, user.id, "tasks", "status_changed", "task", task.id,
+        {"from": old_status, "to": new_status, "by": user.full_name},
+    )
     # notify the counterparty
     if user.id != task.assigner_id:
         notify(
@@ -115,6 +121,55 @@ def change_status(db: Session, user: User, task: Task, new_status: TaskStatus) -
                 f"Your request '{origin.title}': task is now {label}",
                 task_id=task.id,
                 request_id=origin.id,
+            )
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def can_toggle_blocked(user: User, task: Task) -> bool:
+    return user.is_admin or user.id in (task.assignee_id, task.assigner_id)
+
+
+def set_blocked(db: Session, user: User, task: Task, is_blocked: bool, reason: str) -> Task:
+    if not can_toggle_blocked(user, task):
+        raise HTTPException(
+            http_status.HTTP_403_FORBIDDEN,
+            "Only the assignee or assigner can change the blocked state",
+        )
+    task.is_blocked = is_blocked
+    task.blocked_reason = reason if is_blocked else ""
+    audit_log(
+        db, user.id, "tasks",
+        "blocked" if is_blocked else "unblocked",
+        "task", task.id,
+        {"reason": task.blocked_reason, "by": user.full_name},
+    )
+    for recipient_id in {task.assigner_id, task.assignee_id}:
+        if recipient_id != user.id:
+            notify(
+                db,
+                recipient_id,
+                NotificationType.TASK_STATUS_CHANGED,
+                f"'{task.title}' is now {'blocked' if is_blocked else 'unblocked'} ({user.full_name})",
+                task_id=task.id,
+            )
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def add_comment(db: Session, user: User, task: Task, body: str) -> Task:
+    comment = TaskComment(task_id=task.id, author_id=user.id, body=body)
+    db.add(comment)
+    for recipient_id in {task.assigner_id, task.assignee_id}:
+        if recipient_id != user.id:
+            notify(
+                db,
+                recipient_id,
+                NotificationType.TASK_COMMENT,
+                f"{user.full_name} commented on '{task.title}'",
+                task_id=task.id,
             )
     db.commit()
     db.refresh(task)

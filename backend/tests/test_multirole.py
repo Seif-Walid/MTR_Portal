@@ -14,13 +14,13 @@ def test_me_reports_union_of_roles(login, org):
 def test_multirole_reach_covers_both_hats(login, org):
     cto = login("cto")
     # Software Lead hat: direct software employees
-    r = cto.post("/api/tasks", json={"title": "sw", "assignee_id": org["sw_emp"].id})
+    r = cto.post("/api/tasks", json={"title": "sw", "assignee_ids": [org["sw_emp"].id]})
     assert r.status_code == 201
     # CTO hat: the whole technical branch, including mech employees below a sub-lead
-    r = cto.post("/api/tasks", json={"title": "mech", "assignee_id": org["mech_emp"].id})
+    r = cto.post("/api/tasks", json={"title": "mech", "assignee_ids": [org["mech_emp"].id]})
     assert r.status_code == 201
     # union does NOT extend outside the node's subtree
-    r = cto.post("/api/tasks", json={"title": "fin", "assignee_id": org["fin_emp"].id})
+    r = cto.post("/api/tasks", json={"title": "fin", "assignee_ids": [org["fin_emp"].id]})
     assert r.status_code == 403
 
 

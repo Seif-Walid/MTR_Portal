@@ -1,5 +1,5 @@
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Button, Segmented, Select, Space, Table, Typography } from 'antd';
+import { Button, Segmented, Select, Space, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -87,7 +87,12 @@ export default function TasksPage() {
             title: 'Status',
             dataIndex: 'status',
             width: 190,
-            render: (s: TaskStatus) => <StatusTag status={s} />,
+            render: (s: TaskStatus, t) => (
+              <Space size={4}>
+                <StatusTag status={s} />
+                {t.is_blocked && <Tag color="red">Blocked</Tag>}
+              </Space>
+            ),
           },
           {
             title: 'Priority',

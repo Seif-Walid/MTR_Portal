@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from enum import StrEnum
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -37,6 +37,11 @@ class Task(Base):
     origin_request_id: Mapped[int | None] = mapped_column(
         ForeignKey("work_requests.id", use_alter=True), nullable=True
     )
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    blocked_reason: Mapped[str] = mapped_column(Text, default="")
+    # set only when this task was created alongside sibling tasks in one
+    # multi-assignee "team assignment" — null for ordinary single-assignee tasks
+    batch_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -50,6 +55,12 @@ class Task(Base):
     assignee = relationship("User", foreign_keys=[assignee_id], lazy="joined")
     attachments: Mapped[list["TaskAttachment"]] = relationship(
         back_populates="task", lazy="selectin", cascade="all, delete-orphan"
+    )
+    comments: Mapped[list["TaskComment"]] = relationship(
+        back_populates="task",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        order_by="TaskComment.created_at",
     )
 
 
@@ -70,3 +81,20 @@ class TaskAttachment(Base):
     )
 
     task: Mapped[Task] = relationship(back_populates="attachments")
+
+
+class TaskComment(Base):
+    __tablename__ = "task_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), index=True
+    )
+    author_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    task: Mapped[Task] = relationship(back_populates="comments")
+    author = relationship("User", lazy="joined")
