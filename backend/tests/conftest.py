@@ -152,7 +152,7 @@ def login(client, org):
 
 def make_task(login, assigner: str, org, assignee_key: str, title: str = "t") -> dict:
     r = login(assigner).post(
-        "/api/tasks", json={"title": title, "assignee_id": org[assignee_key].id}
+        "/api/tasks", json={"title": title, "assignee_ids": [org[assignee_key].id]}
     )
     assert r.status_code == 201, r.text
-    return r.json()
+    return r.json()[0]

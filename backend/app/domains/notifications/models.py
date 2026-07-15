@@ -10,6 +10,7 @@ from app.core.database import Base
 class NotificationType(StrEnum):
     TASK_ASSIGNED = "task_assigned"
     TASK_STATUS_CHANGED = "task_status_changed"
+    TASK_COMMENT = "task_comment"
     REQUEST_RECEIVED = "request_received"
     REQUEST_ACCEPTED = "request_accepted"
     REQUEST_DECLINED = "request_declined"

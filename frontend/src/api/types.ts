@@ -46,6 +46,20 @@ export interface Attachment {
   created_at: string;
 }
 
+export interface TaskComment {
+  id: number;
+  author: UserBrief;
+  body: string;
+  created_at: string;
+}
+
+export interface TaskHistoryEntry {
+  actor: string;
+  action: string;
+  detail: string; // JSON string
+  created_at: string;
+}
+
 export interface Task {
   id: number;
   title: string;
@@ -57,9 +71,13 @@ export interface Task {
   category: string | null;
   status: TaskStatus;
   origin_request_id: number | null;
+  is_blocked: boolean;
+  blocked_reason: string;
+  batch_id: string | null;
   created_at: string;
   updated_at: string;
   attachments: Attachment[];
+  comments: TaskComment[];
 }
 
 export type RequestStatus = 'pending' | 'accepted' | 'declined';

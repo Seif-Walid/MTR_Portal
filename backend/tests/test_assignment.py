@@ -5,7 +5,7 @@ from tests.conftest import make_task
 
 def assign(login, org, assigner, assignee):
     return login(assigner).post(
-        "/api/tasks", json={"title": "x", "assignee_id": org[assignee].id}
+        "/api/tasks", json={"title": "x", "assignee_ids": [org[assignee].id]}
     )
 
 
