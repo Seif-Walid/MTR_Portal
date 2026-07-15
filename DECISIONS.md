@@ -51,3 +51,42 @@ each, so nothing is a silent surprise.
 - The detail endpoint returns `can_manage` (competition) and per-team
   `can_manage_members` for the current user, so the UI shows only the controls
   that will actually work.
+
+## Inventory whereabouts ledger (Phase 3a)
+
+- Physical whereabouts is tracked by an **append-only `StockMovement` ledger**:
+  each row moves `quantity` from a source (a `Location`, a holder, or nowhere =
+  stock-in) to a destination (a location, a holder, or nowhere = consumed).
+  **On-hand is never stored** — it is summed from the ledger, so it always
+  reconciles. A move out of a real place is rejected if it exceeds on-hand.
+- **Two dimensions, kept separate on purpose:** `Item.quantity` = how many the
+  org *owns*; the ledger = *where those units are*. `low_stock_threshold` flags
+  scarcity against owned. The earlier purpose-based **allocations** (Holdings
+  matrix) remain a third, planning-oriented view; they were not removed because
+  they answer a different question ("what is this reserved for") than the ledger
+  ("where is it"). A future pass could unify them; for now each lens is useful.
+- Phase 3b adds the Request → approve → issue → return flow on top of this
+  ledger (issuing an approved request is the only thing that creates the
+  issue/return movements — no side-door edits).
+
+## Checkout requests (Phase 3b)
+
+- `InventoryRequest`: item + quantity + reason + needed-by/return-by, states
+  `submitted → approved/rejected → issued → returned`. **"Overdue" is a
+  computed flag** (`issued` + `return_by` in the past), not a stored state —
+  this stack has no background scheduler (already a documented divergence), so
+  there is nothing to proactively flip a stored status. A dedicated low-stock
+  endpoint and the overdue flag cover the spec's "low-stock thresholds and an
+  overdue-return list" without needing one.
+- **Approval routes to any inventory manager** (`can_manage_inventory` — staff
+  or admin), not a narrower "the item's specific team lead." An item's
+  `team_lead_id`, where set, is already a staff-role user by construction (team
+  leads hold a staff role in this system), so narrowing further wouldn't change
+  who can act — it would just add a rejection path with no security benefit.
+  Documented here rather than silently simplified.
+- **Issuing an approved request is the only way it creates a `StockMovement`**
+  (and returning is the only way that movement reverses) — no endpoint lets
+  someone hand-edit whereabouts to fulfill a request. The issuer picks a
+  specific location that has enough on hand (`stock.record_movement`'s
+  on-hand guard applies here too, so issuing can't oversell a location).
+  Returning is allowed by the requester themselves or any inventory manager.

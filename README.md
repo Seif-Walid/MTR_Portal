@@ -58,6 +58,22 @@ Access follows the same hierarchy:
 Capacity is guarded server-side: you can't allocate more than is free, and you can't
 shrink an item's total below what's already in use.
 
+**Whereabouts** is tracked by an append-only **stock-movement ledger**: each item's
+drawer shows on-hand **by location and by holder**, derived by summing movements — never
+stored, so it always reconciles. Record a movement (stock-in, move, issue, consume, return)
+from a source (location / holder / nowhere) to a destination; a move out of a place can't
+exceed what's on hand. Items carry a **low-stock threshold** (Inventory → **low-stock list**
+for staff); **Locations** (rooms/shelves/boxes) are managed from the Inventory page.
+`Item.quantity` is what the org *owns*; the ledger is *where those units are*.
+
+**Checkout requests** ("Requests" button on the Inventory page) run the borrow lifecycle on
+top of that ledger: anyone can **request** an item (quantity, reason, needed-by, return-by)
+from its drawer; an inventory manager **approves or rejects**; **issuing** an approved
+request is the *only* way it creates a movement (staff pick which location it comes from,
+capped at what's on hand there); the requester or a manager later **returns** it to a
+location, which is the only way that movement reverses. An issued request past its
+return-by date shows as **overdue**.
+
 **Competitions** nest `Competition → Category → Team → members`. Expand a competition to
 add categories, add teams under a category, appoint a team lead, and assign members.
 Authority is **scoped to the competition**, not global:
@@ -193,7 +209,7 @@ cd backend
 .venv\Scripts\python -m pytest tests -q
 ```
 
-84 tests cover the permission layer: assignment allowed/denied (down, up, across,
+96 tests cover the permission layer: assignment allowed/denied (down, up, across,
 self), subtree visibility and drill-down, request accept/decline/delegate, status
 workflow rights (assignee vs. reviewer), multi-role union, hierarchy moves and
 cycle rejection; inventory scoping, allocation capacity math, over-allocation/shrink
@@ -240,6 +256,12 @@ frontend/
   · `POST /inventory/{id}/allocations` · `PATCH/DELETE /inventory/allocations/{id}`
   · `GET /inventory/holders` · `GET /inventory/sheets/status` · `POST /inventory/sync`
   · `POST /inventory/import/preview` · `POST /inventory/import`
+  · `GET/POST /inventory/locations` · `DELETE /inventory/locations/{id}`
+  · `GET /inventory/{id}/whereabouts` · `GET/POST /inventory/{id}/movements`
+  · `GET /inventory/low-stock`
+  · `GET/POST /inventory/requests` · `POST /inventory/requests/{id}/approve`
+  · `POST /inventory/requests/{id}/reject` · `POST /inventory/requests/{id}/issue`
+  · `POST /inventory/requests/{id}/return`
 - `GET/POST /competitions` · `GET/PATCH/DELETE /competitions/{id}` (nested detail)
   · `POST/DELETE /competitions/{id}/pms` · `POST /competitions/{id}/categories`
   · `DELETE /competitions/categories/{id}` · `POST /competitions/categories/{id}/teams`

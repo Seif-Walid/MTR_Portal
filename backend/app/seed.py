@@ -7,7 +7,7 @@ Idempotent — safe to re-run. All seeded accounts use password: portal123
 
 import os
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -37,7 +37,12 @@ from app.domains.inventory.models import (
     Condition,
     InventoryAllocation,
     InventoryItem,
+    InventoryRequest,
+    InventoryRequestStatus,
+    Location,
+    StockMovement,
 )
+from app.domains.inventory.stock import record_movement
 from app.domains.positions.models import Position
 from app.domains.positions.service import resync_managers
 from app.domains.requests.models import RequestStatus, WorkRequest
@@ -174,11 +179,41 @@ def seed_inventory(db: Session, team_lead: User, student: User, borrower: User) 
     for a in allocations:
         db.add(InventoryAllocation(item_id=arduino.id, **a))
 
+    # whereabouts: stock the Arduinos into Lab A, then issue a few via a
+    # checkout request (so the request <-> movement link has real data)
+    lab = Location(name="Lab A — Shelf 3", kind="shelf")
+    store = Location(name="Main Store — Cabinet 1", kind="room")
+    db.add_all([lab, store])
+    db.flush()
+    db.add(StockMovement(item_id=arduino.id, quantity=100, to_location_id=lab.id,
+                         actor_id=team_lead.id, reason="Initial stock-in"))
+    db.flush()
+
+    issued_req = InventoryRequest(
+        item_id=arduino.id, requester_id=student.id, quantity=3,
+        reason="R&D prototyping", status=InventoryRequestStatus.ISSUED,
+        approver_id=team_lead.id, issued_at=datetime.now(timezone.utc),
+    )
+    db.add(issued_req)
+    db.flush()
+    record_movement(
+        db, arduino, 3, from_location_id=lab.id, from_holder_id=None,
+        to_location_id=None, to_holder_id=student.id, actor_id=team_lead.id,
+        reason=f"Issued via request #{issued_req.id}", request_id=issued_req.id,
+    )
+
+    comp_member = db.scalar(select(User).where(User.email == "comp@org.local"))
+    if comp_member is not None:
+        db.add(InventoryRequest(
+            item_id=arduino.id, requester_id=comp_member.id, quantity=2,
+            reason="Competition spares", needed_by=date.today() + timedelta(days=3),
+        ))  # left submitted, so there's something waiting for review
+
     # a couple of general-storage items (staff-only, no team designation)
     db.add(InventoryItem(
         name="Raspberry Pi 4 (4GB)", category="Single-board computers", asset_tag="RPI4",
-        quantity=15, unit="board", location="Lab A — Cabinet 1", condition=Condition.GOOD,
-        notes="General storage.",
+        quantity=15, low_stock_threshold=15, unit="board", location="Lab A — Cabinet 1",
+        condition=Condition.GOOD, notes="General storage. Flagged low on purpose for the demo.",
     ))
     db.add(InventoryItem(
         name="PLA Filament 1kg", category="Consumables", quantity=40, unit="roll",

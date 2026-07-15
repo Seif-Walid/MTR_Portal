@@ -151,12 +151,71 @@ export interface Allocation {
   created_at: string;
 }
 
+export interface Location {
+  id: number;
+  name: string;
+  kind: string;
+  notes: string;
+}
+
+export interface PlaceOnHand {
+  location: Location | null;
+  holder: UserBrief | null;
+  quantity: number;
+}
+
+export interface Whereabouts {
+  owned: number;
+  tracked: number;
+  low_stock: boolean;
+  by_location: PlaceOnHand[];
+  by_holder: PlaceOnHand[];
+}
+
+export interface StockMovement {
+  id: number;
+  quantity: number;
+  from_location: Location | null;
+  to_location: Location | null;
+  from_holder: UserBrief | null;
+  to_holder: UserBrief | null;
+  reason: string;
+  created_at: string;
+}
+
+export type InventoryRequestStatus = 'submitted' | 'approved' | 'rejected' | 'issued' | 'returned';
+
+export interface ItemBrief {
+  id: number;
+  name: string;
+  unit: string;
+}
+
+export interface InventoryRequest {
+  id: number;
+  item: ItemBrief;
+  requester: UserBrief;
+  quantity: number;
+  reason: string;
+  needed_by: string | null;
+  return_by: string | null;
+  status: InventoryRequestStatus;
+  approver: UserBrief | null;
+  decision_reason: string;
+  issued_at: string | null;
+  returned_at: string | null;
+  created_at: string;
+  is_overdue: boolean;
+}
+
 export interface InventoryItem {
   id: number;
   name: string;
   category: string | null;
   asset_tag: string | null;
-  quantity: number; // total pool
+  sku: string | null;
+  quantity: number; // total owned
+  low_stock_threshold: number;
   unit: string;
   location: string | null;
   condition: Condition;

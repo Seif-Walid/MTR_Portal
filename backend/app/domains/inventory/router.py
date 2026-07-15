@@ -3,8 +3,14 @@ from sqlalchemy import select
 
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.competitions.models import Competition
-from app.domains.inventory import sheets
-from app.domains.inventory.models import Condition, InventoryAllocation, InventoryItem
+from app.domains.inventory import sheets, stock
+from app.domains.inventory.models import (
+    Condition,
+    InventoryAllocation,
+    InventoryItem,
+    Location,
+    StockMovement,
+)
 from app.domains.inventory.schemas import (
     AllocationCreate,
     AllocationEdit,
@@ -15,6 +21,12 @@ from app.domains.inventory.schemas import (
     ItemCreate,
     ItemEdit,
     ItemOut,
+    LocationCreate,
+    LocationOut,
+    MovementCreate,
+    MovementOut,
+    PlaceOnHand,
+    WhereaboutsOut,
 )
 from app.domains.inventory.service import (
     assert_fits,
@@ -186,6 +198,32 @@ def import_items(payload: ImportRequest, db: DB, user: CurrentUser) -> ImportRes
     return ImportResult(created=created, updated=updated, skipped=skipped, errors=errors)
 
 
+# --- locations (whereabouts) ----------------------------------------------
+@router.get("/locations")
+def list_locations(db: DB, user: CurrentUser) -> list[LocationOut]:
+    return [LocationOut.model_validate(loc) for loc in db.scalars(select(Location).order_by(Location.name))]
+
+
+@router.post("/locations", status_code=status.HTTP_201_CREATED)
+def create_location(payload: LocationCreate, db: DB, user: CurrentUser) -> LocationOut:
+    require_manage(user)
+    loc = Location(name=payload.name, kind=payload.kind, notes=payload.notes)
+    db.add(loc)
+    db.commit()
+    db.refresh(loc)
+    return LocationOut.model_validate(loc)
+
+
+@router.delete("/locations/{location_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_location(location_id: int, db: DB, user: CurrentUser) -> None:
+    require_manage(user)
+    loc = db.get(Location, location_id)
+    if loc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Location not found")
+    db.delete(loc)
+    db.commit()
+
+
 # --- items ----------------------------------------------------------------
 @router.get("")
 def list_items(
@@ -200,6 +238,14 @@ def list_items(
     return [ItemOut.model_validate(i) for i in items]
 
 
+@router.get("/low-stock")
+def low_stock_items(db: DB, user: CurrentUser) -> list[ItemOut]:
+    """Items whose owned quantity has dropped to (or below) their threshold."""
+    require_manage(user)
+    items = db.scalars(visible_items_query(db, user).order_by(InventoryItem.name)).unique()
+    return [ItemOut.model_validate(i) for i in items if i.quantity <= i.low_stock_threshold]
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_item(payload: ItemCreate, db: DB, user: CurrentUser) -> ItemOut:
     require_manage(user)
@@ -207,7 +253,9 @@ def create_item(payload: ItemCreate, db: DB, user: CurrentUser) -> ItemOut:
         name=payload.name,
         category=payload.category,
         asset_tag=payload.asset_tag,
+        sku=payload.sku,
         quantity=payload.quantity,
+        low_stock_threshold=payload.low_stock_threshold,
         unit=payload.unit,
         location=payload.location,
         condition=payload.condition,
@@ -232,7 +280,8 @@ def edit_item(item_id: int, payload: ItemEdit, db: DB, user: CurrentUser) -> Ite
     if payload.quantity is not None:
         assert_quantity_covers_allocations(item, payload.quantity)
         item.quantity = payload.quantity
-    for field in ("name", "category", "asset_tag", "unit", "location", "condition", "notes"):
+    for field in ("name", "category", "asset_tag", "sku", "low_stock_threshold",
+                  "unit", "location", "condition", "notes"):
         value = getattr(payload, field)
         if value is not None:
             setattr(item, field, value)
@@ -311,3 +360,66 @@ def delete_allocation(allocation_id: int, db: DB, user: CurrentUser) -> None:
     require_manage(user)
     db.delete(allocation)
     db.commit()
+
+
+# --- whereabouts & movements (stock ledger) -------------------------------
+def _place_list(db: DB, ids_qty: dict[int, int], kind: str) -> list[PlaceOnHand]:
+    out = []
+    for oid, qty in sorted(ids_qty.items(), key=lambda kv: -kv[1]):
+        if kind == "location":
+            loc = db.get(Location, oid)
+            out.append(PlaceOnHand(location=LocationOut.model_validate(loc) if loc else None, quantity=qty))
+        else:
+            holder = db.get(User, oid)
+            out.append(PlaceOnHand(holder=UserBrief.model_validate(holder) if holder else None, quantity=qty))
+    return out
+
+
+@router.get("/{item_id}/whereabouts")
+def item_whereabouts(item_id: int, db: DB, user: CurrentUser) -> WhereaboutsOut:
+    item = get_item_or_404(db, user, item_id)
+    by_location, by_holder, tracked = stock.whereabouts(db, item.id)
+    return WhereaboutsOut(
+        owned=item.quantity,
+        tracked=tracked,
+        low_stock=item.quantity <= item.low_stock_threshold,
+        by_location=_place_list(db, by_location, "location"),
+        by_holder=_place_list(db, by_holder, "holder"),
+    )
+
+
+@router.get("/{item_id}/movements")
+def item_movements(item_id: int, db: DB, user: CurrentUser, limit: int = 100) -> list[MovementOut]:
+    get_item_or_404(db, user, item_id)
+    rows = db.scalars(
+        select(StockMovement)
+        .where(StockMovement.item_id == item_id)
+        .order_by(StockMovement.created_at.desc())
+        .limit(min(limit, 500))
+    )
+    return [MovementOut.model_validate(m) for m in rows]
+
+
+@router.post("/{item_id}/movements", status_code=status.HTTP_201_CREATED)
+def add_movement(item_id: int, payload: MovementCreate, db: DB, user: CurrentUser) -> WhereaboutsOut:
+    item = get_item_or_404(db, user, item_id)
+    require_manage(user)
+    for uid in (payload.from_holder_id, payload.to_holder_id):
+        _resolve_user(db, uid, "Holder") if uid else None
+    for lid in (payload.from_location_id, payload.to_location_id):
+        if lid is not None and db.get(Location, lid) is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Location not found")
+    stock.record_movement(
+        db, item, payload.quantity,
+        from_location_id=payload.from_location_id, from_holder_id=payload.from_holder_id,
+        to_location_id=payload.to_location_id, to_holder_id=payload.to_holder_id,
+        actor_id=user.id, reason=payload.reason,
+    )
+    db.commit()
+    by_location, by_holder, tracked = stock.whereabouts(db, item.id)
+    return WhereaboutsOut(
+        owned=item.quantity, tracked=tracked,
+        low_stock=item.quantity <= item.low_stock_threshold,
+        by_location=_place_list(db, by_location, "location"),
+        by_holder=_place_list(db, by_holder, "holder"),
+    )

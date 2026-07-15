@@ -8,7 +8,9 @@ interface FormValues {
   name: string;
   category?: string;
   asset_tag?: string;
+  sku?: string;
   quantity: number;
+  low_stock_threshold?: number;
   unit: string;
   location?: string;
   condition: Condition;
@@ -58,7 +60,7 @@ export default function NewInventoryItemModal({
         form={form}
         layout="vertical"
         onFinish={submit}
-        initialValues={{ quantity: 1, unit: 'unit', condition: 'good' }}
+        initialValues={{ quantity: 1, low_stock_threshold: 0, unit: 'unit', condition: 'good' }}
       >
         <Form.Item name="name" label="Name" rules={[{ required: true, max: 255 }]}>
           <Input placeholder="e.g. Arduino Uno R3" />
@@ -68,6 +70,12 @@ export default function NewInventoryItemModal({
         </Form.Item>
         <Form.Item name="quantity" label="Total quantity" rules={[{ required: true }]}>
           <InputNumber min={0} style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item name="low_stock_threshold" label="Low-stock threshold" tooltip="Flag the item as low when owned quantity drops to this or below.">
+          <InputNumber min={0} style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item name="sku" label="SKU">
+          <Input placeholder="Optional" />
         </Form.Item>
         <Form.Item name="unit" label="Unit">
           <Input placeholder="unit, board, roll…" />
