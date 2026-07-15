@@ -33,3 +33,21 @@ each, so nothing is a silent surprise.
 - Every structural change writes an **`OrgAuditLog`** row (actor, action,
   before/after snapshot, timestamp). This also lays the groundwork for the
   versioned "view as of a past date" the spec asks for.
+
+## Competition-scoped roles (Phase 2)
+
+- A competition nests `Competition → Category → Team → TeamMembership`, with one
+  or more **Project Managers** per competition.
+- **Authority is scoped, not global:**
+  - *Create a competition & appoint/remove PMs* — **high staff** (leadership).
+    The creator is auto-added as a PM so there's always at least one.
+  - *Manage a competition's structure* (categories, teams, appoint team leads) —
+    **admin / CEO / a PM of that competition**. High staff are deliberately *not*
+    blanket managers of every competition; they get in by being a PM. This keeps
+    a person's competition authority tied to that competition, per the spec
+    ("a Team Lead in ARL-2026 grants nothing in ARL-2027").
+  - *Manage a team's members* — that **team's lead** (scoped, may be a non-staff
+    member) *or* anyone who manages the competition.
+- The detail endpoint returns `can_manage` (competition) and per-team
+  `can_manage_members` for the current user, so the UI shows only the controls
+  that will actually work.
