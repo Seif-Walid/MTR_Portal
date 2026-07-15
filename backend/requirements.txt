@@ -9,3 +9,8 @@ bcrypt>=4.1
 python-multipart>=0.0.9
 httpx>=0.27
 
+# Google Sheets inventory mirror (optional feature; safe to omit — the app
+# degrades gracefully and disables the Sync button when unavailable)
+gspread>=6.0
+google-auth>=2.0
+

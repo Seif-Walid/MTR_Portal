@@ -28,6 +28,7 @@ class MeOut(UserBrief):
     manager_id: int | None
     is_admin: bool
     is_staff: bool
+    is_high_staff: bool
     has_team: bool
 
 

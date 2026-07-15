@@ -27,6 +27,20 @@ class RoleSlug(StrEnum):
 # members and the technical admin (who sits outside the hierarchy).
 NON_STAFF_ROLES = {RoleSlug.ADMIN, RoleSlug.STUDENT, RoleSlug.COMPETITION_MEMBER}
 
+# "High staff": the leadership tier that manages competitions — every staff role
+# except a plain Employee. (Admin is handled separately via is_admin.)
+HIGH_STAFF_ROLES = {
+    RoleSlug.CEO,
+    RoleSlug.CTO,
+    RoleSlug.CFO,
+    RoleSlug.SOFTWARE_LEAD,
+    RoleSlug.MECHANICAL_LEAD,
+    RoleSlug.ELECTRICAL_LEAD,
+    RoleSlug.MEDIA_MANAGER,
+    RoleSlug.PROJECT_MANAGER,
+    RoleSlug.TEAM_LEAD,
+}
+
 
 class Department(StrEnum):
     SOFTWARE = "software"
@@ -85,3 +99,12 @@ class User(Base):
     def is_staff(self) -> bool:
         """Union across roles: staff if any held role is a staff role."""
         return any(r.is_staff for r in self.roles)
+
+    @property
+    def is_high_staff(self) -> bool:
+        """Leadership tier (or admin) — may manage competitions."""
+        return self.is_admin or bool(self.role_slugs & {r.value for r in HIGH_STAFF_ROLES})
+
+    @property
+    def is_ceo(self) -> bool:
+        return RoleSlug.CEO in self.role_slugs

@@ -1,6 +1,12 @@
 import { Tag } from 'antd';
 
-import type { Priority, RequestStatus, TaskStatus } from '../api/types';
+import type {
+  AllocationPurpose,
+  Condition,
+  Priority,
+  RequestStatus,
+  TaskStatus,
+} from '../api/types';
 
 export const STATUS_META: Record<TaskStatus, { label: string; color: string }> = {
   todo: { label: 'To Do', color: 'default' },
@@ -34,6 +40,32 @@ export function PriorityTag({ priority }: { priority: Priority }) {
 
 export function RequestStatusTag({ status }: { status: RequestStatus }) {
   return <Tag color={REQUEST_COLOR[status] ?? 'default'}>{status.toUpperCase()}</Tag>;
+}
+
+export const PURPOSE_META: Record<AllocationPurpose, { label: string; color: string }> = {
+  training: { label: 'Training', color: 'blue' },
+  competition: { label: 'Competition', color: 'gold' },
+  research: { label: 'R&D', color: 'purple' },
+  borrowed: { label: 'Borrowed', color: 'orange' },
+  other: { label: 'Other', color: 'default' },
+};
+
+const CONDITION_META: Record<Condition, { label: string; color: string }> = {
+  new: { label: 'New', color: 'green' },
+  good: { label: 'Good', color: 'cyan' },
+  fair: { label: 'Fair', color: 'gold' },
+  poor: { label: 'Poor', color: 'orange' },
+  damaged: { label: 'Damaged', color: 'red' },
+};
+
+export function ConditionTag({ condition }: { condition: Condition }) {
+  const meta = CONDITION_META[condition] ?? { label: condition, color: 'default' };
+  return <Tag color={meta.color}>{meta.label}</Tag>;
+}
+
+export function PurposeTag({ purpose }: { purpose: AllocationPurpose }) {
+  const meta = PURPOSE_META[purpose] ?? { label: purpose, color: 'default' };
+  return <Tag color={meta.color}>{meta.label}</Tag>;
 }
 
 export function RoleTags({ roles }: { roles: { slug: string; name: string }[] }) {

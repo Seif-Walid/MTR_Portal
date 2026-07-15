@@ -1,8 +1,9 @@
 # Mind·Tech Robotics — Operations Portal
 
-Standalone internal portal: task management, org-hierarchy-based access control, and
-per-role dashboards. Modular monolith designed so **inventory** and **finance** modules
-can be added later as sibling domains sharing auth, users, and the permission layer.
+Standalone internal portal: task management, **inventory tracking**, org-hierarchy-based
+access control, and per-role dashboards. Modular monolith — **inventory** ships as a
+sibling domain sharing auth, users, and the permission layer; **finance** can be added
+the same way.
 
 **Stack:** FastAPI · SQLAlchemy 2 · Alembic · PostgreSQL · React + TypeScript (Vite) · Ant Design
 
@@ -24,9 +25,72 @@ Everything derives from one data-driven tree (`users.manager_id`):
 - **Multi-role users** hold the union of their roles (one tree node, e.g. CTO + Software Lead).
 - **Admin** is a technical account outside the tree: user management + full access.
 
-Moving a person in the tree (admin → User Management → "Reports to") instantly changes
-who can see and task them. No code or permission changes. All rules are enforced
-server-side in the API; the UI only hides what the API already forbids.
+Moving a person in the tree instantly changes who can see and task them. No code or
+permission changes. All rules are enforced server-side in the API; the UI only hides what
+the API already forbids.
+
+The **Organization** page (`/organization`) is a chart of **positions** (jobs): a title
+with an optional occupant and a parent — a vacant seat still exists. **CEO and Admin** add
+positions, assign occupants, mark a position technical, and drag to re-parent (no cycles,
+single root, leaf-only delete). Assigning or moving a position **derives** each occupant's
+`manager_id`, so the permission engine (which runs on the people tree) stays in sync — one
+editable structure. Every structural change is written to an `OrgAuditLog`. People are still
+given roles/accounts in the admin's **User Management** table.
+
+## Inventory
+
+The portal is the **single source of truth** for equipment. Each item carries a total
+pool (e.g. 100 Arduinos) that is split into **allocations** — chunks checked out to a
+purpose (training, competition, R&D, borrowed, other), optionally labelled (which
+competition/project) and optionally held by a named person. From that the API computes
+**in-use** and **free** counts and a per-purpose breakdown, so a 100-board pool reads as
+*50 training · 30 competition · 10 R&D · 5 borrowed → 5 free*, and you can see that
+*Salma has 2 in R&D and 1 in a competition*.
+
+Access follows the same hierarchy:
+
+- **Staff get full storage** — see every item, create/edit/delete, manage allocations,
+  and push to Google Sheets.
+- **Non-staff (students, competition members) see only their dedicated stuff** — items
+  *designated to a team lead on their manager chain*, read-only. General-storage items
+  (no designation) are invisible to them (404, so existence isn't leaked).
+
+Capacity is guarded server-side: you can't allocate more than is free, and you can't
+shrink an item's total below what's already in use.
+
+**Competitions** are managed by **high staff** (the leadership tier — every staff role
+above a plain employee — plus the admin) on the Competitions page. Each competition has a
+**name**, a **category** (division, e.g. Senior/Junior — a managed list), **dates**, a
+**team** (name), a **team lead**, and **team members** — all edited in one form. A
+competition-purpose inventory allocation links to a competition, so the Holdings matrix
+columns and the Sheets export use its name; competitions referenced by an allocation can't
+be deleted (archive instead).
+
+### Import components from a Google Sheet
+
+Staff can bulk-import inventory from a spreadsheet (Inventory → **Import from Sheet**):
+paste the Sheet link, preview the detected columns, map them to item fields (name is
+required; quantity/category/unit/location/asset-tag/condition optional), optionally
+dedicate everything to a team, and import. Re-running upserts (matched by asset tag, then
+name) so it's safe to import repeatedly. The sheet must be shared with the service account
+(same key as the sync below).
+
+### Google Sheets mirror (app is king)
+
+"Sync to Sheets" (staff only) overwrites a linked spreadsheet with the current
+inventory snapshot — total / in-use / free / usage breakdown / holders per item — so
+anyone who prefers a spreadsheet can read it, while real edits always happen in the
+portal. It's optional and degrades gracefully: without credentials the button is
+disabled. To enable, set in `backend/.env`:
+
+```
+GOOGLE_SHEETS_CREDENTIALS_FILE=/path/to/service-account.json
+GOOGLE_SHEETS_SPREADSHEET_ID=<the id from the sheet URL>
+GOOGLE_SHEETS_WORKSHEET=Inventory
+```
+
+Create a Google Cloud **service account**, download its JSON key, enable the Google
+Sheets API, and **share the target spreadsheet with the service account's email**.
 
 ## Quick start
 
@@ -46,9 +110,16 @@ py -3.13 -m venv .venv
 .venv\Scripts\pip install -r requirements-dev.txt
 copy .env.example .env
 .venv\Scripts\alembic upgrade head        # apply migrations
-.venv\Scripts\python -m app.seed          # seed roles + demo org
+.venv\Scripts\python -m app.seed          # roles + one admin account (real-ready)
 .venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
 ```
+
+`python -m app.seed` seeds a **clean, real-ready database**: the roles plus a single
+technical-admin login (email/password overridable via `SEED_ADMIN_EMAIL` /
+`SEED_ADMIN_PASSWORD`, default `admin@org.local` / `portal123` — change these for a real
+deployment). You then add real users, teams, and inventory through the app — nothing is
+hardcoded. To load the sample org for exploring/testing instead, run
+`python -m app.seed --demo`.
 
 ### 3. Frontend
 
@@ -58,11 +129,17 @@ npm install
 npm run dev                   # http://localhost:5173 (proxies /api to :8000)
 ```
 
-### Seeded logins (password: `portal123`)
+### Default login
+
+The clean seed creates one account — `admin@org.local` (password `portal123`) — the
+technical admin, from which you create everyone else in User Management.
+
+### Demo logins (`--demo` only, password: `portal123`)
+
+Running `python -m app.seed --demo` adds a sample org for exploration:
 
 | Email | Who |
 |---|---|
-| `admin@org.local` | Technical admin (user management) |
 | `ceo@org.local` | CEO — sees everything |
 | `cto@org.local` | **Multi-role**: CTO + Software Lead |
 | `mech.lead@org.local` | Mechanical Lead |
@@ -71,8 +148,9 @@ npm run dev                   # http://localhost:5173 (proxies /api to :8000)
 | `teamlead@org.local` | Team Lead (under PM) |
 | `student@org.local` | Student (under Team Lead) |
 
-Also seeded: `cfo@`, `media@`, `elec.lead@`, `mech.emp@`, `elec.emp@`, `media.emp@`,
-`fin.emp@`, `comp@` — all `@org.local`.
+Also seeded by `--demo`: `cfo@`, `media@`, `elec.lead@`, `mech.emp@`, `elec.emp@`,
+`media.emp@`, `fin.emp@`, `comp@` — all `@org.local` — plus sample tasks, a request, and
+the 100-Arduino inventory example.
 
 ## Accounts & sign-in
 
@@ -110,10 +188,14 @@ cd backend
 .venv\Scripts\python -m pytest tests -q
 ```
 
-32 tests cover the permission layer: assignment allowed/denied (down, up, across,
+81 tests cover the permission layer: assignment allowed/denied (down, up, across,
 self), subtree visibility and drill-down, request accept/decline/delegate, status
 workflow rights (assignee vs. reviewer), multi-role union, hierarchy moves and
-cycle rejection.
+cycle rejection; inventory scoping (staff vs. designated-team visibility, sync
+gating), allocation capacity math, over-allocation/shrink guards, and the
+who-holds-what breakdown; competition CRUD + allocation linkage, categories, team +
+lead + members, and the high-staff gate; Google Sheet import (mocked) with upsert;
+and the org tree with admin/CEO-wide and subtree-scoped user management.
 
 ## Project layout
 
@@ -128,7 +210,8 @@ backend/
       tasks/               tasks, workflow, attachments
       requests/            up/across requests -> spawned tasks
       notifications/       in-app notifications
-      (inventory/)         future module — same pattern
+      inventory/           items + allocations, capacity, Sheets sync + import
+      competitions/        first-class competitions linked from allocations
       (finance/)           future module — same pattern
     seed.py
   alembic/                 migrations
@@ -137,8 +220,9 @@ frontend/
   src/
     api/                   typed REST client
     auth/                  session context
-    components/            layout, task drawer, modals, notification bell
-    pages/                 Tasks, Requests, Team, Admin Users, Login
+    components/            layout, task/inventory drawers, modals, notification bell
+    pages/                 Tasks, Inventory, Competitions, Requests, Team,
+                           Organization (org-tree), Admin Users, Login
 ```
 
 ## API surface (all under `/api`)
@@ -147,7 +231,14 @@ frontend/
 - `GET/POST /tasks` · `GET/PATCH /tasks/{id}` · `PATCH /tasks/{id}/status`
   · `POST /tasks/{id}/attachments` · `GET /tasks/attachments/{id}`
 - `GET/POST /requests` · `POST /requests/{id}/accept` · `POST /requests/{id}/decline`
+- `GET/POST /inventory` · `GET/PATCH/DELETE /inventory/{id}` — items (scoped by role)
+  · `POST /inventory/{id}/allocations` · `PATCH/DELETE /inventory/allocations/{id}`
+  · `GET /inventory/holders` · `GET /inventory/sheets/status` · `POST /inventory/sync`
+  · `POST /inventory/import/preview` · `POST /inventory/import`
+- `GET/POST /competitions` · `GET/PATCH/DELETE /competitions/{id}` — competitions (team + lead)
+  · `GET/POST /competitions/categories` · `POST/DELETE /competitions/{id}/members`
 - `GET /team` — subtree members with per-status task counts
+- `GET /team/tree` — nested org chart (admin: whole org; others: own subtree)
 - `GET /users/assignable` (my subtree) · `GET /users/staff` (request recipients)
 - `GET/POST/PATCH /users` — admin only
 - `GET /notifications` · `GET /notifications/unread-count` · `POST /notifications/mark-read`
