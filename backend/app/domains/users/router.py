@@ -44,6 +44,14 @@ def assignable_users(db: DB, user: CurrentUser) -> list[UserBrief]:
     return [UserBrief.model_validate(u) for u in db.scalars(query.order_by(User.full_name))]
 
 
+@router.get("/directory")
+def directory(db: DB, user: CurrentUser) -> list[UserBrief]:
+    """Active users, for people-pickers (e.g. competition team members). Any
+    signed-in user may read it — a scoped team lead needs it to add members."""
+    users = db.scalars(select(User).where(User.is_active).order_by(User.full_name))
+    return [UserBrief.model_validate(u) for u in users]
+
+
 @router.get("/staff")
 def staff_users(db: DB, user: CurrentUser) -> list[UserBrief]:
     """Valid request recipients: active staff users the current user cannot

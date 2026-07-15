@@ -97,16 +97,10 @@ export type AllocationPurpose =
 
 export type CompetitionStatus = 'active' | 'archived';
 
-export interface CompetitionCategory {
-  id: number;
-  name: string;
-}
-
 export interface CompetitionBrief {
   id: number;
   name: string;
   status: CompetitionStatus;
-  category: CompetitionCategory | null;
 }
 
 export interface CompetitionMember {
@@ -114,19 +108,35 @@ export interface CompetitionMember {
   user: UserBrief;
 }
 
+export interface CompetitionTeam {
+  id: number;
+  name: string;
+  lead: UserBrief | null;
+  members: CompetitionMember[];
+  can_manage_members: boolean;
+}
+
+export interface CompetitionCategory {
+  id: number;
+  name: string;
+  teams: CompetitionTeam[];
+}
+
 export interface Competition extends CompetitionBrief {
+  description: string;
   start_date: string | null;
   end_date: string | null;
-  notes: string;
-  team_name: string | null;
-  team_lead: UserBrief | null;
+  created_at: string;
+  pms: UserBrief[];
+  category_count: number;
+  team_count: number;
   member_count: number;
   allocation_count: number;
-  created_at: string;
+  can_manage: boolean;
 }
 
 export interface CompetitionDetail extends Competition {
-  members: CompetitionMember[];
+  categories: CompetitionCategory[];
 }
 
 export interface Allocation {

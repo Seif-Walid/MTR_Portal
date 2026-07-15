@@ -27,8 +27,10 @@ from app.core.security import hash_password
 from app.domains.competitions.models import (
     Competition,
     CompetitionCategory,
-    CompetitionMember,
+    CompetitionPM,
     CompetitionStatus,
+    CompetitionTeam,
+    CompetitionTeamMember,
 )
 from app.domains.inventory.models import (
     AllocationPurpose,
@@ -119,22 +121,26 @@ def seed_inventory(db: Session, team_lead: User, student: User, borrower: User) 
     if db.scalar(select(InventoryItem).where(InventoryItem.name == "Arduino Uno R3")):
         return
 
-    # first-class competitions the allocations link to — each with a category,
-    # a team (name + lead) and members
-    senior = CompetitionCategory(name="Senior")
-    db.add(senior)
-    db.flush()
-    robocup = Competition(
-        name="RoboCup 2026", category_id=senior.id, team_name="Robotics A",
-        team_lead_id=team_lead.id, status=CompetitionStatus.ACTIVE,
-    )
-    vex = Competition(
-        name="VEX Worlds 2026", category_id=senior.id, team_name="Robotics B",
-        status=CompetitionStatus.ACTIVE,
-    )
+    # competitions the allocations link to — RoboCup has the full nesting:
+    # PM → category (Senior) → team (Robotics A, led by the team lead) → members
+    robocup = Competition(name="RoboCup 2026", status=CompetitionStatus.ACTIVE,
+                          description="Annual robotics championship.")
+    vex = Competition(name="VEX Worlds 2026", status=CompetitionStatus.ACTIVE)
     db.add_all([robocup, vex])
     db.flush()
-    db.add(CompetitionMember(competition_id=robocup.id, user_id=student.id))
+    pm = db.scalar(select(User).where(User.email == "pm@org.local"))
+    if pm is not None:
+        db.add(CompetitionPM(competition_id=robocup.id, user_id=pm.id))
+    senior = CompetitionCategory(competition_id=robocup.id, name="Senior")
+    db.add(senior)
+    db.flush()
+    team_a = CompetitionTeam(category_id=senior.id, name="Robotics A", lead_id=team_lead.id)
+    db.add(team_a)
+    db.flush()
+    db.add(CompetitionTeamMember(team_id=team_a.id, user_id=student.id))
+    comp_member = db.scalar(select(User).where(User.email == "comp@org.local"))
+    if comp_member is not None:
+        db.add(CompetitionTeamMember(team_id=team_a.id, user_id=comp_member.id))
 
     arduino = InventoryItem(
         name="Arduino Uno R3",

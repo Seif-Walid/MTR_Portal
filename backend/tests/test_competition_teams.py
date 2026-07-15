@@ -1,80 +1,69 @@
-"""Competition category, single team (name + lead), members, and the high-staff gate."""
+"""Competition nesting (category → team → members) and team-lead scoping."""
 
 
-def _category(login, who="cto", name="Senior"):
-    return login(who).post("/api/competitions/categories", json={"name": name})
+def _comp(login, who="cto", name="C"):
+    return login(who).post("/api/competitions", json={"name": name})
 
 
-def _competition(login, who="cto", name="RoboCup 2026", **over):
+def _category(login, cid, who="cto", name="Senior"):
+    return login(who).post(f"/api/competitions/{cid}/categories", json={"name": name})
+
+
+def _team(login, cat_id, who="cto", name="Team A", **over):
     body = {"name": name}
     body.update(over)
-    return login(who).post("/api/competitions", json=body)
+    return login(who).post(f"/api/competitions/categories/{cat_id}/teams", json=body)
 
 
-def test_only_high_staff_can_manage(login, org):
-    # CTO (leadership) can; a plain Employee and non-staff cannot
-    assert _competition(login, "cto").status_code == 201
-    assert _competition(login, "sw_emp", name="X").status_code == 403  # employee = not high staff
-    assert _competition(login, "student", name="Y").status_code == 403
+def test_full_nesting(login, org):
+    cid = _comp(login, "cto").json()["id"]
+    cat = _category(login, cid).json()
+    team = _team(login, cat["id"], lead_id=org["team_lead"].id).json()
+    assert team["lead"]["id"] == org["team_lead"].id
+
+    login("cto").post(f"/api/competitions/teams/{team['id']}/members", json={"user_id": org["student"].id})
+    r = login("cto").post(f"/api/competitions/teams/{team['id']}/members", json={"user_id": org["comp_member"].id})
+    assert {m["user"]["id"] for m in r.json()["members"]} == {org["student"].id, org["comp_member"].id}
+
+    detail = login("cto").get(f"/api/competitions/{cid}").json()
+    assert detail["category_count"] == 1 and detail["team_count"] == 1 and detail["member_count"] == 2
+    assert detail["categories"][0]["teams"][0]["name"] == "Team A"
 
 
-def test_categories_crud(login, org):
-    assert _category(login, "cto", "Senior").status_code == 201
-    assert _category(login, "cto", "Senior").status_code == 409  # duplicate
-    assert _category(login, "sw_emp", "Junior").status_code == 403  # employee blocked
-    assert "Senior" in {c["name"] for c in login("cto").get("/api/competitions/categories").json()}
+def test_team_lead_manages_only_their_team(login, org):
+    cid = _comp(login, "cto").json()["id"]
+    cat = _category(login, cid).json()
+    # the student is the scoped lead of Team A (a non-staff member leading a team)
+    team_a = _team(login, cat["id"], name="A", lead_id=org["student"].id).json()
+    team_b = _team(login, cat["id"], name="B").json()
 
-
-def test_competition_carries_team_fields(login, org):
-    cat_id = _category(login, "cto", "Senior").json()["id"]
-    comp = _competition(
-        login, "cto", category_id=cat_id, team_name="Robotics A", team_lead_id=org["team_lead"].id
-    ).json()
-    assert comp["category"]["name"] == "Senior"
-    assert comp["team_name"] == "Robotics A"
-    assert comp["team_lead"]["id"] == org["team_lead"].id
-    detail = login("cto").get(f"/api/competitions/{comp['id']}").json()
-    assert detail["team_name"] == "Robotics A"
-    assert detail["members"] == []
-
-
-def test_members_add_remove(login, org):
-    comp_id = _competition(login, "cto").json()["id"]
-    login("cto").post(f"/api/competitions/{comp_id}/members", json={"user_id": org["student"].id})
-    r = login("cto").post(
-        f"/api/competitions/{comp_id}/members", json={"user_id": org["comp_member"].id}
-    )
-    ids = {m["user"]["id"] for m in r.json()["members"]}
-    assert ids == {org["student"].id, org["comp_member"].id}
-
-    # idempotent
-    r = login("cto").post(f"/api/competitions/{comp_id}/members", json={"user_id": org["student"].id})
-    assert len(r.json()["members"]) == 2
-
-    d = login("cto").get(f"/api/competitions/{comp_id}").json()
-    assert d["member_count"] == 2
-
-    assert login("cto").delete(
-        f"/api/competitions/{comp_id}/members/{org['student'].id}"
-    ).status_code == 204
-    assert login("cto").get(f"/api/competitions/{comp_id}").json()["member_count"] == 1
-
-
-def test_clear_team_lead(login, org):
-    comp_id = _competition(login, "cto", team_lead_id=org["team_lead"].id).json()["id"]
-    r = login("cto").patch(f"/api/competitions/{comp_id}", json={"clear_team_lead": True})
-    assert r.status_code == 200 and r.json()["team_lead"] is None
-
-
-def test_delete_cascades_members(login, org):
-    comp_id = _competition(login, "cto").json()["id"]
-    login("cto").post(f"/api/competitions/{comp_id}/members", json={"user_id": org["student"].id})
-    assert login("cto").delete(f"/api/competitions/{comp_id}").status_code == 204
-    assert login("cto").get(f"/api/competitions/{comp_id}").status_code == 404
-
-
-def test_member_management_blocked_for_non_high_staff(login, org):
-    comp_id = _competition(login, "cto").json()["id"]
-    assert login("sw_emp").post(
-        f"/api/competitions/{comp_id}/members", json={"user_id": org["student"].id}
+    # lead of A may add members to A
+    assert login("student").post(
+        f"/api/competitions/teams/{team_a['id']}/members", json={"user_id": org["comp_member"].id}
+    ).status_code == 201
+    # but not to team B, and not to the competition structure
+    assert login("student").post(
+        f"/api/competitions/teams/{team_b['id']}/members", json={"user_id": org["comp_member"].id}
     ).status_code == 403
+    assert login("student").post(
+        f"/api/competitions/{cid}/categories", json={"name": "X"}
+    ).status_code == 403
+
+
+def test_can_manage_flags_reflect_scope(login, org):
+    cid = _comp(login, "cto").json()["id"]
+    cat = _category(login, cid).json()
+    _team(login, cat["id"], name="A", lead_id=org["student"].id)
+    # the student sees can_manage_members only on their own team
+    detail = login("student").get(f"/api/competitions/{cid}").json()
+    team = detail["categories"][0]["teams"][0]
+    assert detail["can_manage"] is False  # not a PM/high-staff
+    assert team["can_manage_members"] is True  # but leads this team
+
+
+def test_delete_competition_cascades(login, org):
+    cid = _comp(login, "cto").json()["id"]
+    cat = _category(login, cid).json()
+    _team(login, cat["id"])
+    assert login("cto").delete(f"/api/competitions/{cid}").status_code == 204
+    assert login("cto").get(f"/api/competitions/{cid}").status_code == 404

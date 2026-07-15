@@ -221,10 +221,7 @@ export default function InventoryItemDrawer({
                       showSearch
                       optionFilterProp="label"
                       placeholder={competitions.length ? 'Pick a competition' : 'No competitions yet — add one first'}
-                      options={competitions.map((c) => ({
-                        value: c.id,
-                        label: c.category ? `${c.name} (${c.category.name})` : c.name,
-                      }))}
+                      options={competitions.map((c) => ({ value: c.id, label: c.name }))}
                       notFoundContent="Add competitions on the Competitions page"
                     />
                   </Form.Item>

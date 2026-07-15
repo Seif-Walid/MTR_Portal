@@ -58,13 +58,18 @@ Access follows the same hierarchy:
 Capacity is guarded server-side: you can't allocate more than is free, and you can't
 shrink an item's total below what's already in use.
 
-**Competitions** are managed by **high staff** (the leadership tier — every staff role
-above a plain employee — plus the admin) on the Competitions page. Each competition has a
-**name**, a **category** (division, e.g. Senior/Junior — a managed list), **dates**, a
-**team** (name), a **team lead**, and **team members** — all edited in one form. A
-competition-purpose inventory allocation links to a competition, so the Holdings matrix
-columns and the Sheets export use its name; competitions referenced by an allocation can't
-be deleted (archive instead).
+**Competitions** nest `Competition → Category → Team → members`. Expand a competition to
+add categories, add teams under a category, appoint a team lead, and assign members.
+Authority is **scoped to the competition**, not global:
+
+- **High staff** create competitions and appoint the **Project Managers** (the creator is
+  auto-made a PM, so there's always one).
+- A **PM** (or admin/CEO) runs that competition's structure — categories, teams, leads.
+- A **Team Lead** manages only their own team's members (a lead can be a non-staff member).
+
+Being a lead/PM in one competition grants nothing in another. A competition-purpose
+inventory allocation links to a competition (its name flows to the Holdings matrix and
+Sheets); a competition referenced by an allocation can't be deleted — archive it instead.
 
 ### Import components from a Google Sheet
 
@@ -188,14 +193,14 @@ cd backend
 .venv\Scripts\python -m pytest tests -q
 ```
 
-81 tests cover the permission layer: assignment allowed/denied (down, up, across,
+84 tests cover the permission layer: assignment allowed/denied (down, up, across,
 self), subtree visibility and drill-down, request accept/decline/delegate, status
 workflow rights (assignee vs. reviewer), multi-role union, hierarchy moves and
-cycle rejection; inventory scoping (staff vs. designated-team visibility, sync
-gating), allocation capacity math, over-allocation/shrink guards, and the
-who-holds-what breakdown; competition CRUD + allocation linkage, categories, team +
-lead + members, and the high-staff gate; Google Sheet import (mocked) with upsert;
-and the org tree with admin/CEO-wide and subtree-scoped user management.
+cycle rejection; inventory scoping, allocation capacity math, over-allocation/shrink
+guards, and the who-holds-what breakdown; competition nesting with competition-scoped
+PM / team-lead authority (a lead touches only their team); Google Sheet import (mocked)
+with upsert; the **Positions** org tree (single root, no cycles, occupant→manager
+derivation with vacant-seat skip, audit log); and admin/CEO-wide user management.
 
 ## Project layout
 
@@ -235,8 +240,11 @@ frontend/
   · `POST /inventory/{id}/allocations` · `PATCH/DELETE /inventory/allocations/{id}`
   · `GET /inventory/holders` · `GET /inventory/sheets/status` · `POST /inventory/sync`
   · `POST /inventory/import/preview` · `POST /inventory/import`
-- `GET/POST /competitions` · `GET/PATCH/DELETE /competitions/{id}` — competitions (team + lead)
-  · `GET/POST /competitions/categories` · `POST/DELETE /competitions/{id}/members`
+- `GET/POST /competitions` · `GET/PATCH/DELETE /competitions/{id}` (nested detail)
+  · `POST/DELETE /competitions/{id}/pms` · `POST /competitions/{id}/categories`
+  · `DELETE /competitions/categories/{id}` · `POST /competitions/categories/{id}/teams`
+  · `PATCH/DELETE /competitions/teams/{id}` · `POST/DELETE /competitions/teams/{id}/members`
+- `GET /org/tree` · `POST /org/positions` · `PATCH/DELETE /org/positions/{id}` · `GET /org/audit`
 - `GET /team` — subtree members with per-status task counts
 - `GET /team/tree` — nested org chart (admin: whole org; others: own subtree)
 - `GET /users/assignable` (my subtree) · `GET /users/staff` (request recipients)

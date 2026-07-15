@@ -6,22 +6,29 @@ from app.domains.competitions.models import CompetitionStatus
 from app.domains.users.schemas import UserBrief
 
 
+class MemberOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user: UserBrief
+
+
+class TeamOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    lead: UserBrief | None
+    members: list[MemberOut] = []
+    can_manage_members: bool = False  # for the current user
+
+
 class CategoryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     name: str
-
-
-class CategoryCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
-
-
-class MemberOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int  # membership row id
-    user: UserBrief
+    teams: list[TeamOut] = []
 
 
 class CompetitionBrief(BaseModel):
@@ -30,47 +37,59 @@ class CompetitionBrief(BaseModel):
     id: int
     name: str
     status: str
-    category: CategoryOut | None = None
 
 
 class CompetitionOut(CompetitionBrief):
+    description: str
     start_date: date | None
     end_date: date | None
-    notes: str
-    team_name: str | None
-    team_lead: UserBrief | None
+    created_at: datetime
+    pms: list[UserBrief] = []
+    category_count: int = 0
+    team_count: int = 0
     member_count: int = 0
     allocation_count: int = 0
-    created_at: datetime
+    can_manage: bool = False  # for the current user
 
 
 class CompetitionDetailOut(CompetitionOut):
-    members: list[MemberOut] = []
+    categories: list[CategoryOut] = []
 
 
 class CompetitionCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    category_id: int | None = None
+    description: str = ""
     start_date: date | None = None
     end_date: date | None = None
-    team_name: str | None = Field(default=None, max_length=255)
-    team_lead_id: int | None = None
-    notes: str = ""
 
 
 class CompetitionEdit(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    category_id: int | None = None
-    clear_category: bool = False
+    description: str | None = None
     start_date: date | None = None
     end_date: date | None = None
     clear_start_date: bool = False
     clear_end_date: bool = False
-    team_name: str | None = Field(default=None, max_length=255)
-    team_lead_id: int | None = None
-    clear_team_lead: bool = False
     status: CompetitionStatus | None = None
-    notes: str | None = None
+
+
+class PMAdd(BaseModel):
+    user_id: int
+
+
+class CategoryCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class TeamCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    lead_id: int | None = None
+
+
+class TeamEdit(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    lead_id: int | None = None
+    clear_lead: bool = False
 
 
 class MemberAdd(BaseModel):
