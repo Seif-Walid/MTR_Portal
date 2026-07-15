@@ -1,8 +1,10 @@
 import {
   CloudUploadOutlined,
+  EnvironmentOutlined,
   ImportOutlined,
   PlusOutlined,
   ReloadOutlined,
+  SendOutlined,
 } from '@ant-design/icons';
 import { Button, Popover, Space, Table, Tag, Tooltip, Typography, message } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
@@ -13,6 +15,8 @@ import type { InventoryItem, SheetsStatus } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import ImportFromSheetModal from '../components/ImportFromSheetModal';
 import InventoryItemDrawer from '../components/InventoryItemDrawer';
+import InventoryRequestsDrawer from '../components/InventoryRequestsDrawer';
+import LocationsModal from '../components/LocationsModal';
 import NewInventoryItemModal from '../components/NewInventoryItemModal';
 import { ConditionTag } from '../components/tags';
 import UsageBreakdown from '../components/UsageBreakdown';
@@ -23,6 +27,8 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [locationsOpen, setLocationsOpen] = useState(false);
+  const [requestsOpen, setRequestsOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [sheets, setSheets] = useState<SheetsStatus | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -69,8 +75,16 @@ export default function InventoryPage() {
           {!canManage && <Tag color="geekblue">Your team's equipment</Tag>}
           <Button icon={<ReloadOutlined />} onClick={load} />
         </Space>
-        {canManage && (
-          <Space wrap>
+        <Space wrap>
+          <Button icon={<SendOutlined />} onClick={() => setRequestsOpen(true)}>
+            Requests
+          </Button>
+          {canManage && (
+            <Button icon={<EnvironmentOutlined />} onClick={() => setLocationsOpen(true)}>
+              Locations
+            </Button>
+          )}
+          {canManage && (
             <Tooltip
               title={
                 sheets && !sheets.credentials
@@ -86,6 +100,8 @@ export default function InventoryPage() {
                 Import from Sheet
               </Button>
             </Tooltip>
+          )}
+          {canManage && (
             <Tooltip
               title={
                 sheets && !sheets.configured
@@ -102,11 +118,13 @@ export default function InventoryPage() {
                 Sync to Sheets
               </Button>
             </Tooltip>
+          )}
+          {canManage && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
               Add item
             </Button>
-          </Space>
-        )}
+          )}
+        </Space>
       </Space>
 
       <Table
@@ -124,7 +142,10 @@ export default function InventoryPage() {
             dataIndex: 'name',
             render: (_, i) => (
               <div>
-                <Typography.Text strong>{i.name}</Typography.Text>
+                <Space size={6}>
+                  <Typography.Text strong>{i.name}</Typography.Text>
+                  {i.quantity <= i.low_stock_threshold && <Tag color="red">LOW</Tag>}
+                </Space>
                 {i.category && (
                   <div>
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -194,11 +215,13 @@ export default function InventoryPage() {
       />
 
       <NewInventoryItemModal open={creating} onClose={() => setCreating(false)} onCreated={load} />
+      <InventoryRequestsDrawer open={requestsOpen} onClose={() => setRequestsOpen(false)} />
       <ImportFromSheetModal
         open={importing}
         onClose={() => setImporting(false)}
         onImported={load}
       />
+      <LocationsModal open={locationsOpen} onClose={() => setLocationsOpen(false)} />
       <InventoryItemDrawer
         itemId={openItemId}
         onClose={() => setSearchParams({})}

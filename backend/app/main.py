@@ -5,6 +5,7 @@ from app.core.config import settings
 from app.domains.auth.router import router as auth_router
 from app.domains.competitions.router import router as competitions_router
 from app.domains.hierarchy.router import router as team_router
+from app.domains.inventory.requests_router import router as inventory_requests_router
 from app.domains.inventory.router import router as inventory_router
 from app.domains.notifications.router import router as notifications_router
 from app.domains.positions.router import router as positions_router
@@ -31,6 +32,11 @@ for domain_router in (
     requests_router,
     team_router,
     notifications_router,
+    # inventory_requests_router's literal "/inventory/requests" path must be
+    # registered before inventory_router's dynamic "/inventory/{item_id}", or
+    # Starlette matches the dynamic route first and "requests" gets parsed as
+    # an item_id.
+    inventory_requests_router,
     inventory_router,
     competitions_router,
     positions_router,

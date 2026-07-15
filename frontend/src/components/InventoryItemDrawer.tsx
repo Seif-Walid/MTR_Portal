@@ -1,4 +1,4 @@
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
 import {
   Button,
   Col,
@@ -28,8 +28,10 @@ import type {
 } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import HoldingsMatrix from './HoldingsMatrix';
+import RequestUnitsModal from './RequestUnitsModal';
 import { ConditionTag, PURPOSE_META, PurposeTag } from './tags';
 import UsageBreakdown from './UsageBreakdown';
+import WhereaboutsPanel from './WhereaboutsPanel';
 
 const PURPOSES: AllocationPurpose[] = ['training', 'competition', 'research', 'borrowed', 'other'];
 
@@ -49,6 +51,7 @@ export default function InventoryItemDrawer({
   const [allocForm] = Form.useForm();
   const allocPurpose = Form.useWatch('purpose', allocForm) as AllocationPurpose | undefined;
   const [busy, setBusy] = useState(false);
+  const [requesting, setRequesting] = useState(false);
 
   const canManage = !!me && (me.is_staff || me.is_admin);
 
@@ -126,12 +129,18 @@ export default function InventoryItemDrawer({
     <Drawer open={itemId !== null} onClose={onClose} width={600} title={item?.name ?? 'Item'}>
       {item && (
         <>
-          <Space wrap>
-            {item.category && <Tag>{item.category}</Tag>}
-            <ConditionTag condition={item.condition} />
-            <Tag color={item.team_lead ? 'geekblue' : 'default'}>
-              {item.team_lead ? `Team: ${item.team_lead.full_name}` : 'General storage'}
-            </Tag>
+          <Space wrap style={{ width: '100%', justifyContent: 'space-between' }}>
+            <Space wrap>
+              {item.category && <Tag>{item.category}</Tag>}
+              <ConditionTag condition={item.condition} />
+              <Tag color={item.team_lead ? 'geekblue' : 'default'}>
+                {item.team_lead ? `Team: ${item.team_lead.full_name}` : 'General storage'}
+              </Tag>
+              {item.quantity <= item.low_stock_threshold && <Tag color="red">LOW STOCK</Tag>}
+            </Space>
+            <Button size="small" icon={<SendOutlined />} onClick={() => setRequesting(true)}>
+              Request units
+            </Button>
           </Space>
 
           <Row gutter={16} style={{ marginTop: 20 }}>
@@ -155,6 +164,9 @@ export default function InventoryItemDrawer({
 
           <Divider plain>Holdings — who has what, by activity</Divider>
           <HoldingsMatrix item={item} />
+
+          <Divider plain>Whereabouts — where the stock physically is</Divider>
+          <WhereaboutsPanel item={item} canManage={canManage} />
 
           <Descriptions column={1} size="small" style={{ marginTop: 16 }}>
             {item.asset_tag && (
@@ -260,6 +272,14 @@ export default function InventoryItemDrawer({
             </>
           )}
         </>
+      )}
+      {item && (
+        <RequestUnitsModal
+          item={item}
+          open={requesting}
+          onClose={() => setRequesting(false)}
+          onRequested={() => refresh(item.id)}
+        />
       )}
     </Drawer>
   );
