@@ -11,6 +11,7 @@ from app.domains.inventory.router import router as inventory_router
 from app.domains.notifications.router import router as notifications_router
 from app.domains.positions.router import router as positions_router
 from app.domains.requests.router import router as requests_router
+from app.domains.sync.router import router as sync_router
 from app.domains.tasks.router import router as tasks_router
 from app.domains.users.router import router as users_router
 
@@ -42,6 +43,7 @@ for domain_router in (
     competitions_router,
     positions_router,
     audit_router,
+    sync_router,
 ):
     app.include_router(domain_router, prefix="/api")
 

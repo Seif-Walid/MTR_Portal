@@ -14,6 +14,7 @@ from app.domains.inventory import models as _inventory  # noqa: F401
 from app.domains.notifications import models as _notifications  # noqa: F401
 from app.domains.positions import models as _positions  # noqa: F401
 from app.domains.requests import models as _requests  # noqa: F401
+from app.domains.sync import models as _sync  # noqa: F401
 from app.domains.tasks import models as _tasks  # noqa: F401
 from app.domains.users import models as _users  # noqa: F401
 

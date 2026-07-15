@@ -2,6 +2,7 @@ import {
   ApartmentOutlined,
   AuditOutlined,
   CheckSquareOutlined,
+  CloudSyncOutlined,
   GoogleOutlined,
   InboxOutlined,
   LogoutOutlined,
@@ -52,6 +53,8 @@ export default function AppLayout() {
 
   if (!me) return null;
 
+  const isOrgManager = me.is_admin || me.roles.some((r) => r.slug === 'ceo');
+
   const items = [
     { key: '/tasks', icon: <CheckSquareOutlined />, label: 'My Tasks' },
     { key: '/inventory', icon: <InboxOutlined />, label: 'Inventory' },
@@ -68,6 +71,9 @@ export default function AppLayout() {
       : []),
     ...(me.is_admin
       ? [{ key: '/admin/audit', icon: <AuditOutlined />, label: 'Audit Log' }]
+      : []),
+    ...(isOrgManager
+      ? [{ key: '/admin/sync', icon: <CloudSyncOutlined />, label: 'Data Sync' }]
       : []),
   ];
 
