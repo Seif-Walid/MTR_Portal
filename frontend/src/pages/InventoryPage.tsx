@@ -85,21 +85,9 @@ export default function InventoryPage() {
             </Button>
           )}
           {canManage && (
-            <Tooltip
-              title={
-                sheets && !sheets.credentials
-                  ? 'Google Sheets is not configured on the server'
-                  : 'Import components from a Google Sheet'
-              }
-            >
-              <Button
-                icon={<ImportOutlined />}
-                disabled={!sheets?.credentials}
-                onClick={() => setImporting(true)}
-              >
-                Import from Sheet
-              </Button>
-            </Tooltip>
+            <Button icon={<ImportOutlined />} onClick={() => setImporting(true)}>
+              Import components
+            </Button>
           )}
           {canManage && (
             <Tooltip
