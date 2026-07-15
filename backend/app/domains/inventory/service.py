@@ -15,17 +15,21 @@ def can_manage_inventory(user: User) -> bool:
 
 def visible_items_query(db: Session, user: User):
     """Staff see the full storage; non-staff see only equipment designated to a
-    team lead on their manager chain (their dedicated stuff)."""
+    team lead on their manager chain (their dedicated stuff). Soft-deleted
+    items never appear through the normal API."""
+    base = select(InventoryItem).where(InventoryItem.deleted_at.is_(None))
     if can_manage_inventory(user):
-        return select(InventoryItem)
+        return base
     teams = ancestor_ids(db, user.id, include_self=True)
     if not teams:
         # no team → nothing designated to them
-        return select(InventoryItem).where(InventoryItem.id.is_(None))
-    return select(InventoryItem).where(InventoryItem.team_lead_id.in_(teams))
+        return base.where(InventoryItem.id.is_(None))
+    return base.where(InventoryItem.team_lead_id.in_(teams))
 
 
 def can_view_item(db: Session, user: User, item: InventoryItem) -> bool:
+    if item.deleted_at is not None:
+        return False
     if can_manage_inventory(user):
         return True
     if item.team_lead_id is None:

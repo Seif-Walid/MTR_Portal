@@ -1,5 +1,5 @@
 import { CrownOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Card, Divider, Empty, Input, Select, Space, Tag, Typography, message } from 'antd';
+import { Button, Card, Divider, Empty, Input, Popconfirm, Select, Space, Tag, Typography, message } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
@@ -20,10 +20,11 @@ async function run(p: Promise<unknown>, ok: string, after: () => void) {
   }
 }
 
-function TeamCard({ team, dir, canManageComp, onChanged }: {
+function TeamCard({ team, dir, canManageComp, isAdmin, onChanged }: {
   team: CompetitionTeam;
   dir: UserBrief[];
   canManageComp: boolean;
+  isAdmin: boolean;
   onChanged: () => void;
 }) {
   const [memberId, setMemberId] = useState<number>();
@@ -52,8 +53,22 @@ function TeamCard({ team, dir, canManageComp, onChanged }: {
               value={team.lead?.id} options={opts(dir)}
               onChange={(v) => run(api.patch(`/api/competitions/teams/${team.id}`, { lead_id: v }), 'Lead appointed', onChanged)}
             />
-            <Button size="small" danger icon={<DeleteOutlined />}
-              onClick={() => run(api.delete(`/api/competitions/teams/${team.id}`), 'Team removed', onChanged)} />
+            <Popconfirm
+              title="Remove this team?"
+              description="It's kept for history but hidden everywhere."
+              onConfirm={() => run(api.delete(`/api/competitions/teams/${team.id}`), 'Team removed', onChanged)}
+            >
+              <Button size="small" danger icon={<DeleteOutlined />} />
+            </Popconfirm>
+            {isAdmin && (
+              <Popconfirm
+                title="Permanently delete this team?"
+                description="Really removes it and its member history. Admin-only."
+                onConfirm={() => run(api.delete(`/api/competitions/teams/${team.id}?permanent=true`), 'Team permanently deleted', onChanged)}
+              >
+                <Button size="small" danger type="text" icon={<DeleteOutlined />} title="Permanently delete (admin)" />
+              </Popconfirm>
+            )}
           </Space>
         )
       }
@@ -95,6 +110,7 @@ export default function CompetitionDetailPanel({ competitionId, onChanged }: {
   const [teamNames, setTeamNames] = useState<Record<number, string>>({});
 
   const isHighStaff = !!me?.is_high_staff;
+  const isAdmin = !!me?.is_admin;
 
   const load = useCallback(() => {
     api.get<CompetitionDetail>(`/api/competitions/${competitionId}`).then(setDetail).catch(() => {});
@@ -150,7 +166,7 @@ export default function CompetitionDetailPanel({ competitionId, onChanged }: {
           )}
         >
           {cat.teams.map((t) => (
-            <TeamCard key={t.id} team={t} dir={dir} canManageComp={canManage} onChanged={refresh} />
+            <TeamCard key={t.id} team={t} dir={dir} canManageComp={canManage} isAdmin={isAdmin} onChanged={refresh} />
           ))}
           {canManage && (
             <Space.Compact style={{ marginTop: 10, width: '100%', maxWidth: 460 }}>

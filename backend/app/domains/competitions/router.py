@@ -1,6 +1,9 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
 
+from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.competitions.models import (
     Competition,
@@ -54,10 +57,15 @@ def _team_out(team: CompetitionTeam, can_manage: bool, user_id: int) -> TeamOut:
     )
 
 
+def _active_teams(cat: CompetitionCategory) -> list[CompetitionTeam]:
+    return [t for t in cat.teams if t.deleted_at is None]
+
+
 def _counts(comp: Competition) -> tuple[int, int, int]:
     cats = len(comp.categories)
-    teams = sum(len(c.teams) for c in comp.categories)
-    members = sum(len(t.members) for c in comp.categories for t in c.teams)
+    active = [_active_teams(c) for c in comp.categories]
+    teams = sum(len(ts) for ts in active)
+    members = sum(len(t.members) for ts in active for t in ts)
     return cats, teams, members
 
 
@@ -87,7 +95,7 @@ def _detail_out(db: DB, user: User, comp: Competition) -> CompetitionDetailOut:
         CategoryOut(
             id=cat.id,
             name=cat.name,
-            teams=[_team_out(t, manage, user.id) for t in cat.teams],
+            teams=[_team_out(t, manage, user.id) for t in _active_teams(cat)],
         )
         for cat in comp.categories
     ]
@@ -103,7 +111,7 @@ def _get_comp(db: DB, competition_id: int) -> Competition:
 
 def _get_team(db: DB, team_id: int) -> CompetitionTeam:
     team = db.get(CompetitionTeam, team_id)
-    if team is None:
+    if team is None or team.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Team not found")
     return team
 
@@ -115,6 +123,11 @@ def delete_category(category_id: int, db: DB, user: CurrentUser) -> None:
     if cat is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
     require_manage_competition(db, user, cat.competition_id)
+    if _active_teams(cat):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "This category still has teams — remove them first.",
+        )
     db.delete(cat)
     db.commit()
 
@@ -143,19 +156,38 @@ def edit_team(team_id: int, payload: TeamEdit, db: DB, user: CurrentUser) -> Tea
     if payload.name is not None:
         team.name = payload.name
     if payload.clear_lead:
+        if team.lead_id is not None:
+            audit_log(db, user.id, "competitions", "lead_cleared", "competition_team", team.id,
+                      {"team": team.name})
         team.lead_id = None
-    elif payload.lead_id is not None:
-        team.lead_id = _resolve_user(db, payload.lead_id, "Lead")
+    elif payload.lead_id is not None and payload.lead_id != team.lead_id:
+        new_lead = _resolve_user(db, payload.lead_id, "Lead")
+        audit_log(db, user.id, "competitions", "lead_assigned", "competition_team", team.id,
+                  {"team": team.name, "before": team.lead_id, "after": new_lead})
+        team.lead_id = new_lead
     db.commit()
     db.refresh(team)
     return _team_out(team, True, user.id)
 
 
 @router.delete("/teams/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_team(team_id: int, db: DB, user: CurrentUser) -> None:
+def delete_team(team_id: int, db: DB, user: CurrentUser, permanent: bool = False) -> None:
+    """Soft-deletes by default — a team is historical context (who competed,
+    allocations, task history). `permanent=true` really removes it, admin only."""
     team = _get_team(db, team_id)
     require_manage_competition(db, user, team.category.competition_id)
-    db.delete(team)
+    if permanent:
+        if not user.is_admin:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "Only an admin can permanently delete a team"
+            )
+        audit_log(db, user.id, "competitions", "team_purged", "competition_team", team.id,
+                  {"team": team.name})
+        db.delete(team)
+    else:
+        audit_log(db, user.id, "competitions", "team_deleted", "competition_team", team.id,
+                  {"team": team.name})
+        team.deleted_at = datetime.now(timezone.utc)
     db.commit()
 
 
@@ -172,6 +204,8 @@ def add_member(team_id: int, payload: MemberAdd, db: DB, user: CurrentUser) -> T
     )
     if exists is None:
         db.add(CompetitionTeamMember(team_id=team_id, user_id=payload.user_id))
+        audit_log(db, user.id, "competitions", "member_added", "competition_team", team.id,
+                  {"team": team.name, "user_id": payload.user_id})
         db.commit()
         db.refresh(team)
     return _team_out(team, can_manage_team(db, user, team), user.id)
@@ -189,6 +223,8 @@ def remove_member(team_id: int, user_id: int, db: DB, user: CurrentUser) -> None
     )
     if member is not None:
         db.delete(member)
+        audit_log(db, user.id, "competitions", "member_removed", "competition_team", team.id,
+                  {"team": team.name, "user_id": user_id})
         db.commit()
 
 
@@ -281,6 +317,8 @@ def add_pm(competition_id: int, payload: PMAdd, db: DB, user: CurrentUser) -> Co
     )
     if exists is None:
         db.add(CompetitionPM(competition_id=competition_id, user_id=payload.user_id))
+        audit_log(db, user.id, "competitions", "pm_added", "competition", competition_id,
+                  {"competition": comp.name, "user_id": payload.user_id})
         db.commit()
         db.refresh(comp)
     return _detail_out(db, user, comp)
@@ -297,6 +335,8 @@ def remove_pm(competition_id: int, user_id: int, db: DB, user: CurrentUser) -> N
     )
     if pm is not None:
         db.delete(pm)
+        audit_log(db, user.id, "competitions", "pm_removed", "competition", competition_id,
+                  {"user_id": user_id})
         db.commit()
 
 

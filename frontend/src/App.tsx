@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext';
 import AppLayout from './components/AppLayout';
 import AdminUsersPage from './pages/AdminUsersPage';
+import AuditLogPage from './pages/AuditLogPage';
 import CompetitionsPage from './pages/CompetitionsPage';
 import InventoryPage from './pages/InventoryPage';
 import LoginPage from './pages/LoginPage';
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="/team" element={<TeamPage />} />
           <Route path="/organization" element={<OrganizationPage />} />
           <Route path="/admin/users" element={<AdminUsersPage />} />
+          <Route path="/admin/audit" element={<AuditLogPage />} />
           <Route path="*" element={<Navigate to="/tasks" replace />} />
         </Route>
       ) : (

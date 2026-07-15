@@ -72,6 +72,11 @@ class InventoryItem(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+    # Soft delete: allocations, stock movements and checkout requests all
+    # reference this item — hard-deleting it would cascade-destroy that
+    # history. "Deleting" an item marks it here instead; a genuine hard
+    # delete is a separate admin-only escape hatch.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     team_lead = relationship("User", foreign_keys=[team_lead_id], lazy="joined")
     allocations: Mapped[list["InventoryAllocation"]] = relationship(

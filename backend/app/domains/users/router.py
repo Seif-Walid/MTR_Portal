@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.core.security import hash_password
+from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, AdminUser, CurrentUser
 from app.domains.hierarchy.service import (
     assert_no_cycle,
@@ -151,6 +152,8 @@ def update_user(user_id: int, payload: UserUpdate, db: DB, actor: CurrentUser) -
         user.department = payload.department
 
     if payload.clear_manager:
+        audit_log(db, actor.id, "users", "manager_changed", "user", user.id,
+                  {"user": user.full_name, "before": user.manager_id, "after": None})
         user.manager_id = None
     elif payload.manager_id is not None:
         if db.get(User, payload.manager_id) is None:
@@ -160,15 +163,26 @@ def update_user(user_id: int, payload: UserUpdate, db: DB, actor: CurrentUser) -
                 status.HTTP_400_BAD_REQUEST,
                 "Invalid manager: would create a cycle in the hierarchy",
             )
+        if payload.manager_id != user.manager_id:
+            audit_log(db, actor.id, "users", "manager_changed", "user", user.id,
+                      {"user": user.full_name, "before": user.manager_id, "after": payload.manager_id})
         user.manager_id = payload.manager_id
 
     if payload.is_active is not None:
         if user.id == actor.id and payload.is_active is False:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot deactivate yourself")
+        if payload.is_active != user.is_active:
+            audit_log(db, actor.id, "users", "activated" if payload.is_active else "deactivated",
+                      "user", user.id, {"user": user.full_name})
         user.is_active = payload.is_active
 
     if payload.roles is not None:
+        before = sorted(user.role_slugs)
         _set_roles(db, user, _load_roles(db, payload.roles))
+        after = sorted(payload.roles)
+        if before != after:
+            audit_log(db, actor.id, "users", "role_changed", "user", user.id,
+                      {"user": user.full_name, "before": before, "after": after})
 
     db.commit()
     db.refresh(user)

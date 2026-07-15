@@ -114,3 +114,41 @@ each, so nothing is a silent surprise.
   than the visibility-scoped `GET /inventory`. A request is precisely the
   mechanism for asking for something outside your normal reach, so scoping the
   picker to what the requester can already see would defeat the purpose.
+
+## Audit log + soft delete (Phase 4)
+
+- **A general `AuditLog`** (domain/action/entity_type/entity_id/detail,
+  append-only) covers the spec's three call-outs: permission changes (role,
+  manager, active/inactive — `users/router.py`), inventory quantity changes
+  (`edit_item`), and competition-role changes (PM add/remove, lead
+  assign/clear, member add/remove). Positions already had their own
+  `OrgAuditLog` (Phase 1) — left separate rather than merged, since it already
+  captures "org structure" with its own before/after shape; the two aren't
+  meaningfully more useful combined into one table with a bigger discriminator.
+  `GET /audit` is **admin-only** (the spec doesn't say who may view it; admin
+  is the safe default for a cross-cutting security/change log).
+- **Not logged:** item/competition/team *creation*, allocation and stock-
+  movement detail (the movement ledger is already its own append-only audit
+  trail — logging it a second time would be redundant), task/work-request
+  changes (out of the spec's explicit list for this phase). Could extend later
+  if a real need shows up.
+- **Soft delete, scoped to what's actually at risk:** `InventoryItem` and
+  `CompetitionTeam` get a `deleted_at` column. These were chosen because they
+  are the two entities whose FKs currently `ondelete=CASCADE` from
+  history-bearing children — a hard delete would silently wipe allocation /
+  stock-movement / checkout-request rows (items) or member history (teams).
+  `User` already has an equivalent soft-delete via `is_active` (pre-existing,
+  not new). `Competition` wasn't given `deleted_at`: allocations already
+  `SET NULL` on delete (no cascade risk), and it already has an `archived`
+  status plus a "can't delete while referenced" guard — a second soft-delete
+  mechanism would be redundant. `CompetitionCategory` and `Position` weren't
+  given it either: categories now require their teams be removed first
+  (mirrors the leaf-only-delete rule Positions already had), so there's no
+  silent cascade to guard against; positions were already leaf-only.
+- **Delete endpoints now default to soft delete** (`DELETE .../{id}`, any
+  manager) and accept `?permanent=true` for a genuine hard delete, which is
+  **admin-only** — matching the spec's "hard delete only for genuine mistakes,
+  admin-only" verbatim. A soft-deleted row is invisible everywhere in the
+  normal API (list/get/visibility queries all filter `deleted_at IS NULL`);
+  there is no "view deleted / restore" UI yet — recovery today means an admin
+  querying the DB directly, which is an acceptable gap for a first pass.

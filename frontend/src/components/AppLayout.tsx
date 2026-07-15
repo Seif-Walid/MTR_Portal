@@ -1,5 +1,6 @@
 import {
   ApartmentOutlined,
+  AuditOutlined,
   CheckSquareOutlined,
   InboxOutlined,
   LogoutOutlined,
@@ -45,6 +46,9 @@ export default function AppLayout() {
     { key: '/organization', icon: <ApartmentOutlined />, label: 'Organization' },
     ...(me.is_admin
       ? [{ key: '/admin/users', icon: <SettingOutlined />, label: 'User Management' }]
+      : []),
+    ...(me.is_admin
+      ? [{ key: '/admin/audit', icon: <AuditOutlined />, label: 'Audit Log' }]
       : []),
   ];
 
