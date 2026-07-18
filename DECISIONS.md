@@ -191,6 +191,40 @@ each, so nothing is a silent surprise.
   needed, just confirming the spec's "do not conflate the two credentials"
   point holds).
 
+### Reversal: Google sign-in now auto-provisions again (post-Phase 7)
+
+The "no auto-provisioning" bullet above was **explicitly reversed** at the
+user's direct request ("i want any user to be able to sign in with google
+not just pre approved people") — this is a deliberate product decision, not
+a bug fix, and directly contradicts the canonical spec's "never
+auto-provision with a default role" line. Recorded here so the contradiction
+is visible rather than silently overwriting the earlier entry.
+
+- An unrecognized-but-verified Google email now creates a fresh account on
+  the spot — same starting state as the pre-existing open
+  self-registration path (`POST /auth/register`): **no roles, no manager,
+  no permissions** until an admin assigns them via User Management. Google
+  sign-in is now simply a second entry point into that same open-signup
+  model, not a separate authorization decision.
+- `GOOGLE_ALLOWED_DOMAINS` remains the only gate on who this applies to —
+  still empty (no restriction) by default, unchanged from Phase 5. If this
+  ever needs to be locked down again, that's the existing knob, no new one
+  was added.
+- Explicit-link-not-silent-match (the OTHER half of Phase 5, for emails
+  that already have a *password* account) is untouched — this reversal
+  only affects the "no portal account exists yet" branch.
+- Frontend's `no_account` error-message mapping (`LoginPage.tsx`) was
+  removed as dead code — the backend can no longer produce that error.
+- Caught while making this change: the test suite's assumption that Google
+  OAuth is "unconfigured by default" silently depended on the developer's
+  local `backend/.env` having no real credentials in it — once real
+  credentials were added there for live testing, three unrelated tests
+  broke because `Settings` reads `.env` at import time regardless of test
+  context. Fixed properly rather than worked around: a new autouse fixture
+  in `conftest.py` forces `google_client_id`/`google_client_secret` to
+  empty for every test by default, so the suite is hermetic regardless of
+  what's in anyone's local `.env` going forward.
+
 ## Destructive Rebuild-from-Sheets + per-entity export (Phase 6)
 
 - **New `app/domains/sync` domain, separate from the pre-existing inventory

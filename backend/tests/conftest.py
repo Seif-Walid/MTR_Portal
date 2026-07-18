@@ -29,6 +29,18 @@ PASSWORD = "testpass123"
 _PASSWORD_HASH = hash_password(PASSWORD)  # bcrypt once; reused for all users
 
 
+@pytest.fixture(autouse=True)
+def _isolate_google_settings(monkeypatch):
+    """Tests must not depend on whatever Google OAuth credentials happen to
+    be in the developer's local backend/.env — default every test to
+    unconfigured; test_google_sso.py's own `google_enabled` fixture opts
+    individual tests back in via the same monkeypatch mechanism."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "google_client_id", "")
+    monkeypatch.setattr(settings, "google_client_secret", "")
+
+
 @pytest.fixture()
 def db_session():
     engine = create_engine(

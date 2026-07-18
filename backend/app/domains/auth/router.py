@@ -151,8 +151,10 @@ def _peek_session_user(db: Session, session_token: str | None) -> User | None:
 
 @router.get("/google/login")
 def google_login() -> RedirectResponse:
-    """Kick off the Google OAuth flow (accounts are provisioned by the admin;
-    Google is only an authentication method, never a signup path)."""
+    """Kick off the Google OAuth flow. An unrecognized-but-verified Google
+    email auto-provisions a new account (same as open self-registration) —
+    it starts with no roles and no place in the hierarchy; an admin assigns
+    those afterward. Narrow who can sign in at all via GOOGLE_ALLOWED_DOMAINS."""
     if not _google_enabled():
         return _login_error("google_not_configured")
     state = secrets.token_urlsafe(24)
@@ -239,12 +241,26 @@ def google_callback(
         response.delete_cookie(STATE_COOKIE)
         return response
 
-    # A Google identity is not an authorization: a successful sign-in from an
-    # email with no portal account creates nothing. Accounts are provisioned
-    # by an admin (or via open self-registration) — never auto-created here.
     user = db.scalar(select(User).where(User.email == email))
     if user is None:
-        return _login_error("no_account")
+        # Any verified Google identity may sign in — this is an alternate
+        # entry point into the same open-signup model as POST /auth/register:
+        # a brand-new account with no roles and no place in the hierarchy,
+        # which an admin grants afterward. The domain allowlist above is the
+        # only gate on who gets this far.
+        user = User(
+            email=email,
+            full_name=info.get("name") or email.split("@")[0],
+            hashed_password=hash_password(secrets.token_urlsafe(32)),
+            google_linked_at=datetime.now(timezone.utc),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        response = RedirectResponse(f"{settings.frontend_url}/tasks")
+        response.delete_cookie(STATE_COOKIE)
+        _issue_session(db, response, user.id)
+        return response
     if not user.is_active:
         return _login_error("account_disabled")
     if user.google_linked_at is None:

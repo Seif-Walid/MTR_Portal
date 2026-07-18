@@ -269,13 +269,14 @@ sign in and send requests, but can't be tasked or see anyone else's work until t
 admin assigns roles, a department, and a manager. Deactivated accounts are blocked on
 every sign-in path.
 
-**Google sign-in is an identity check, not a signup path** — it never creates an
-account. Signing in with an email that has no portal account lands on a clear
-"no account" message instead. An existing **password** account's first Google
-sign-in doesn't log you in either: sign in with the password once, then choose
-**Link Google account** from the account menu — only after that explicit link does
-Google sign-in work for that account. This avoids ever matching an account by email
-address alone.
+**Google sign-in is a second open-signup path**, same as Register: a verified Google
+email with no existing portal account gets a fresh account on the spot — no roles, no
+hierarchy position, same starting state as registering with a password. `GOOGLE_ALLOWED_DOMAINS`
+is the only gate on who that applies to (see below). An existing **password**
+account's first Google sign-in doesn't log you in, though: sign in with the password
+once, then choose **Link Google account** from the account menu — only after that
+explicit link does Google sign-in work for that account. This avoids ever matching an
+account by email address alone.
 
 ## Sign in with Google (optional)
 
@@ -303,7 +304,7 @@ cd backend
 .venv\Scripts\python -m pytest tests -q
 ```
 
-136 tests cover the permission layer: assignment allowed/denied (down, up, across,
+140 tests cover the permission layer: assignment allowed/denied (down, up, across,
 self), subtree visibility and drill-down, request accept/decline/delegate, status
 workflow rights (assignee vs. reviewer), multi-role union, hierarchy moves and
 cycle rejection; inventory scoping, allocation capacity math, over-allocation/shrink
@@ -312,16 +313,23 @@ requests (submit→approve/reject→issue→return, overdue); competition nestin
 competition-scoped PM / team-lead authority (a lead touches only their team); Google
 Sheet import (mocked) with upsert; the **Positions** org tree (single root, no cycles,
 occupant→manager derivation with vacant-seat skip, audit log); admin/CEO-wide user
-management; the general audit log + soft-delete-by-default with admin-only permanent
-delete; Google sign-in hardening (never auto-provisions, domain allowlist, and
-explicit-link-not-silent-match, with the OAuth round-trip mocked); the Sheets
-export/rebuild cycle — org-manager-only export and dry-run, admin/CEO-only commit
-gated on an exact confirm phrase, cross-tab reference validation, and a full
-rebuild round-trip (snapshot → clear dependents → truncate → import → auto
-re-export) with Sheets I/O mocked; and task blocked/comments/history/team-assignment
-— toggle rights, comment visibility matching task visibility, the history trail
-ordering and its participant-not-admin-only access, multi-assignee batch creation
-(atomic on a bad assignee, batch view limited to the assigner).
+management, sourced from a DB-backed role/department catalog (not a hardcoded
+frontend list); the general audit log + soft-delete-by-default with admin-only
+permanent delete; Google sign-in (auto-provisions a no-roles account for any
+verified email, gated only by the domain allowlist, and requires an explicit link —
+never a silent email match — for an email that already has a password account, with
+the OAuth round-trip mocked); the Sheets export/rebuild cycle — org-manager-only
+export and dry-run, admin/CEO-only commit gated on an exact confirm phrase,
+cross-tab reference validation, and a full rebuild round-trip (snapshot → clear
+dependents → truncate → import → auto re-export) with Sheets I/O mocked; and task
+blocked/comments/history/team-assignment — toggle rights, comment visibility
+matching task visibility, the history trail ordering and its
+participant-not-admin-only access, multi-assignee batch creation (atomic on a bad
+assignee, batch view limited to the assigner).
+
+Every test runs with Google OAuth forced to "unconfigured" regardless of what's in
+your local `backend/.env` (an autouse fixture in `conftest.py`) — the suite never
+depends on real credentials being present or absent on the machine running it.
 
 ## Project layout
 
