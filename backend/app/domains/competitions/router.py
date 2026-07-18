@@ -198,8 +198,8 @@ def delete_team(team_id: int, db: DB, user: CurrentUser, permanent: bool = False
     """Soft-deletes by default — a team is historical context (who competed,
     allocations, task history). `permanent=true` really removes it, admin
     only. Either way its role positions (and its members' role positions)
-    follow: vacated on a soft delete (they stay in the org chart, same as the
-    team staying queryable), removed outright on a permanent one."""
+    are removed from the org chart — the chart only shows active work, the
+    team row itself is what stays queryable on a soft delete."""
     team = _get_team(db, team_id)
     comp = _team_competition(team)
     require_manage_competition(db, user, comp.id)
@@ -211,17 +211,15 @@ def delete_team(team_id: int, db: DB, user: CurrentUser, permanent: bool = False
             )
         audit_log(db, user.id, "competitions", "team_purged", "competition_team", team.id,
                   {"team": team.name})
-        for mid in member_ids:
-            role_engine.delete_positions_for_entity(db, "membership", mid)
-        role_engine.delete_positions_for_entity(db, "team", team.id)
-        db.delete(team)
     else:
         audit_log(db, user.id, "competitions", "team_deleted", "competition_team", team.id,
                   {"team": team.name})
         team.deleted_at = datetime.now(timezone.utc)
-        for mid in member_ids:
-            role_engine.vacate_positions_for_entity(db, "membership", mid)
-        role_engine.vacate_positions_for_entity(db, "team", team.id)
+    for mid in member_ids:
+        role_engine.delete_positions_for_entity(db, "membership", mid)
+    role_engine.delete_positions_for_entity(db, "team", team.id)
+    if permanent:
+        db.delete(team)
     resync_managers(db)
     db.commit()
 
@@ -346,15 +344,40 @@ def edit_competition(
     comp.start_date = None if payload.clear_start_date else (payload.start_date or comp.start_date)
     comp.end_date = None if payload.clear_end_date else (payload.end_date or comp.end_date)
     if status_changed and comp.status == CompetitionStatus.ARCHIVED:
-        # archiving vacates every seat this competition produced, at every
-        # level — occupancy is manual now, so there is nothing to "restore"
-        # on reactivation; reactivating just leaves seats vacant to refill.
-        role_engine.vacate_positions_for_entity(db, "competition", comp.id)
+        # archiving removes every role position this competition produced, at
+        # every level — the org chart only shows active work. Occupancy is
+        # not remembered: reactivating rebuilds the positions from whatever
+        # templates exist then, vacant except member seats (the membership
+        # itself identifies who sits there).
         for cat in comp.categories:
             for team in cat.teams:
-                role_engine.vacate_positions_for_entity(db, "team", team.id)
                 for member in team.members:
-                    role_engine.vacate_positions_for_entity(db, "membership", member.id)
+                    role_engine.delete_positions_for_entity(db, "membership", member.id)
+                role_engine.delete_positions_for_entity(db, "team", team.id)
+        role_engine.delete_positions_for_entity(db, "competition", comp.id)
+        resync_managers(db)
+    elif status_changed and comp.status == CompetitionStatus.ACTIVE:
+        role_engine.apply_event(
+            db, event="competition_created", entity_type="competition", entity_id=comp.id,
+            lineage=lineage_for_competition(comp), names={"competition": comp.name},
+        )
+        for cat in comp.categories:
+            for team in cat.teams:
+                if team.deleted_at is not None:
+                    continue
+                names = {"competition": comp.name, "team": team.name}
+                role_engine.apply_event(
+                    db, event="team_created", entity_type="team", entity_id=team.id,
+                    lineage=lineage_for_team(comp, team.id), names=names,
+                )
+                for member in team.members:
+                    role_engine.apply_event(
+                        db, event="team_member_added", entity_type="membership",
+                        entity_id=member.id,
+                        lineage=lineage_for_membership(comp, team.id, member.id),
+                        names={**names, "member": member.user.full_name},
+                        member_id=member.user_id,
+                    )
         resync_managers(db)
     db.commit()
     db.refresh(comp)
