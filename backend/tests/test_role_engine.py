@@ -191,7 +191,7 @@ def test_retitle_cascades_through_the_whole_chain(login, org):
     assert "New Team Lead" in tree and "Old Team Lead" not in tree
 
 
-def test_archive_vacates_and_delete_removes_the_whole_subtree(login, org):
+def test_archive_removes_the_whole_subtree_and_reactivate_rebuilds_it(login, org):
     _template(login, title="{competition} PM", event="competition_created", grants=True, auto_creator=True)
     _template(login, title="{team} Lead", event="team_created")
     _template(login, title="{member}", event="team_member_added")
@@ -204,19 +204,21 @@ def test_archive_vacates_and_delete_removes_the_whole_subtree(login, org):
     stud = org["student"].full_name
     login("cto").patch(f"/api/competitions/{comp['id']}", json={"status": "archived"})
     tree = _tree_by_title(login)
-    assert tree["Doomed PM"]["occupants"] == []
-    assert tree["Squad Lead"]["occupants"] == []
-    assert tree[stud]["occupants"] == []
-    # still present, just vacant
-    assert "Doomed PM" in tree and "Squad Lead" in tree and stud in tree
+    # gone from the org chart entirely — it only shows active work
+    assert "Doomed PM" not in tree and "Squad Lead" not in tree and stud not in tree
 
+    # reactivating rebuilds the structure: seats come back vacant (occupancy
+    # isn't remembered), except member seats — the membership itself says who
+    # sits there
     login("admin").patch(f"/api/competitions/{comp['id']}", json={"status": "active"})
     tree = _tree_by_title(login)
-    assert tree["Doomed PM"]["occupants"] == []  # no remembered-occupant restore
-    # note: cto no longer manages this competition post-archive — vacating
-    # the PM seat vacated their authority along with it, and nothing
-    # re-seats them on reactivate (occupancy is manual now); only
-    # admin/CEO can act on it until someone re-appoints a PM
+    assert tree["Doomed PM"]["parent_id"] == root
+    assert tree["Doomed PM"]["occupants"] == []
+    assert tree["Squad Lead"]["parent_id"] == tree["Doomed PM"]["id"]
+    assert tree[stud]["parent_id"] == tree["Squad Lead"]["id"]
+    assert [u["id"] for u in tree[stud]["occupants"]] == [org["student"].id]
+    # cto's PM seat was not restored, so their authority is gone until
+    # someone re-appoints them — only admin/CEO can act on it meanwhile
     assert login("cto").delete(f"/api/competitions/{comp['id']}").status_code == 403
 
     assert login("admin").delete(f"/api/competitions/{comp['id']}").status_code == 204
@@ -224,7 +226,10 @@ def test_archive_vacates_and_delete_removes_the_whole_subtree(login, org):
     assert "Doomed PM" not in tree and "Squad Lead" not in tree and stud not in tree
 
 
-def test_team_soft_delete_vacates_permanent_delete_removes(login, org):
+def test_team_soft_and_permanent_delete_both_remove_positions(login, org):
+    """Soft delete keeps the team row queryable as history, but its role
+    positions leave the org chart either way — the chart only shows active
+    work."""
     _template(login, title="{competition} PM", event="competition_created", grants=True, auto_creator=True)
     _template(login, title="{team} Lead", event="team_created")
     _template(login, title="{member}", event="team_member_added")
@@ -237,8 +242,7 @@ def test_team_soft_delete_vacates_permanent_delete_removes(login, org):
     login("cto").post(f"/api/competitions/teams/{team_a['id']}/members", json={"user_id": org["student"].id})
     assert login("cto").delete(f"/api/competitions/teams/{team_a['id']}").status_code == 204
     tree = _tree_by_title(login)
-    assert "Soft Lead" in tree and tree["Soft Lead"]["occupants"] == []
-    assert stud in tree and tree[stud]["occupants"] == []
+    assert "Soft Lead" not in tree and stud not in tree
 
     team_b = _team(login, cat["id"], name="Gone")
     login("cto").post(f"/api/competitions/teams/{team_b['id']}/members", json={"user_id": org["comp_member"].id})

@@ -278,23 +278,6 @@ def retitle_positions_for_entity(db: Session, entity_type: str, entity_id: int, 
         pos.title = _safe_title(pos.role_template.title_template, names)
 
 
-def vacate_positions_for_entity(db: Session, entity_type: str, entity_id: int) -> None:
-    positions = list(db.scalars(
-        select(Position).where(Position.entity_type == entity_type, Position.entity_id == entity_id)
-    ))
-    for pos in positions:
-        for link in list(pos.occupant_links):
-            db.delete(link)
-    db.flush()
-    # `occupants` (a separate viewonly secondary-join relationship over the
-    # same position_occupants rows) doesn't get invalidated by deleting
-    # through `occupant_links` — same two-relationships-one-truth trap as
-    # set_position_occupants above, just easy to miss on the "many
-    # positions at once" cascade path.
-    for pos in positions:
-        db.expire(pos, ["occupants", "occupant_links"])
-
-
 def delete_positions_for_entity(db: Session, entity_type: str, entity_id: int) -> None:
     for pos in db.scalars(
         select(Position).where(Position.entity_type == entity_type, Position.entity_id == entity_id)

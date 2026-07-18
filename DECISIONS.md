@@ -496,7 +496,8 @@ Rebuilt around two ideas: **positions can have any number of occupants**, and
   membership authority-escalation rules, since the generic
   `positions` domain doesn't know that shape). A consequence worth
   flagging: since occupancy is now the *only* source of authority, archiving
-  a competition (which vacates its role seats) can temporarily leave its own
+  a competition (which removes its role positions from the org chart —
+  see the "Archiving removes role positions" addendum below) leaves its own
   PM locked out of managing it until someone (admin/CEO, or the PM once
   re-appointed) reactivates and re-seats them — there's no "remembered
   occupant" restored automatically the way the old `CompetitionPM`-derived
@@ -670,3 +671,27 @@ everywhere else:
   under whatever same-event template happened to be last (e.g. Deputy PM),
   not the node the admin clicked. Covered by
   `test_insert_after_nests_new_role_under_the_clicked_parent`.
+
+### Archiving removes role positions (was: vacates)
+
+Phase 4 originally had archiving a competition (and soft-deleting a team)
+*vacate* its role positions — the seats stayed in the org chart, empty, on
+the theory that the entity is still queryable so its structure should be
+too. Changed on direct request ("make sure that archiving a competition also
+removes the roles", echoing the original "when archived/deleted the roles
+are deleted from the org"): the org chart only shows active work.
+
+- Archiving a competition now hard-deletes every role position it produced,
+  at every level (competition, team, membership). Soft-deleting a team does
+  the same for its subtree — the team *row* is what stays queryable as
+  history, not its seats.
+- Reactivating an archived competition rebuilds the whole role structure
+  from whatever templates exist at that moment (same `apply_event` path as
+  creation, walking competition -> teams -> memberships, skipping
+  soft-deleted teams). Seats come back vacant — occupancy is not remembered
+  — except member seats, which the membership itself re-fills. So a PM
+  stays locked out after an archive/reactivate round-trip until re-appointed
+  (admin/CEO can always act), same authority consequence as before, reached
+  by removal instead of vacating.
+- `vacate_positions_for_entity` lost its last caller and was deleted from
+  `role_engine.py`.
