@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: portal
       POSTGRES_DB: portal
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - portal_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -15,6 +15,39 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  backend:
+    build: ./backend
+    container_name: portal-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    # Picks up backend/.env if you have one (Google/Sheets creds, custom
+    # ORG_NAME, SEED_ADMIN_* overrides, ...) — the two lines below always
+    # win over it, since the container topology needs them regardless of
+    # what's in a .env written for local (non-Docker) dev.
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://portal:portal@db:5432/portal
+      FRONTEND_URL: http://localhost:${FRONTEND_PORT:-8080}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/auth/config')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  frontend:
+    build: ./frontend
+    container_name: portal-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
 
 volumes:
   portal_pgdata:

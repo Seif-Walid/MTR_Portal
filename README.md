@@ -170,15 +170,44 @@ service-account credentials as the inventory mirror above; nothing extra to conf
 
 ## Quick start
 
-### 1. Database
+### Option A — Docker (everything at once)
+
+```bash
+docker compose up -d --build
+```
+
+Builds and starts all three services — Postgres, the backend (migrations + a clean
+`app.seed` run automatically before it starts serving), and the frontend (built and
+served via nginx, which also reverse-proxies `/api` to the backend so the browser only
+ever talks to one origin — same as the Vite dev proxy below, just in production form).
+
+- Frontend: **http://localhost:8080**
+- Backend / API docs: **http://localhost:8000/docs**
+- Postgres: **localhost:5432** (portal/portal) — change with `DB_PORT` if that's taken
+  (`DB_PORT=5433 docker compose up -d --build`)
+
+Drop a `backend/.env` next to `backend/Dockerfile` before starting (copy it from
+`.env.example`) to carry over Google/Sheets credentials, `ORG_NAME`, or
+`SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` into the containers — `DATABASE_URL` and
+`FRONTEND_URL` are always overridden by `docker-compose.yml` regardless, since those two
+have to match the container network no matter what's in your local dev `.env`. Set
+`SEED_DEMO=1` (in that same `.env`, or `SEED_DEMO=1 docker compose up -d --build`) to load
+the sample org instead of the clean one-admin seed.
+
+`docker compose down` stops everything; add `-v` to also drop the Postgres volume (full
+reset). Logs: `docker compose logs -f backend` (or `db` / `frontend`).
+
+### Option B — run each piece directly (hot reload, no Docker)
+
+#### 1. Database
 
 ```powershell
-docker compose up -d          # PostgreSQL 16 on localhost:5432 (portal/portal)
+docker compose up -d db        # PostgreSQL 16 on localhost:5432 (portal/portal)
 ```
 
 No Docker? Set `DATABASE_URL=sqlite:///./portal_dev.db` in `backend/.env` (dev only).
 
-### 2. Backend
+#### 2. Backend
 
 ```powershell
 cd backend
@@ -197,7 +226,7 @@ deployment). You then add real users, teams, and inventory through the app — n
 hardcoded. To load the sample org for exploring/testing instead, run
 `python -m app.seed --demo`.
 
-### 3. Frontend
+#### 3. Frontend
 
 ```powershell
 cd frontend
