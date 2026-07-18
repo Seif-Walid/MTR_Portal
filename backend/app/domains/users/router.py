@@ -10,8 +10,8 @@ from app.domains.hierarchy.service import (
     can_place_under,
     subtree_ids,
 )
-from app.domains.users.models import NON_STAFF_ROLES, Role, RoleSlug, User, UserRole
-from app.domains.users.schemas import UserAdminOut, UserBrief, UserCreate, UserUpdate
+from app.domains.users.models import NON_STAFF_ROLES, Department, Role, RoleSlug, User, UserRole
+from app.domains.users.schemas import RoleOut, UserAdminOut, UserBrief, UserCreate, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -71,6 +71,20 @@ def staff_users(db: DB, user: CurrentUser) -> list[UserBrief]:
         .order_by(User.full_name)
     )
     return [UserBrief.model_validate(u) for u in db.scalars(query)]
+
+
+@router.get("/roles")
+def list_roles(db: DB, _: AdminUser) -> list[RoleOut]:
+    """The full role catalog, for the admin user-management role picker —
+    sourced from the DB (seeded once) rather than duplicated as a frontend
+    literal, so a role's display name never drifts from what's shown
+    elsewhere (e.g. RoleTags)."""
+    return [RoleOut.model_validate(r) for r in db.scalars(select(Role).order_by(Role.name))]
+
+
+@router.get("/departments")
+def list_departments(_: AdminUser) -> list[str]:
+    return [d.value for d in Department]
 
 
 @router.get("")
