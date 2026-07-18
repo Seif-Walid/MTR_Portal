@@ -448,3 +448,225 @@ Postgres (not just eyeballed) to verify this.
   own port (8000) was left fixed, since `GOOGLE_REDIRECT_URI`'s default is
   already hardcoded to that port and there was no live collision to justify
   the extra indirection.
+
+## Generic, admin-configurable role chains (org positions <-> competitions)
+
+First cut of this feature (see git history of this file if ever needed)
+hardcoded three roles — PM, Team Lead, Coach — as a Python enum, one occupant
+each. Feedback after using it: real roles aren't always one-person (a
+competition can have several PMs, "Team Member" is the whole roster), and
+hardcoding role *names* in code at all defeats the point — adding "Assistant
+Coach" later should be a config change on the site, never a code change.
+Rebuilt around two ideas: **positions can have any number of occupants**, and
+**roles are admin-defined data, not Python constants**.
+
+- **`Position.occupant_id` (single FK) became a join table,
+  `PositionOccupant`.** Every position — a real seat like "CEO" or a role-
+  chain seat — uses the same list-of-occupants concept; nothing stops a real
+  seat from having co-occupants either, it's just not the common case.
+  `resync_managers()` and `clear_user_from_other_positions()` were adapted
+  to operate on lists: when a parent position has more than one occupant,
+  `manager_id` derivation picks the earliest-added one (same "earliest wins"
+  convention now used everywhere multiplicity needs to collapse to one).
+- **`RoleTemplate`** (`app/domains/positions/models.py`) replaces the old
+  `AutoPositionKind` enum entirely: `title_template` (with `{competition}`/
+  `{team}`/`{member}` placeholders), `event` (one of the three fixed trigger
+  points the app actually has — `competition_created`, `team_created`,
+  `team_member_added` — not a role name, just the app's fixed structure),
+  `sort_order` (globally unique, defines a single linear chain), and two
+  booleans: `grants_management` (occupying this seat confers the same
+  authority a competition PM/team lead used to) and `auto_assign_creator`
+  (whoever creates the competition/team is auto-seated here — this is what
+  keeps "create a competition and you're its PM" working without hardcoding
+  which role that is). Admins manage the whole list from a panel on the
+  Organization page — create, reorder, delete, no code involved, ever.
+- **Only the very first role-template position, ever, asks where it goes.**
+  Every later one — regardless of kind — chains under whichever earlier-
+  order template already has a position for an ancestor entity (competition
+  -> team -> membership), walking backward through the configured order.
+  This replaced the first draft's "ask once *per kind*" (three separate
+  prompts) — the user's own feedback was that one role should be able to be
+  "the boss of" another, i.e. one connected chain, not three parallel asks.
+- **`CompetitionPM`, `CompetitionTeam.lead_id`/`coach_id` are gone
+  entirely** — replaced by role-template positions with
+  `grants_management=true`. "Who can manage this competition" is now
+  `admin OR ceo OR occupies a grants_management position for it`
+  (`competitions/service.py::can_manage_entity` bridges the generic
+  occupant-editing endpoint back to this domain's competition ->  team ->
+  membership authority-escalation rules, since the generic
+  `positions` domain doesn't know that shape). A consequence worth
+  flagging: since occupancy is now the *only* source of authority, archiving
+  a competition (which vacates its role seats) can temporarily leave its own
+  PM locked out of managing it until someone (admin/CEO, or the PM once
+  re-appointed) reactivates and re-seats them — there's no "remembered
+  occupant" restored automatically the way the old `CompetitionPM`-derived
+  seat used to resync itself.
+- **A team's whole roster gets seated too** — something the first draft
+  didn't support at all, since one-occupant-per-position made a "Team
+  Member" role structurally impossible. Adding a member fires
+  `team_member_added`; any role template on that event auto-occupies with
+  the person just added (the event itself identifies who — no manual pick
+  needed, unlike every other scope).
+- **Reordering or deleting a role template live-updates every already-
+  seated position.** `competitions/role_sync.py::resync_all()` walks every
+  competition -> team -> membership and re-derives each existing position's
+  parent from the current chain — deleting a template from the middle
+  splices it out (whatever was chained under it reattaches to whatever's
+  now above it) rather than orphaning anything.
+- **Bug found while building this: renumbering `sort_order` via a direct
+  swap collides with its own unique constraint.** Swapping two templates'
+  order (`UPDATE role_templates SET sort_order=? WHERE id=?` twice) can hit
+  SQLAlchemy's insertmany/executemany batching in an order where both rows
+  briefly want the same value before the other's update lands, tripping the
+  unique constraint mid-flush. Fixed with a two-phase renumber: stage every
+  affected row to a negative placeholder first, flush, then assign the real
+  1..N values — the general pattern for "renumbering a uniquely-constrained
+  sequence" any time it recurs elsewhere.
+- **Bug found while building this: two relationships, one underlying table,
+  one goes stale.** `Position.occupants` (a `secondary=` viewonly join to
+  `PositionOccupant`) and `Position.occupant_links` (the actual owned,
+  cascade-managed collection) both read the same rows, but SQLAlchemy caches
+  them independently. Deleting through `occupant_links` (as
+  `vacate_positions_for_entity` originally did) left the *other*
+  relationship — the one the API schemas actually serialize — still
+  reporting the old occupant. Same root cause as the `occupant`/`occupant_id`
+  staleness bug from the first draft of this feature, recurring in a new
+  shape: fixed by explicitly `db.expire(pos, ["occupants", "occupant_links"])`
+  after every mutation, not just the one relationship that was directly
+  written through.
+- **A real, near-miss data-loss bug in the migration, caught before it
+  shipped.** The migration that dropped the old single `occupant_id` column
+  did so *before* copying its values into the new `PositionOccupant` table —
+  a straight `drop_column` that would have silently destroyed every real
+  seat assignment in the database, including the one actually in use on the
+  dev DB (confirmed via `org_audit_log`, then restored by hand). Fixed by
+  inserting a data-carry-forward step (`INSERT INTO position_occupants
+  SELECT id, occupant_id, now() FROM positions WHERE occupant_id IS NOT
+  NULL`) before the column drop, with the same treatment in `downgrade()`
+  carrying the earliest occupant back the other way. Re-verified against
+  both SQLite and a throwaway Postgres container with real seeded occupant
+  data surviving both directions before trusting it again. Worth
+  remembering generally: a migration that *replaces* a column's storage
+  shape, not just adds/drops unrelated ones, needs an explicit data-carry
+  step and a from-real-data test — "the migration ran without error" and
+  "the migration preserved data" are different claims.
+
+### Phase 5: one add flow, and a chain-break rule instead of a fixed-parent field
+
+First cut of this addition gave `RoleTemplate` a `fixed_parent_position_id`
+column so a role could skip the chain and always parent under one explicitly
+chosen position ("non-chaining"), with a second, tree-anchored add flow to
+set it. Feedback: "i believe you might have overcomplicated things" — the
+actual ask was simpler: add a role from the same "Add position" flow used
+everywhere else (a `Switch` in `PositionModal`, `frontend/src/pages/
+OrganizationPage.tsx`, toggling between the normal Title/Occupants/Technical
+fields and the role's Title/When/checkboxes fields), and let the *existing*
+event-based chain already imply "non-chaining" without a new field at all.
+Reverted the column/migration entirely (never shipped, so a clean revert —
+downgrade the dev DB off it, delete the migration file, drop the field) and
+replaced it with a rule in `_find_chain_parent`
+(`app/domains/positions/role_engine.py`):
+
+- Templates sharing the same `event` naturally chain together in
+  `sort_order` — unchanged from Phase 4.
+- A template with nothing earlier in `sort_order` that could ever apply to
+  its own lineage resolves straight to the shared root, same as before —
+  this is what makes a role "non-chaining" for free: give it a `sort_order`
+  with no eligible prerequisite and it always sits at the top.
+- **New:** a template *is* eligible (some earlier template's event produces
+  an entity type present in this lineage) but none of those earlier
+  templates have actually produced a position for it yet — the chain has a
+  missing link — the template is skipped entirely, not orphaned under root.
+  This surfaces a real, previously-unhandled gap: `apply_event` only ever
+  fires at creation time, so a template added *after* some competitions/
+  teams already exist is never backfilled onto them; anything that would
+  have chained under it for those older entities now correctly waits
+  instead of popping up disconnected at the top of the tree. Covered by
+  `test_template_added_after_entity_exists_blocks_dependents_instead_of_orphaning_to_root`
+  in `backend/tests/test_role_engine.py`.
+- `resync_position_parent` gets the same treatment: a position whose chain
+  link is now missing (e.g. after a reorder/delete elsewhere) is left
+  exactly where it last resolved rather than deleted or reparented — this
+  function only ever re-derives *existing* positions, it doesn't remove
+  seats a real person may be occupying just because a chain above them
+  broke.
+
+### Phase 5b: one tree, templates shown where they'd chain, hidden by default
+
+Feedback on the switch-in-`PositionModal` UI itself: "look again with the over
+complication... in org there is only 1 tab i suggust you make a switch that
+shows automatic roles but by default they are hidden... if i flip the main
+switch i will see ceo ->{competition} pm where i can add a role under comp
+pm." The separate "Automatic roles" list panel (an ordered list with up/down
+arrows, disconnected from the position tree) was removed entirely. In its
+place:
+
+- A new, purely structural helper, `role_engine.template_chain_parent_id`,
+  answers "which other template would this one nest under" using the same
+  backward-search shape as `_find_chain_parent`, but against a fixed
+  structural lineage (`competition_created` -> `{"competition"}`,
+  `team_created` -> `{"competition", "team"}`, `team_member_added` ->
+  `{"competition", "team", "membership"}`) instead of a real entity's actual
+  lineage — no positions need to exist yet for this to answer correctly,
+  which is what lets the org tree preview the whole chain before a single
+  competition/team has ever been created. Exposed as `parent_template_id` on
+  `RoleTemplateOut`, computed by the router on every list/create/edit call.
+- `OrganizationPage.tsx` merges role templates into the *same* `Tree` as real
+  positions: a template with `parent_template_id: null` renders nested under
+  the org's top real position (matching the user's own "ceo -> {competition}
+  pm" example); a template with a parent renders nested under that parent
+  template's own node. A page-level `Switch` ("Show automatic roles",
+  default off) controls whether these placeholder nodes appear at all —
+  hidden by default, matching the ask.
+- Adding a role from a placeholder node's own "+" (as opposed to `+` under a
+  real position) skips the "When" dropdown entirely and silently inherits
+  the clicked placeholder's `event` — per explicit user clarification ("it
+  becomes automatic with the same condition"). This isn't just a UX
+  shortcut: since the new template's `sort_order` is always appended at the
+  end, inheriting the *same* event as the immediate parent is what
+  guarantees the structural walk actually resolves back to that exact node,
+  rather than possibly skipping past it to some other eligible template.
+- Reordering moved from up/down buttons to dragging a template node onto
+  another template node in the tree (`onDrop` branches on a `tpl-` key
+  prefix vs. a plain position id, computing a target rank from the drop
+  position and calling the same `PATCH .../templates/{id}` endpoint that
+  already existed for this).
+- **Bug found while building this:** antd's `Tree` `defaultExpandAll` only
+  applies once, at mount. CEO had zero children when the page first loaded
+  (before any template existed), so when a template was later added and the
+  "Show automatic roles" switch flipped on, the newly-added child never
+  appeared — the tree's internal expanded-keys state had already been fixed
+  at "nothing to expand" and doesn't recompute just because `treeData`
+  grows. Fixed by switching to a controlled `expandedKeys` state,
+  recomputed (to "every key currently in `treeData`") via a `useEffect` on
+  `treeData` itself, with `onExpand` still wired so a user's manual collapse
+  during their session is respected until the next structural change.
+  General lesson: a tree component with `defaultExpandAll`-style
+  mount-only props needs a controlled equivalent the moment the tree's
+  *shape* (not just node content) can change after mount.
+
+First cut of the "+" on a placeholder used a stripped-down modal (title +
+checkboxes only, event silently inherited, no switch). Feedback: "what is so
+hard it should look like a normal role and can be automatic itself maybe i
+want to add a diffrent condition." So it's now the *same* modal shape as
+everywhere else:
+
+- Switch off (default): just a Title, with a caption saying it appears under
+  the clicked role with the same condition — this is the "normal role under
+  an automatic one" case (a plain "Team Lead" that materializes under each
+  team's Coach), which is still a template under the hood since a real
+  position can't hang off an abstract placeholder.
+- Switch on: the full role form including a "When" select, pre-filled with
+  the parent's condition but changeable — e.g. under "{competition} PM" add
+  "{team} Coach" firing on team creation. The options are filtered to
+  conditions at least as deep as the parent's (competition -> team ->
+  membership): a competition-level role structurally can't nest under a
+  team-level one (no team exists when a competition is created), so
+  shallower conditions aren't offered.
+- Backing both: `RoleTemplateCreate.insert_after_id` — a template added from
+  a placeholder's "+" is inserted into the chain *immediately after* that
+  template rather than appended at the end. This also fixed a latent
+  mis-nesting: appending meant a role added "under PM" would actually chain
+  under whatever same-event template happened to be last (e.g. Deputy PM),
+  not the node the admin clicked. Covered by
+  `test_insert_after_nests_new_role_under_the_clicked_parent`.

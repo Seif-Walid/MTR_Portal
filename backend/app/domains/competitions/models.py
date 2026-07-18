@@ -13,8 +13,11 @@ class CompetitionStatus(StrEnum):
 
 
 class Competition(Base):
-    """A competition: name, dates, one or more Project Managers, and a tree of
-    categories → teams → members. Roles here are scoped to this competition."""
+    """A competition: name, dates, and a tree of categories -> teams ->
+    members. Who manages it (PM or equivalent) is entirely a matter of who
+    occupies whatever role-template positions the admin has configured for
+    it (see app/domains/positions/role_engine.py) — there is no dedicated
+    "PM" concept in this model."""
 
     __tablename__ = "competitions"
 
@@ -28,28 +31,9 @@ class Competition(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    pms: Mapped[list["CompetitionPM"]] = relationship(
-        back_populates="competition", cascade="all, delete-orphan", lazy="selectin"
-    )
     categories: Mapped[list["CompetitionCategory"]] = relationship(
         back_populates="competition", cascade="all, delete-orphan", lazy="selectin"
     )
-
-
-class CompetitionPM(Base):
-    """A Project Manager responsible for a whole competition."""
-
-    __tablename__ = "competition_pms"
-    __table_args__ = (UniqueConstraint("competition_id", "user_id"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    competition_id: Mapped[int] = mapped_column(
-        ForeignKey("competitions.id", ondelete="CASCADE"), index=True
-    )
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-
-    competition: Mapped[Competition] = relationship(back_populates="pms")
-    user = relationship("User", foreign_keys=[user_id], lazy="joined")
 
 
 class CompetitionCategory(Base):
@@ -70,7 +54,9 @@ class CompetitionCategory(Base):
 
 
 class CompetitionTeam(Base):
-    """A team within a category. A team has one lead and its own members."""
+    """A team within a category. Who leads/coaches it is, like a competition's
+    PM, entirely a matter of role-position occupancy — no dedicated fields
+    here for that."""
 
     __tablename__ = "competition_teams"
 
@@ -79,16 +65,12 @@ class CompetitionTeam(Base):
         ForeignKey("competition_categories.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str] = mapped_column(String(255))
-    lead_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
-    )
     # Soft delete: a team is historical context (who competed, allocation
     # linkage, task history) — removing the row would lose that. A genuine
     # hard delete is a separate admin-only escape hatch.
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     category: Mapped[CompetitionCategory] = relationship(back_populates="teams")
-    lead = relationship("User", foreign_keys=[lead_id], lazy="joined")
     members: Mapped[list["CompetitionTeamMember"]] = relationship(
         back_populates="team", cascade="all, delete-orphan", lazy="selectin"
     )

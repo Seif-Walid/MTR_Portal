@@ -3,6 +3,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domains.competitions.models import CompetitionStatus
+from app.domains.positions.schemas import EntityRoleOut
 from app.domains.users.schemas import UserBrief
 
 
@@ -18,7 +19,7 @@ class TeamOut(BaseModel):
 
     id: int
     name: str
-    lead: UserBrief | None
+    roles: list[EntityRoleOut] = []
     members: list[MemberOut] = []
     can_manage_members: bool = False  # for the current user
 
@@ -44,7 +45,7 @@ class CompetitionOut(CompetitionBrief):
     start_date: date | None
     end_date: date | None
     created_at: datetime
-    pms: list[UserBrief] = []
+    roles: list[EntityRoleOut] = []
     category_count: int = 0
     team_count: int = 0
     member_count: int = 0
@@ -61,6 +62,11 @@ class CompetitionCreate(BaseModel):
     description: str = ""
     start_date: date | None = None
     end_date: date | None = None
+    # Where the very first role-template position ever goes in the org
+    # chart. Only required if that hasn't happened yet at all, system-wide
+    # (see GET /org/roles/root) — ignored after that, since the first
+    # answer is remembered.
+    role_root_position_id: int | None = None
 
 
 class CompetitionEdit(BaseModel):
@@ -73,24 +79,19 @@ class CompetitionEdit(BaseModel):
     status: CompetitionStatus | None = None
 
 
-class PMAdd(BaseModel):
-    user_id: int
-
-
 class CategoryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 
 class TeamCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    lead_id: int | None = None
+    role_root_position_id: int | None = None
 
 
 class TeamEdit(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    lead_id: int | None = None
-    clear_lead: bool = False
 
 
 class MemberAdd(BaseModel):
     user_id: int
+    role_root_position_id: int | None = None

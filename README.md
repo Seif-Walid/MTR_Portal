@@ -304,15 +304,17 @@ cd backend
 .venv\Scripts\python -m pytest tests -q
 ```
 
-140 tests cover the permission layer: assignment allowed/denied (down, up, across,
+155 tests cover the permission layer: assignment allowed/denied (down, up, across,
 self), subtree visibility and drill-down, request accept/decline/delegate, status
 workflow rights (assignee vs. reviewer), multi-role union, hierarchy moves and
 cycle rejection; inventory scoping, allocation capacity math, over-allocation/shrink
 guards, the who-holds-what breakdown, and the stock-movement ledger with checkout
 requests (submit→approve/reject→issue→return, overdue); competition nesting with
-competition-scoped PM / team-lead authority (a lead touches only their team); Google
-Sheet import (mocked) with upsert; the **Positions** org tree (single root, no cycles,
-occupant→manager derivation with vacant-seat skip, audit log); admin/CEO-wide user
+role-position-derived authority (occupying a `grants_management` role manages that
+competition/team — a team role touches only its own team); Google Sheet import
+(mocked) with upsert; the **Positions** org tree (single root, no cycles,
+multi-occupant seats, occupant→manager derivation with vacant-seat skip and
+earliest-occupant-wins for shared seats, audit log); admin/CEO-wide user
 management, sourced from a DB-backed role/department catalog (not a hardcoded
 frontend list); the general audit log + soft-delete-by-default with admin-only
 permanent delete; Google sign-in (auto-provisions a no-roles account for any
@@ -321,11 +323,16 @@ never a silent email match — for an email that already has a password account,
 the OAuth round-trip mocked); the Sheets export/rebuild cycle — org-manager-only
 export and dry-run, admin/CEO-only commit gated on an exact confirm phrase,
 cross-tab reference validation, and a full rebuild round-trip (snapshot → clear
-dependents → truncate → import → auto re-export) with Sheets I/O mocked; and task
+dependents → truncate → import → auto re-export) with Sheets I/O mocked; task
 blocked/comments/history/team-assignment — toggle rights, comment visibility
 matching task visibility, the history trail ordering and its
 participant-not-admin-only access, multi-assignee batch creation (atomic on a bad
-assignee, batch view limited to the assigner).
+assignee, batch view limited to the assigner); and the generic role-chain engine —
+template CRUD/reordering/deletion (with live reparenting and splice-on-delete),
+the single ask-once-ever root, a full competition→team→member chain seating
+correctly with multi-occupant seats, `grants_management` actually gating
+authority, `auto_assign_creator` seating the creator, retitle/archive/delete
+cascading through every level, and never disturbing a real seat or manager_id.
 
 Every test runs with Google OAuth forced to "unconfigured" regardless of what's in
 your local `backend/.env` (an autouse fixture in `conftest.py`) — the suite never
@@ -383,11 +390,22 @@ frontend/
   · `GET/POST /inventory/requests` · `POST /inventory/requests/{id}/approve`
   · `POST /inventory/requests/{id}/reject` · `POST /inventory/requests/{id}/issue`
   · `POST /inventory/requests/{id}/return`
-- `GET/POST /competitions` · `GET/PATCH/DELETE /competitions/{id}` (nested detail)
-  · `POST/DELETE /competitions/{id}/pms` · `POST /competitions/{id}/categories`
-  · `DELETE /competitions/categories/{id}` · `POST /competitions/categories/{id}/teams`
-  · `PATCH/DELETE /competitions/teams/{id}` · `POST/DELETE /competitions/teams/{id}/members`
-- `GET /org/tree` · `POST /org/positions` · `PATCH/DELETE /org/positions/{id}` · `GET /org/audit`
+- `GET/POST /competitions` · `GET/PATCH/DELETE /competitions/{id}` (nested detail,
+  `roles: [{template_id, title, position_id, occupants}]` reflects whatever role
+  templates are configured — no `pms`/`lead`/`coach` fields, see `/org/roles` below)
+  · `POST /competitions/{id}/categories` · `DELETE /competitions/categories/{id}`
+  · `POST /competitions/categories/{id}/teams` · `PATCH/DELETE /competitions/teams/{id}`
+  · `POST/DELETE /competitions/teams/{id}/members`
+- `GET /org/tree` · `POST /org/positions` · `PATCH/DELETE /org/positions/{id}`
+  (`occupant_ids: number[]` — a position can have zero, one, or many occupants)
+  · `GET /org/audit`
+- `GET/POST /org/roles/templates` · `PATCH/DELETE /org/roles/templates/{id}` — the
+  admin-configurable role chain (title template, trigger event, order,
+  `grants_management`, `auto_assign_creator`) that auto-seats org-chart positions
+  when a competition/team/member is created; zero hardcoded role names anywhere
+  · `GET /org/roles/root` — whether the single ask-once-ever org-chart root is set
+  · `PUT /org/roles/positions/{id}/occupants` — assign who fills a role-chain seat,
+  reachable by CEO/Admin or by whoever already manages the linked competition/team
 - `GET /audit` — admin-only general audit log (permissions / inventory quantity / competition roles)
 - `GET /sync/status` (any user) · `GET /sync/exports` · `POST /sync/export` · `GET /sync/rebuild/history`
   (org manager: admin or CEO) · `POST /sync/rebuild/dry-run` (org manager, read-only)

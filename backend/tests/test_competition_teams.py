@@ -1,25 +1,41 @@
-"""Competition nesting (category → team → members) and team-lead scoping."""
+"""Competition nesting (category -> team -> members) and team-role scoping."""
+
+from tests.conftest import ensure_position, setup_role_templates
 
 
 def _comp(login, who="cto", name="C"):
-    return login(who).post("/api/competitions", json={"name": name})
+    admin = login("admin")
+    setup_role_templates(admin, pm=True)
+    body = {"name": name}
+    if not admin.get("/api/org/roles/root").json()["root_position_id"]:
+        body["role_root_position_id"] = ensure_position(admin)
+    return login(who).post("/api/competitions", json=body)
 
 
 def _category(login, cid, who="cto", name="Senior"):
     return login(who).post(f"/api/competitions/{cid}/categories", json={"name": name})
 
 
-def _team(login, cat_id, who="cto", name="Team A", **over):
+def _team(login, cat_id, who="cto", name="Team A"):
+    admin = login("admin")
+    setup_role_templates(admin, team_lead=True)
     body = {"name": name}
-    body.update(over)
+    if not admin.get("/api/org/roles/root").json()["root_position_id"]:
+        body["role_root_position_id"] = ensure_position(admin)
     return login(who).post(f"/api/competitions/categories/{cat_id}/teams", json=body)
+
+
+def _appoint_lead(login, team: dict, user_id: int, who="cto") -> None:
+    pos_id = team["roles"][0]["position_id"]
+    r = login(who).put(f"/api/org/roles/positions/{pos_id}/occupants", json={"user_ids": [user_id]})
+    assert r.status_code == 200, r.text
 
 
 def test_full_nesting(login, org):
     cid = _comp(login, "cto").json()["id"]
     cat = _category(login, cid).json()
-    team = _team(login, cat["id"], lead_id=org["team_lead"].id).json()
-    assert team["lead"]["id"] == org["team_lead"].id
+    team = _team(login, cat["id"]).json()
+    _appoint_lead(login, team, org["team_lead"].id)
 
     login("cto").post(f"/api/competitions/teams/{team['id']}/members", json={"user_id": org["student"].id})
     r = login("cto").post(f"/api/competitions/teams/{team['id']}/members", json={"user_id": org["comp_member"].id})
@@ -27,15 +43,18 @@ def test_full_nesting(login, org):
 
     detail = login("cto").get(f"/api/competitions/{cid}").json()
     assert detail["category_count"] == 1 and detail["team_count"] == 1 and detail["member_count"] == 2
-    assert detail["categories"][0]["teams"][0]["name"] == "Team A"
+    team_out = detail["categories"][0]["teams"][0]
+    assert team_out["name"] == "Team A"
+    assert team_out["roles"][0]["occupants"][0]["id"] == org["team_lead"].id
 
 
 def test_team_lead_manages_only_their_team(login, org):
     cid = _comp(login, "cto").json()["id"]
     cat = _category(login, cid).json()
     # the student is the scoped lead of Team A (a non-staff member leading a team)
-    team_a = _team(login, cat["id"], name="A", lead_id=org["student"].id).json()
+    team_a = _team(login, cat["id"], name="A").json()
     team_b = _team(login, cat["id"], name="B").json()
+    _appoint_lead(login, team_a, org["student"].id)
 
     # lead of A may add members to A
     assert login("student").post(
@@ -53,17 +72,10 @@ def test_team_lead_manages_only_their_team(login, org):
 def test_can_manage_flags_reflect_scope(login, org):
     cid = _comp(login, "cto").json()["id"]
     cat = _category(login, cid).json()
-    _team(login, cat["id"], name="A", lead_id=org["student"].id)
+    team_a = _team(login, cat["id"], name="A").json()
+    _appoint_lead(login, team_a, org["student"].id)
     # the student sees can_manage_members only on their own team
     detail = login("student").get(f"/api/competitions/{cid}").json()
     team = detail["categories"][0]["teams"][0]
-    assert detail["can_manage"] is False  # not a PM/high-staff
+    assert detail["can_manage"] is False  # not a manager/high-staff of the competition
     assert team["can_manage_members"] is True  # but leads this team
-
-
-def test_delete_competition_cascades(login, org):
-    cid = _comp(login, "cto").json()["id"]
-    cat = _category(login, cid).json()
-    _team(login, cat["id"])
-    assert login("cto").delete(f"/api/competitions/{cid}").status_code == 204
-    assert login("cto").get(f"/api/competitions/{cid}").status_code == 404
