@@ -343,3 +343,74 @@ each, so nothing is a silent surprise.
   again in the same migration once the backfill is done, so future inserts
   rely on the ORM-side default like the rest of the schema. `task_comments`
   and `batch_id` needed no such fix (new table; nullable column).
+
+## Dockerizing the whole stack, not just Postgres
+
+The spec's deliverable is "Running `docker compose up` gives Postgres +
+backend + frontend" — until now only Postgres was containerized (the
+original `docker-compose.yml`), with backend/frontend expected to run via a
+local Python venv / Node install. Added `backend/Dockerfile`,
+`frontend/Dockerfile` + `nginx.conf`, and two more services in
+`docker-compose.yml`, actually built and run end-to-end against real
+Postgres (not just eyeballed) to verify this.
+
+- **Frontend is a real build, served by nginx — not the Vite dev server in
+  a container.** Multi-stage Dockerfile: `node:20-alpine` builds
+  (`npm run build`, which already runs `tsc --noEmit` first — a broken
+  build fails the image, not just a lint warning), then `nginx:alpine`
+  serves the static output. `nginx.conf` reverse-proxies `/api/` to the
+  `backend` service and falls back to `index.html` for every other path
+  (React Router). This preserves the existing "same-origin, no CORS
+  needed" architecture that the Vite dev proxy already relies on
+  (`vite.config.ts`'s own comment: *"same-origin in dev: session cookie
+  just works"*) — the browser only ever talks to one origin either way.
+- **Backend seeds itself on every start, idempotently** —
+  `docker-entrypoint.sh` runs `alembic upgrade head` then
+  `python -m app.seed` (both already safe to re-run: migrations are
+  no-ops once applied, and `seed_roles`/`seed_admin` check-then-create)
+  before exec-ing uvicorn. `SEED_DEMO=1` opts into `--demo` instead,
+  matching the existing non-Docker convention exactly rather than
+  inventing a separate Docker-only seeding story. No new "is this a fresh
+  DB" branching logic needed — the existing idempotency already covers it.
+- **Backend picks up `backend/.env` if present, but two values always win.**
+  `env_file: backend/.env` (marked `required: false` so a fresh clone with
+  no `.env` yet still starts) carries over anything optional — Google/Sheets
+  credentials, `ORG_NAME`, `SEED_ADMIN_*` — into the container for free,
+  since `environment:` in Compose overrides `env_file:` values.
+  `DATABASE_URL` and `FRONTEND_URL` are set directly in `environment:`
+  regardless of what a local dev `.env` says (it likely points at
+  `sqlite:///...` and `localhost:5173`), because those two must match the
+  container network topology (`db` service hostname; the frontend's
+  Docker-exposed port) no matter what.
+- **A real, previously-undiscovered SQLite/Postgres portability bug** was
+  caught building this: Phase 7's migration
+  (`689a99d163d0_task_blocked_state_comments_batch_.py`) used
+  `server_default=sa.text('0')` for a new `Boolean` column, which SQLite
+  tolerates (loose integer/boolean coercion) but Postgres rejects outright
+  (`column "is_blocked" is of type boolean but default expression is of
+  type integer`). Fixed with `sa.false()`, which SQLAlchemy renders
+  correctly per-dialect. This was only caught because dockerizing forced an
+  actual migration run against real Postgres — **the pytest suite has never
+  once run against Postgres**; `tests/conftest.py`'s `db_session` fixture
+  hardcodes `sqlite://` directly, ignoring `DATABASE_URL` entirely, so 139
+  passing tests only ever proved SQLite compatibility. Worth knowing: this
+  bug (and any other latent dialect difference across all 7 phases) could
+  not have been caught by the existing test suite as it stands today — it
+  was caught by hand-verifying the dockerized stack against Postgres this
+  session, not by CI. Making the test suite dialect-parametrizable is a
+  reasonable follow-up if Postgres parity ever needs to be continuously
+  guaranteed rather than spot-checked.
+- **Startup-order hardening**: `docker-entrypoint.sh` retries
+  `alembic upgrade head` a few times with a short sleep before giving up.
+  `depends_on: condition: service_healthy` only guarantees Postgres passed
+  its own `pg_isready` check — it doesn't guarantee the Docker network's
+  embedded DNS has fully propagated the new `backend` container's
+  resolution of the `db` hostname in the same instant everything starts
+  together, which caused one transient failure while verifying this
+  end-to-end. A bare `depends_on` was not enough on its own in practice.
+- **Postgres's host port is now `${DB_PORT:-5432}`** (was hardcoded
+  `5432:5432`) — found this the hard way when the verification host already
+  had a native Postgres bound to 5432, unrelated to Docker. The backend's
+  own port (8000) was left fixed, since `GOOGLE_REDIRECT_URI`'s default is
+  already hardcoded to that port and there was no live collision to justify
+  the extra indirection.
