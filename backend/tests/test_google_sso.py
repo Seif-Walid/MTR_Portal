@@ -1,7 +1,8 @@
 """Google SSO: config flag, unconfigured redirects, state validation, the
-domain allowlist, and — critically — that accounts are never auto-created and
-an existing password account must be linked explicitly, not silently matched
-by email."""
+domain allowlist, that an unrecognized-but-verified email auto-provisions a
+fresh no-roles account (same as open self-registration), and — for an email
+that already has a password account — that it must be linked explicitly,
+never silently matched."""
 
 import httpx
 import pytest
@@ -90,14 +91,36 @@ def _do_callback(client, cookies=None):
     )
 
 
-def test_unknown_email_is_never_auto_provisioned(client, org, google_enabled, monkeypatch):
+def test_unknown_email_is_auto_provisioned_with_no_roles(client, org, google_enabled, monkeypatch):
     _mock_google(monkeypatch, "nobody@t.local")
     r = _do_callback(client)
-    assert "error=no_account" in r.headers["location"]
+    assert r.headers["location"].endswith("/tasks")
+    assert "portal_session" in r.cookies
 
-    # and no account was silently created
+    me = client.get("/api/auth/me", cookies={"portal_session": r.cookies["portal_session"]})
+    assert me.status_code == 200
+    body = me.json()
+    assert body["email"] == "nobody@t.local"
+    assert body["roles"] == []
+    assert body["is_admin"] is False
+    assert body["is_staff"] is False
+    assert body["google_linked"] is True
+
+    # a password login is not viable for a Google-provisioned account —
+    # it never had a real password set
     login = client.post("/api/auth/login", json={"email": "nobody@t.local", "password": "x"})
     assert login.status_code == 401
+
+
+def test_auto_provisioning_still_respects_the_domain_allowlist(
+    client, org, google_enabled, monkeypatch
+):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "google_allowed_domains", "mindtechrobotics.org")
+    _mock_google(monkeypatch, "nobody@evilcorp.com", hd="evilcorp.com")
+    r = _do_callback(client)
+    assert "error=google_domain_not_allowed" in r.headers["location"]
 
 
 def test_email_unverified_rejected(client, org, google_enabled, monkeypatch):

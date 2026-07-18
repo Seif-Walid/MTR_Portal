@@ -20,8 +20,6 @@ const SSO_ERRORS: Record<string, string> = {
   google_email_unverified: 'That Google account has no verified email address.',
   google_domain_not_allowed: 'That Google account is not on the allowed domain list for this portal.',
   google_account_mismatch: "That Google account doesn't match the account you're linking from.",
-  no_account:
-    'No portal account exists for that Google email yet — ask an admin to create one, or register below.',
   link_required:
     'That email already has a password account here. Sign in with your password below, then link Google from the account menu.',
 };
