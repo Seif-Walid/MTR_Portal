@@ -42,6 +42,17 @@ def _row(**kw) -> dict[str, str]:
     return {k: str(v) if v is not None else "" for k, v in kw.items()}
 
 
+# --- status --------------------------------------------------------------
+def test_status_exposes_org_name_to_any_user(login, org):
+    """The frontend's rebuild confirm-phrase must come from here, not a
+    hardcoded literal, or it silently breaks the moment ORG_NAME changes."""
+    r = login("student").get("/api/sync/status")
+    assert r.status_code == 200
+    body = r.json()
+    assert "org_name" in body
+    assert body["org_name"] == "Mind-Tech Robotics"  # settings default in tests
+
+
 # --- permissions -------------------------------------------------------
 def test_only_org_manager_can_export_or_dry_run(login, org, fake_sheets):
     assert login("cto").post("/api/sync/export", json={"spreadsheet_id": SPREADSHEET}).status_code == 403

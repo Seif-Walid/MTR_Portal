@@ -37,8 +37,8 @@ class DryRunRequest(BaseModel):
 
 
 @router.get("/status")
-def sync_status(db: DB, user: CurrentUser) -> dict[str, bool]:
-    return {"credentials": gsheets.credentials_available()}
+def sync_status(db: DB, user: CurrentUser) -> dict[str, bool | str]:
+    return {"credentials": gsheets.credentials_available(), "org_name": settings.org_name}
 
 
 @router.get("/exports")

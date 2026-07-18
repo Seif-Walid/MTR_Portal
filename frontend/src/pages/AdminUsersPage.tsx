@@ -15,29 +15,8 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
-import type { AdminUser } from '../api/types';
+import type { AdminUser, Role } from '../api/types';
 import { RoleTags } from '../components/tags';
-
-const ROLE_OPTIONS = [
-  'admin',
-  'ceo',
-  'cto',
-  'cfo',
-  'software_lead',
-  'mechanical_lead',
-  'electrical_lead',
-  'media_manager',
-  'project_manager',
-  'team_lead',
-  'employee',
-  'student',
-  'competition_member',
-].map((slug) => ({ value: slug, label: slug.replace(/_/g, ' ') }));
-
-const DEPARTMENTS = ['software', 'mechanical', 'electrical', 'media', 'finance'].map((d) => ({
-  value: d,
-  label: d,
-}));
 
 interface UserFormValues {
   email: string;
@@ -51,12 +30,16 @@ interface UserFormValues {
 function UserModal({
   user,
   users,
+  roles,
+  departments,
   open,
   onClose,
   onSaved,
 }: {
   user: AdminUser | null; // null = create
   users: AdminUser[];
+  roles: Role[];
+  departments: string[];
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -139,10 +122,13 @@ function UserModal({
           <Input.Password />
         </Form.Item>
         <Form.Item name="roles" label="Roles (permissions are the union)" rules={[{ required: true }]}>
-          <Select mode="multiple" options={ROLE_OPTIONS} />
+          <Select
+            mode="multiple"
+            options={roles.map((r) => ({ value: r.slug, label: r.name }))}
+          />
         </Form.Item>
         <Form.Item name="department" label="Department">
-          <Select allowClear options={DEPARTMENTS} />
+          <Select allowClear options={departments.map((d) => ({ value: d, label: d }))} />
         </Form.Item>
         <Form.Item
           name="manager_id"
@@ -160,6 +146,8 @@ function UserModal({
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [departments, setDepartments] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<AdminUser | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -170,6 +158,11 @@ export default function AdminUsersPage() {
       .get<AdminUser[]>('/api/users')
       .then(setUsers)
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    api.get<Role[]>('/api/users/roles').then(setRoles).catch(() => {});
+    api.get<string[]>('/api/users/departments').then(setDepartments).catch(() => {});
   }, []);
 
   useEffect(load, [load]);
@@ -252,6 +245,8 @@ export default function AdminUsersPage() {
       <UserModal
         user={editing}
         users={users}
+        roles={roles}
+        departments={departments}
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSaved={load}

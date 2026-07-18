@@ -34,6 +34,7 @@ const TAB_LABELS: Record<string, string> = {
 function RebuildModal({
   open,
   spreadsheetId,
+  orgName,
   report,
   onClose,
   onCommit,
@@ -41,13 +42,13 @@ function RebuildModal({
 }: {
   open: boolean;
   spreadsheetId: string;
+  orgName: string;
   report: RebuildReport | null;
   onClose: () => void;
-  onCommit: () => void;
+  onCommit: (phrase: string) => void;
   busy: boolean;
 }) {
   const [phrase, setPhrase] = useState('');
-  const [orgName] = useState('Mind-Tech Robotics'); // must match backend settings.org_name
 
   useEffect(() => {
     if (open) setPhrase('');
@@ -122,9 +123,9 @@ function RebuildModal({
             danger
             type="primary"
             block
-            disabled={phrase !== orgName}
+            disabled={!orgName || phrase !== orgName}
             loading={busy}
-            onClick={onCommit}
+            onClick={() => onCommit(phrase)}
           >
             I understand — rebuild the database now
           </Button>
@@ -136,6 +137,7 @@ function RebuildModal({
 
 export default function SheetsSyncPage() {
   const [spreadsheetId, setSpreadsheetId] = useState('');
+  const [orgName, setOrgName] = useState('');
   const [exports, setExports] = useState<SheetExportStatus[]>([]);
   const [history, setHistory] = useState<RebuildBatch[]>([]);
   const [loading, setLoading] = useState(false);
@@ -160,6 +162,13 @@ export default function SheetsSyncPage() {
   }, []);
 
   useEffect(load, [load]);
+
+  useEffect(() => {
+    api
+      .get<{ credentials: boolean; org_name: string }>('/api/sync/status')
+      .then((s) => setOrgName(s.org_name))
+      .catch(() => {});
+  }, []);
 
   const syncAll = async () => {
     if (!spreadsheetId.trim()) {
@@ -200,12 +209,12 @@ export default function SheetsSyncPage() {
     }
   };
 
-  const commit = async () => {
+  const commit = async (phrase: string) => {
     setCommitting(true);
     try {
       const r = await api.post<RebuildReport>('/api/sync/rebuild/commit', {
         spreadsheet_id: spreadsheetId.trim(),
-        confirm_phrase: 'Mind-Tech Robotics',
+        confirm_phrase: phrase,
       });
       if (r.committed) {
         message.success('Rebuild complete — the database now matches the sheet.');
@@ -335,6 +344,7 @@ export default function SheetsSyncPage() {
       <RebuildModal
         open={rebuildOpen}
         spreadsheetId={spreadsheetId}
+        orgName={orgName}
         report={report}
         onClose={() => setRebuildOpen(false)}
         onCommit={commit}
