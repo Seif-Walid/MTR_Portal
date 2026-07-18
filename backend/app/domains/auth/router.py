@@ -209,6 +209,7 @@ def google_callback(
             timeout=15,
         )
         if token_res.status_code != 200:
+            print(f"[google_callback] token exchange failed: {token_res.status_code} {token_res.text}")
             return _login_error("google_token_exchange_failed")
         access_token = token_res.json().get("access_token")
         info_res = httpx.get(
@@ -217,9 +218,11 @@ def google_callback(
             timeout=15,
         )
         if info_res.status_code != 200:
+            print(f"[google_callback] userinfo fetch failed: {info_res.status_code} {info_res.text}")
             return _login_error("google_userinfo_failed")
         info = info_res.json()
-    except httpx.HTTPError:
+    except httpx.HTTPError as exc:
+        print(f"[google_callback] unreachable: {exc!r}")
         return _login_error("google_unreachable")
 
     email = (info.get("email") or "").lower()
