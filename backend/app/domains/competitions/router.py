@@ -8,10 +8,14 @@ from app.domains.auth.deps import DB, CurrentUser
 from app.domains.competitions.models import (
     Competition,
     CompetitionCategory,
-    CompetitionPM,
     CompetitionStatus,
     CompetitionTeam,
     CompetitionTeamMember,
+)
+from app.domains.competitions.role_sync import (
+    lineage_for_competition,
+    lineage_for_membership,
+    lineage_for_team,
 )
 from app.domains.competitions.schemas import (
     CategoryCreate,
@@ -22,7 +26,6 @@ from app.domains.competitions.schemas import (
     CompetitionOut,
     MemberAdd,
     MemberOut,
-    PMAdd,
     TeamCreate,
     TeamEdit,
     TeamOut,
@@ -35,6 +38,9 @@ from app.domains.competitions.service import (
     require_manage_team,
 )
 from app.domains.inventory.models import InventoryAllocation
+from app.domains.positions import role_engine
+from app.domains.positions.schemas import EntityRoleOut
+from app.domains.positions.service import resync_managers
 from app.domains.users.models import User
 from app.domains.users.schemas import UserBrief
 
@@ -47,13 +53,24 @@ def _resolve_user(db: DB, user_id: int, what: str) -> int:
     return user_id
 
 
-def _team_out(team: CompetitionTeam, can_manage: bool, user_id: int) -> TeamOut:
+def _entity_roles_out(db: DB, event: str, entity_type: str, entity_id: int, names: dict[str, str]) -> list[EntityRoleOut]:
+    return [
+        EntityRoleOut(
+            template_id=r["template_id"], title=r["title"], position_id=r["position_id"],
+            occupants=[UserBrief.model_validate(u) for u in r["occupants"]],
+        )
+        for r in role_engine.entity_roles(db, event, entity_type, entity_id, names)
+    ]
+
+
+def _team_out(db: DB, comp: Competition, team: CompetitionTeam, can_manage: bool, user: User) -> TeamOut:
+    names = {"competition": comp.name, "team": team.name}
     return TeamOut(
         id=team.id,
         name=team.name,
-        lead=UserBrief.model_validate(team.lead) if team.lead else None,
+        roles=_entity_roles_out(db, "team_created", "team", team.id, names),
         members=[MemberOut(id=m.id, user=UserBrief.model_validate(m.user)) for m in team.members],
-        can_manage_members=can_manage or team.lead_id == user_id,
+        can_manage_members=can_manage or can_manage_team(db, user, team),
     )
 
 
@@ -79,7 +96,7 @@ def _base_out(db: DB, comp: Competition, manage: bool) -> dict:
     return dict(
         id=comp.id, name=comp.name, status=comp.status, description=comp.description,
         start_date=comp.start_date, end_date=comp.end_date, created_at=comp.created_at,
-        pms=[UserBrief.model_validate(pm.user) for pm in comp.pms],
+        roles=_entity_roles_out(db, "competition_created", "competition", comp.id, {"competition": comp.name}),
         category_count=cats, team_count=teams, member_count=members, allocation_count=alloc,
         can_manage=manage,
     )
@@ -95,7 +112,7 @@ def _detail_out(db: DB, user: User, comp: Competition) -> CompetitionDetailOut:
         CategoryOut(
             id=cat.id,
             name=cat.name,
-            teams=[_team_out(t, manage, user.id) for t in _active_teams(cat)],
+            teams=[_team_out(db, comp, t, manage, user) for t in _active_teams(cat)],
         )
         for cat in comp.categories
     ]
@@ -114,6 +131,10 @@ def _get_team(db: DB, team_id: int) -> CompetitionTeam:
     if team is None or team.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Team not found")
     return team
+
+
+def _team_competition(team: CompetitionTeam) -> Competition:
+    return team.category.competition
 
 
 # --- teams & categories (literal routes, before /{competition_id}) --------
@@ -138,44 +159,51 @@ def add_team(category_id: int, payload: TeamCreate, db: DB, user: CurrentUser) -
     if cat is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
     require_manage_competition(db, user, cat.competition_id)
-    team = CompetitionTeam(
-        category_id=category_id,
-        name=payload.name,
-        lead_id=_resolve_user(db, payload.lead_id, "Lead") if payload.lead_id else None,
-    )
+    comp = cat.competition
+    team = CompetitionTeam(category_id=category_id, name=payload.name)
     db.add(team)
+    db.flush()
+    role_engine.apply_event(
+        db, event="team_created", entity_type="team", entity_id=team.id,
+        lineage=lineage_for_team(comp, team.id), names={"competition": comp.name, "team": team.name},
+        creator_id=user.id, root_position_id=payload.role_root_position_id,
+    )
+    resync_managers(db)
     db.commit()
     db.refresh(team)
-    return _team_out(team, True, user.id)
+    return _team_out(db, comp, team, True, user)
 
 
 @router.patch("/teams/{team_id}")
 def edit_team(team_id: int, payload: TeamEdit, db: DB, user: CurrentUser) -> TeamOut:
     team = _get_team(db, team_id)
-    require_manage_competition(db, user, team.category.competition_id)
-    if payload.name is not None:
+    comp = _team_competition(team)
+    require_manage_competition(db, user, comp.id)
+    if payload.name is not None and payload.name != team.name:
         team.name = payload.name
-    if payload.clear_lead:
-        if team.lead_id is not None:
-            audit_log(db, user.id, "competitions", "lead_cleared", "competition_team", team.id,
-                      {"team": team.name})
-        team.lead_id = None
-    elif payload.lead_id is not None and payload.lead_id != team.lead_id:
-        new_lead = _resolve_user(db, payload.lead_id, "Lead")
-        audit_log(db, user.id, "competitions", "lead_assigned", "competition_team", team.id,
-                  {"team": team.name, "before": team.lead_id, "after": new_lead})
-        team.lead_id = new_lead
+        names = {"competition": comp.name, "team": team.name}
+        role_engine.retitle_positions_for_entity(db, "team", team.id, names)
+        for member in team.members:
+            role_engine.retitle_positions_for_entity(
+                db, "membership", member.id, {**names, "member": member.user.full_name}
+            )
+    resync_managers(db)
     db.commit()
     db.refresh(team)
-    return _team_out(team, True, user.id)
+    return _team_out(db, comp, team, True, user)
 
 
 @router.delete("/teams/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_team(team_id: int, db: DB, user: CurrentUser, permanent: bool = False) -> None:
     """Soft-deletes by default — a team is historical context (who competed,
-    allocations, task history). `permanent=true` really removes it, admin only."""
+    allocations, task history). `permanent=true` really removes it, admin
+    only. Either way its role positions (and its members' role positions)
+    follow: vacated on a soft delete (they stay in the org chart, same as the
+    team staying queryable), removed outright on a permanent one."""
     team = _get_team(db, team_id)
-    require_manage_competition(db, user, team.category.competition_id)
+    comp = _team_competition(team)
+    require_manage_competition(db, user, comp.id)
+    member_ids = [m.id for m in team.members]
     if permanent:
         if not user.is_admin:
             raise HTTPException(
@@ -183,18 +211,26 @@ def delete_team(team_id: int, db: DB, user: CurrentUser, permanent: bool = False
             )
         audit_log(db, user.id, "competitions", "team_purged", "competition_team", team.id,
                   {"team": team.name})
+        for mid in member_ids:
+            role_engine.delete_positions_for_entity(db, "membership", mid)
+        role_engine.delete_positions_for_entity(db, "team", team.id)
         db.delete(team)
     else:
         audit_log(db, user.id, "competitions", "team_deleted", "competition_team", team.id,
                   {"team": team.name})
         team.deleted_at = datetime.now(timezone.utc)
+        for mid in member_ids:
+            role_engine.vacate_positions_for_entity(db, "membership", mid)
+        role_engine.vacate_positions_for_entity(db, "team", team.id)
+    resync_managers(db)
     db.commit()
 
 
 @router.post("/teams/{team_id}/members", status_code=status.HTTP_201_CREATED)
 def add_member(team_id: int, payload: MemberAdd, db: DB, user: CurrentUser) -> TeamOut:
     team = _get_team(db, team_id)
-    require_manage_team(db, user, team)  # the scoped team lead qualifies here
+    comp = _team_competition(team)
+    require_manage_team(db, user, team)  # a scoped team manager qualifies here
     _resolve_user(db, payload.user_id, "Member")
     exists = db.scalar(
         select(CompetitionTeamMember).where(
@@ -203,12 +239,22 @@ def add_member(team_id: int, payload: MemberAdd, db: DB, user: CurrentUser) -> T
         )
     )
     if exists is None:
-        db.add(CompetitionTeamMember(team_id=team_id, user_id=payload.user_id))
+        member = CompetitionTeamMember(team_id=team_id, user_id=payload.user_id)
+        db.add(member)
+        db.flush()
+        member_user = db.get(User, payload.user_id)
+        role_engine.apply_event(
+            db, event="team_member_added", entity_type="membership", entity_id=member.id,
+            lineage=lineage_for_membership(comp, team.id, member.id),
+            names={"competition": comp.name, "team": team.name, "member": member_user.full_name},
+            member_id=payload.user_id, root_position_id=payload.role_root_position_id,
+        )
+        resync_managers(db)
         audit_log(db, user.id, "competitions", "member_added", "competition_team", team.id,
                   {"team": team.name, "user_id": payload.user_id})
         db.commit()
         db.refresh(team)
-    return _team_out(team, can_manage_team(db, user, team), user.id)
+    return _team_out(db, comp, team, can_manage_team(db, user, team), user)
 
 
 @router.delete("/teams/{team_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -222,7 +268,9 @@ def remove_member(team_id: int, user_id: int, db: DB, user: CurrentUser) -> None
         )
     )
     if member is not None:
+        role_engine.delete_positions_for_entity(db, "membership", member.id)
         db.delete(member)
+        resync_managers(db)
         audit_log(db, user.id, "competitions", "member_removed", "competition_team", team.id,
                   {"team": team.name, "user_id": user_id})
         db.commit()
@@ -253,7 +301,12 @@ def create_competition(payload: CompetitionCreate, db: DB, user: CurrentUser) ->
     )
     db.add(comp)
     db.flush()
-    db.add(CompetitionPM(competition_id=comp.id, user_id=user.id))  # creator is a PM
+    role_engine.apply_event(
+        db, event="competition_created", entity_type="competition", entity_id=comp.id,
+        lineage=lineage_for_competition(comp), names={"competition": comp.name},
+        creator_id=user.id, root_position_id=payload.role_root_position_id,
+    )
+    resync_managers(db)
     db.commit()
     db.refresh(comp)
     return _detail_out(db, user, comp)
@@ -274,12 +327,35 @@ def edit_competition(
         if db.scalar(select(Competition).where(Competition.name == payload.name)):
             raise HTTPException(status.HTTP_409_CONFLICT, "A competition with that name already exists")
         comp.name = payload.name
+        role_engine.retitle_positions_for_entity(
+            db, "competition", comp.id, {"competition": comp.name}
+        )
+        for cat in comp.categories:
+            for team in cat.teams:
+                names = {"competition": comp.name, "team": team.name}
+                role_engine.retitle_positions_for_entity(db, "team", team.id, names)
+                for member in team.members:
+                    role_engine.retitle_positions_for_entity(
+                        db, "membership", member.id, {**names, "member": member.user.full_name}
+                    )
     if payload.description is not None:
         comp.description = payload.description
+    status_changed = payload.status is not None and payload.status != comp.status
     if payload.status is not None:
         comp.status = payload.status
     comp.start_date = None if payload.clear_start_date else (payload.start_date or comp.start_date)
     comp.end_date = None if payload.clear_end_date else (payload.end_date or comp.end_date)
+    if status_changed and comp.status == CompetitionStatus.ARCHIVED:
+        # archiving vacates every seat this competition produced, at every
+        # level — occupancy is manual now, so there is nothing to "restore"
+        # on reactivation; reactivating just leaves seats vacant to refill.
+        role_engine.vacate_positions_for_entity(db, "competition", comp.id)
+        for cat in comp.categories:
+            for team in cat.teams:
+                role_engine.vacate_positions_for_entity(db, "team", team.id)
+                for member in team.members:
+                    role_engine.vacate_positions_for_entity(db, "membership", member.id)
+        resync_managers(db)
     db.commit()
     db.refresh(comp)
     return _list_out(db, user, comp)
@@ -299,45 +375,15 @@ def delete_competition(competition_id: int, db: DB, user: CurrentUser) -> None:
             status.HTTP_400_BAD_REQUEST,
             f"{in_use} allocation(s) reference this competition — archive it instead.",
         )
+    for cat in comp.categories:
+        for team in cat.teams:
+            for member in team.members:
+                role_engine.delete_positions_for_entity(db, "membership", member.id)
+            role_engine.delete_positions_for_entity(db, "team", team.id)
+    role_engine.delete_positions_for_entity(db, "competition", comp.id)
     db.delete(comp)
+    resync_managers(db)
     db.commit()
-
-
-# --- project managers -----------------------------------------------------
-@router.post("/{competition_id}/pms", status_code=status.HTTP_201_CREATED)
-def add_pm(competition_id: int, payload: PMAdd, db: DB, user: CurrentUser) -> CompetitionDetailOut:
-    require_high_staff(user)  # leadership appoints the PMs
-    comp = _get_comp(db, competition_id)
-    _resolve_user(db, payload.user_id, "Project manager")
-    exists = db.scalar(
-        select(CompetitionPM).where(
-            CompetitionPM.competition_id == competition_id,
-            CompetitionPM.user_id == payload.user_id,
-        )
-    )
-    if exists is None:
-        db.add(CompetitionPM(competition_id=competition_id, user_id=payload.user_id))
-        audit_log(db, user.id, "competitions", "pm_added", "competition", competition_id,
-                  {"competition": comp.name, "user_id": payload.user_id})
-        db.commit()
-        db.refresh(comp)
-    return _detail_out(db, user, comp)
-
-
-@router.delete("/{competition_id}/pms/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_pm(competition_id: int, user_id: int, db: DB, user: CurrentUser) -> None:
-    require_high_staff(user)
-    pm = db.scalar(
-        select(CompetitionPM).where(
-            CompetitionPM.competition_id == competition_id,
-            CompetitionPM.user_id == user_id,
-        )
-    )
-    if pm is not None:
-        db.delete(pm)
-        audit_log(db, user.id, "competitions", "pm_removed", "competition", competition_id,
-                  {"user_id": user_id})
-        db.commit()
 
 
 # --- categories (nested under a competition) ------------------------------

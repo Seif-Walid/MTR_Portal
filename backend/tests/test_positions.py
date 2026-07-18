@@ -1,10 +1,12 @@
-"""Positions org tree: permissions, single root, cycles, occupant→manager
+"""Positions org tree: permissions, single root, cycles, occupant->manager
 derivation (including vacant-seat skip), delete guards, and the audit log."""
 
 from app.domains.users.models import User
 
 
-def _pos(login, who="ceo", **body):
+def _pos(login, who="ceo", occupant_id=None, **body):
+    if occupant_id is not None:
+        body["occupant_ids"] = [occupant_id]
     return login(who).post("/api/org/positions", json=body)
 
 
@@ -63,10 +65,23 @@ def test_occupant_moves_between_seats(login, org, db_session):
     p1 = _pos(login, "ceo", title="Seat 1", parent_id=root["id"], occupant_id=org["cto"].id).json()
     p2 = _pos(login, "ceo", title="Seat 2", parent_id=root["id"]).json()
     # move the CTO into Seat 2 → Seat 1 becomes vacant
-    login("ceo").patch(f"/api/org/positions/{p2['id']}", json={"occupant_id": org["cto"].id})
+    login("ceo").patch(f"/api/org/positions/{p2['id']}", json={"occupant_ids": [org["cto"].id]})
     db_session.expire_all()
-    assert db_session.get(Position, p1["id"]).occupant_id is None
-    assert db_session.get(Position, p2["id"]).occupant_id == org["cto"].id
+    assert db_session.get(Position, p1["id"]).occupants == []
+    assert [u.id for u in db_session.get(Position, p2["id"]).occupants] == [org["cto"].id]
+
+
+def test_position_can_have_multiple_occupants(login, org, db_session):
+    from app.domains.positions.models import Position
+
+    r = login("ceo").post("/api/org/positions", json={
+        "title": "Co-Leadership", "occupant_ids": [org["ceo"].id, org["cfo"].id],
+    })
+    assert r.status_code == 201, r.text
+    pos_id = r.json()["id"]
+    db_session.expire_all()
+    occupant_ids = {u.id for u in db_session.get(Position, pos_id).occupants}
+    assert occupant_ids == {org["ceo"].id, org["cfo"].id}
 
 
 def test_audit_log_records_changes(login, org):

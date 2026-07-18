@@ -130,10 +130,17 @@ export interface CompetitionMember {
   user: UserBrief;
 }
 
+export interface EntityRole {
+  template_id: number;
+  title: string;
+  position_id: number | null;
+  occupants: UserBrief[];
+}
+
 export interface CompetitionTeam {
   id: number;
   name: string;
-  lead: UserBrief | null;
+  roles: EntityRole[];
   members: CompetitionMember[];
   can_manage_members: boolean;
 }
@@ -149,7 +156,7 @@ export interface Competition extends CompetitionBrief {
   start_date: string | null;
   end_date: string | null;
   created_at: string;
-  pms: UserBrief[];
+  roles: EntityRole[];
   category_count: number;
   team_count: number;
   member_count: number;
@@ -297,8 +304,26 @@ export interface PositionNode {
   title: string;
   is_technical: boolean;
   parent_id: number | null;
-  occupant: UserBrief | null;
+  occupants: UserBrief[];
+  role_template_id: number | null;
   children: PositionNode[];
+}
+
+export type RoleEvent = 'competition_created' | 'team_created' | 'team_member_added';
+
+export interface RoleTemplate {
+  id: number;
+  title_template: string;
+  event: RoleEvent;
+  sort_order: number;
+  grants_management: boolean;
+  auto_assign_creator: boolean;
+  parent_template_id: number | null;
+}
+
+export interface RoleRoot {
+  root_position_id: number | null;
+  has_templates: boolean;
 }
 
 export interface AuditEntry {

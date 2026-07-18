@@ -4,14 +4,16 @@ import dayjs, { type Dayjs } from 'dayjs';
 import { useCallback, useEffect, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
-import type { Competition } from '../api/types';
+import type { Competition, RoleRoot } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import CompetitionDetailPanel from '../components/CompetitionDetailPanel';
+import PositionPicker from '../components/PositionPicker';
 
 interface FormValues {
   name: string;
   description?: string;
   dates?: [Dayjs, Dayjs];
+  role_root_position_id?: number;
 }
 
 function CompetitionModal({ competition, open, onClose, onSaved }: {
@@ -22,6 +24,7 @@ function CompetitionModal({ competition, open, onClose, onSaved }: {
 }) {
   const [form] = Form.useForm<FormValues>();
   const [busy, setBusy] = useState(false);
+  const [needsRoot, setNeedsRoot] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -33,6 +36,10 @@ function CompetitionModal({ competition, open, onClose, onSaved }: {
         dates: competition.start_date && competition.end_date
           ? [dayjs(competition.start_date), dayjs(competition.end_date)] : undefined,
       });
+    } else {
+      api.get<RoleRoot>('/api/org/roles/root')
+        .then((r) => setNeedsRoot(r.has_templates && r.root_position_id === null))
+        .catch(() => setNeedsRoot(false));
     }
   }, [open, competition, form]);
 
@@ -43,6 +50,7 @@ function CompetitionModal({ competition, open, onClose, onSaved }: {
       description: values.description ?? '',
       start_date: values.dates?.[0]?.format('YYYY-MM-DD') ?? null,
       end_date: values.dates?.[1]?.format('YYYY-MM-DD') ?? null,
+      ...(competition ? {} : { role_root_position_id: values.role_root_position_id ?? null }),
     };
     try {
       if (competition) await api.patch(`/api/competitions/${competition.id}`, body);
@@ -69,6 +77,16 @@ function CompetitionModal({ competition, open, onClose, onSaved }: {
         <Form.Item name="description" label="Description">
           <Input.TextArea rows={2} />
         </Form.Item>
+        {!competition && needsRoot && (
+          <Form.Item
+            name="role_root_position_id"
+            label="Where does the first automatic role go in the org chart?"
+            rules={[{ required: true, message: 'Pick a position — this is only asked once' }]}
+            extra="Asked once, ever — every later automatic role reuses this or chains under an earlier one."
+          >
+            <PositionPicker />
+          </Form.Item>
+        )}
         <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
           Add categories, teams, and members after creating — expand the competition row.
         </Typography.Paragraph>
@@ -133,7 +151,10 @@ export default function CompetitionsPage() {
             render: (_, c) => c.start_date && c.end_date
               ? `${dayjs(c.start_date).format('DD MMM')} – ${dayjs(c.end_date).format('DD MMM YY')}` : '—',
           },
-          { title: 'PMs', width: 140, render: (_, c) => c.pms.map((p) => p.full_name).join(', ') || '—' },
+          {
+            title: 'Roles', width: 180,
+            render: (_, c) => c.roles.flatMap((r) => r.occupants.map((u) => u.full_name)).join(', ') || '—',
+          },
           { title: 'Categories', dataIndex: 'category_count', width: 100, render: (n: number) => n || '—' },
           { title: 'Teams', dataIndex: 'team_count', width: 80, render: (n: number) => n || '—' },
           { title: 'Members', dataIndex: 'member_count', width: 90, render: (n: number) => n || '—' },

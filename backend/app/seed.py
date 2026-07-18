@@ -28,7 +28,6 @@ from app.core.security import hash_password
 from app.domains.competitions.models import (
     Competition,
     CompetitionCategory,
-    CompetitionPM,
     CompetitionStatus,
     CompetitionTeam,
     CompetitionTeamMember,
@@ -44,7 +43,7 @@ from app.domains.inventory.models import (
     StockMovement,
 )
 from app.domains.inventory.stock import record_movement
-from app.domains.positions.models import Position
+from app.domains.positions.models import Position, PositionOccupant
 from app.domains.positions.service import resync_managers
 from app.domains.requests.models import RequestStatus, WorkRequest
 from app.domains.tasks.models import Task, TaskPriority, TaskStatus
@@ -134,13 +133,13 @@ def seed_inventory(db: Session, team_lead: User, student: User, borrower: User) 
     vex = Competition(name="VEX Worlds 2026", status=CompetitionStatus.ACTIVE)
     db.add_all([robocup, vex])
     db.flush()
-    pm = db.scalar(select(User).where(User.email == "pm@org.local"))
-    if pm is not None:
-        db.add(CompetitionPM(competition_id=robocup.id, user_id=pm.id))
+    # who manages RoboCup 2026 / leads Robotics A is now a matter of
+    # role-template occupancy (an org-chart concern, see seed_positions /
+    # the admin-configured role templates), not a dedicated field here.
     senior = CompetitionCategory(competition_id=robocup.id, name="Senior")
     db.add(senior)
     db.flush()
-    team_a = CompetitionTeam(category_id=senior.id, name="Robotics A", lead_id=team_lead.id)
+    team_a = CompetitionTeam(category_id=senior.id, name="Robotics A")
     db.add(team_a)
     db.flush()
     db.add(CompetitionTeamMember(team_id=team_a.id, user_id=student.id))
@@ -237,11 +236,14 @@ def seed_positions(db: Session) -> None:
         p = Position(
             title=title,
             parent_id=parent.id if parent else None,
-            occupant_id=user_id(email) if email else None,
             is_technical=tech,
         )
         db.add(p)
         db.flush()
+        occ = user_id(email) if email else None
+        if occ is not None:
+            db.add(PositionOccupant(position_id=p.id, user_id=occ))
+            db.flush()
         return p
 
     ceo = pos("CEO", None, "ceo@org.local")

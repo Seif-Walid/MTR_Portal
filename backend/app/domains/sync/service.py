@@ -29,7 +29,6 @@ from app.domains.auth.models import AuthSession
 from app.domains.competitions.models import (
     Competition,
     CompetitionCategory,
-    CompetitionPM,
     CompetitionStatus,
     CompetitionTeam,
     CompetitionTeamMember,
@@ -44,7 +43,7 @@ from app.domains.inventory.models import (
     StockMovement,
 )
 from app.domains.notifications.models import Notification
-from app.domains.positions.models import OrgAuditLog, Position
+from app.domains.positions.models import OrgAuditLog, Position, PositionOccupant
 from app.domains.requests.models import WorkRequest
 from app.domains.sync.models import RebuildBatch, RebuildStatus, SheetExport
 from app.domains.tasks.models import Task, TaskAttachment
@@ -63,7 +62,6 @@ TAB_ORDER = [
     "competitions",
     "competition_categories",
     "competition_teams",
-    "competition_pms",
     "competition_team_members",
     "inventory_locations",
     "inventory_items",
@@ -107,9 +105,9 @@ def _export_people(db: Session) -> tuple[list[str], list[list[str]]]:
 
 
 def _export_positions(db: Session) -> tuple[list[str], list[list[str]]]:
-    header = ["id", "title", "parent_id", "occupant_id", "is_technical"]
+    header = ["id", "title", "parent_id", "occupant_ids", "is_technical"]
     rows = [
-        [_s(p.id), p.title, _s(p.parent_id), _s(p.occupant_id), _s(p.is_technical)]
+        [_s(p.id), p.title, _s(p.parent_id), ";".join(str(u.id) for u in p.occupants), _s(p.is_technical)]
         for p in db.scalars(select(Position).order_by(Position.id))
     ]
     return header, rows
@@ -134,21 +132,12 @@ def _export_categories(db: Session) -> tuple[list[str], list[list[str]]]:
 
 
 def _export_teams(db: Session) -> tuple[list[str], list[list[str]]]:
-    header = ["id", "category_id", "name", "lead_id"]
+    header = ["id", "category_id", "name"]
     rows = [
-        [_s(t.id), _s(t.category_id), t.name, _s(t.lead_id)]
+        [_s(t.id), _s(t.category_id), t.name]
         for t in db.scalars(
             select(CompetitionTeam).where(CompetitionTeam.deleted_at.is_(None)).order_by(CompetitionTeam.id)
         )
-    ]
-    return header, rows
-
-
-def _export_pms(db: Session) -> tuple[list[str], list[list[str]]]:
-    header = ["id", "competition_id", "user_id"]
-    rows = [
-        [_s(p.id), _s(p.competition_id), _s(p.user_id)]
-        for p in db.scalars(select(CompetitionPM).order_by(CompetitionPM.id))
     ]
     return header, rows
 
@@ -201,7 +190,6 @@ _EXPORTERS = {
     "competitions": _export_competitions,
     "competition_categories": _export_categories,
     "competition_teams": _export_teams,
-    "competition_pms": _export_pms,
     "competition_team_members": _export_team_members,
     "inventory_locations": _export_locations,
     "inventory_items": _export_items,
@@ -317,17 +305,21 @@ def _validate(sheet_data: dict[str, list[dict[str, str]]]) -> tuple[dict[str, li
     parsed["people"] = people
     counts["people"] = len(people)
 
-    # positions (self-referential parent_id; occupant_id -> people)
+    # positions (self-referential parent_id; occupant_ids -> people, ";"-joined)
     positions = []
     for row in sheet_data.get("positions", []):
         if not _require(row, "id", "title", tab="positions", errors=errors):
             continue
         rid = int(row["id"])
-        occ = _check_ref(row.get("occupant_id", ""), known_ids["people"], "positions", row["id"], "occupant_id", errors)
+        occ_ids = [
+            _check_ref(v, known_ids["people"], "positions", row["id"], "occupant_ids", errors)
+            for v in row.get("occupant_ids", "").split(";") if v.strip()
+        ]
         known_ids["positions"].add(rid)
         positions.append({
             "id": rid, "title": row["title"], "parent_id_raw": row.get("parent_id", ""),
-            "occupant_id": occ, "is_technical": _bool(row.get("is_technical", "false")),
+            "occupant_ids": [o for o in occ_ids if o is not None],
+            "is_technical": _bool(row.get("is_technical", "false")),
         })
     for p in positions:  # parent refs its own tab, validate in a second pass
         if p["parent_id_raw"].strip():
@@ -376,26 +368,10 @@ def _validate(sheet_data: dict[str, list[dict[str, str]]]) -> tuple[dict[str, li
         cat = _check_ref(row["category_id"], known_ids["competition_categories"], "competition_teams", row["id"], "category_id", errors)
         if cat is None:
             continue
-        lead = _check_ref(row.get("lead_id", ""), known_ids["people"], "competition_teams", row["id"], "lead_id", errors)
         known_ids["competition_teams"].add(rid)
-        teams.append({"id": rid, "category_id": cat, "name": row["name"], "lead_id": lead})
+        teams.append({"id": rid, "category_id": cat, "name": row["name"]})
     parsed["competition_teams"] = teams
     counts["competition_teams"] = len(teams)
-
-    # competition_pms
-    pms = []
-    for row in sheet_data.get("competition_pms", []):
-        if not _require(row, "id", "competition_id", "user_id", tab="competition_pms", errors=errors):
-            continue
-        rid = int(row["id"])
-        comp = _check_ref(row["competition_id"], known_ids["competitions"], "competition_pms", row["id"], "competition_id", errors)
-        usr = _check_ref(row["user_id"], known_ids["people"], "competition_pms", row["id"], "user_id", errors)
-        if comp is None or usr is None:
-            continue
-        known_ids["competition_pms"].add(rid)
-        pms.append({"id": rid, "competition_id": comp, "user_id": usr})
-    parsed["competition_pms"] = pms
-    counts["competition_pms"] = len(pms)
 
     # competition_team_members
     members = []
@@ -494,11 +470,11 @@ def _write_snapshot(db: Session) -> str:
     snapshot = {
         "taken_at": stamp,
         "people": dump(User, ["id", "email", "full_name", "department", "manager_id", "is_active"]),
-        "positions": dump(Position, ["id", "title", "parent_id", "occupant_id", "is_technical"]),
+        "positions": dump(Position, ["id", "title", "parent_id", "is_technical"]),
+        "position_occupants": dump(PositionOccupant, ["id", "position_id", "user_id"]),
         "competitions": dump(Competition, ["id", "name", "description", "start_date", "end_date", "status"]),
         "competition_categories": dump(CompetitionCategory, ["id", "competition_id", "name"]),
-        "competition_teams": dump(CompetitionTeam, ["id", "category_id", "name", "lead_id", "deleted_at"]),
-        "competition_pms": dump(CompetitionPM, ["id", "competition_id", "user_id"]),
+        "competition_teams": dump(CompetitionTeam, ["id", "category_id", "name", "deleted_at"]),
         "competition_team_members": dump(CompetitionTeamMember, ["id", "team_id", "user_id"]),
         "inventory_locations": dump(Location, ["id", "name", "kind", "notes"]),
         "inventory_items": dump(InventoryItem, ["id", "name", "quantity", "team_lead_id", "deleted_at"]),
@@ -531,10 +507,10 @@ def _truncate_managed_tables(db: Session) -> None:
     db.execute(delete(InventoryItem))
     db.execute(delete(Location))
     db.execute(delete(CompetitionTeamMember))
-    db.execute(delete(CompetitionPM))
     db.execute(delete(CompetitionTeam))
     db.execute(delete(CompetitionCategory))
     db.execute(delete(Competition))
+    db.execute(delete(PositionOccupant))
     db.execute(update(Position).values(parent_id=None))
     db.execute(delete(Position))
     db.execute(update(User).values(manager_id=None))
@@ -563,12 +539,13 @@ def _import_all(db: Session, parsed: dict[str, list[dict]]) -> None:
             db.get(User, p["id"]).manager_id = int(p["manager_id_raw"])
 
     for pos in parsed["positions"]:
-        db.add(Position(id=pos["id"], title=pos["title"], occupant_id=pos["occupant_id"],
-                         is_technical=pos["is_technical"]))
+        db.add(Position(id=pos["id"], title=pos["title"], is_technical=pos["is_technical"]))
     db.flush()
     for pos in parsed["positions"]:
         if pos["parent_id_raw"].strip():
             db.get(Position, pos["id"]).parent_id = int(pos["parent_id_raw"])
+        for uid in pos["occupant_ids"]:
+            db.add(PositionOccupant(position_id=pos["id"], user_id=uid))
 
     for c in parsed["competitions"]:
         db.add(Competition(
@@ -578,9 +555,7 @@ def _import_all(db: Session, parsed: dict[str, list[dict]]) -> None:
     for cat in parsed["competition_categories"]:
         db.add(CompetitionCategory(id=cat["id"], competition_id=cat["competition_id"], name=cat["name"]))
     for t in parsed["competition_teams"]:
-        db.add(CompetitionTeam(id=t["id"], category_id=t["category_id"], name=t["name"], lead_id=t["lead_id"]))
-    for pm in parsed["competition_pms"]:
-        db.add(CompetitionPM(id=pm["id"], competition_id=pm["competition_id"], user_id=pm["user_id"]))
+        db.add(CompetitionTeam(id=t["id"], category_id=t["category_id"], name=t["name"]))
     for m in parsed["competition_team_members"]:
         db.add(CompetitionTeamMember(id=m["id"], team_id=m["team_id"], user_id=m["user_id"]))
     for loc in parsed["inventory_locations"]:

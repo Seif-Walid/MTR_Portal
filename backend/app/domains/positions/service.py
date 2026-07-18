@@ -4,7 +4,7 @@ from fastapi import HTTPException, status as http_status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domains.positions.models import OrgAuditLog, Position
+from app.domains.positions.models import OrgAuditLog, Position, PositionOccupant
 from app.domains.users.models import User
 
 
@@ -31,11 +31,26 @@ def assert_no_cycle(db: Session, position_id: int, new_parent_id: int | None) ->
 
 
 def resync_managers(db: Session) -> None:
-    """Derive each occupant's users.manager_id from the position tree: they report
-    to the occupant of the nearest ancestor position that has one. This keeps the
-    existing permission engine (which runs on manager_id) in sync with positions."""
+    """Derive every occupant's users.manager_id from the position tree: they
+    report to the earliest-added occupant of the nearest ancestor position
+    that has one. Positions can have more than one occupant now (co-leads, a
+    whole roster) — when a parent has several, the earliest-added one is
+    treated as "the" manager for anyone below, same convention this app
+    already used for "the" PM of a competition before that concept moved
+    onto this same generic occupancy system.
+
+    Role-template positions (role_template_id is not None — a competition's
+    PM seat, a team's Lead/Coach/Member seat, whatever the admin has
+    configured) are excluded entirely: holding one never sets your
+    manager_id, and one is never treated as an ancestor's manager either.
+    Those are an extra "hat" on top of someone's real place in the
+    hierarchy, not a hierarchy position in their own right — see
+    app/domains/positions/role_engine.py."""
     positions = all_positions(db)
     by_id = {p.id: p for p in positions}
+
+    def earliest_occupant_id(pos: Position) -> int | None:
+        return pos.occupant_links[0].user_id if pos.occupant_links else None
 
     def nearest_manager(pos: Position) -> int | None:
         seen: set[int] = set()
@@ -45,24 +60,38 @@ def resync_managers(db: Session) -> None:
             parent = by_id.get(cur)
             if parent is None:
                 break
-            if parent.occupant_id is not None:
-                return parent.occupant_id
+            if parent.role_template_id is None:
+                manager_id = earliest_occupant_id(parent)
+                if manager_id is not None:
+                    return manager_id
             cur = parent.parent_id
         return None
 
     for pos in positions:
-        if pos.occupant_id is None:
+        if pos.role_template_id is not None:
             continue
-        occ = db.get(User, pos.occupant_id)
-        if occ is not None:
-            occ.manager_id = nearest_manager(pos)
+        if not pos.occupant_links:
+            continue
+        manager_id = nearest_manager(pos)
+        for link in pos.occupant_links:
+            occ = db.get(User, link.user_id)
+            if occ is not None:
+                occ.manager_id = manager_id
 
 
 def clear_user_from_other_positions(db: Session, user_id: int, keep_position_id: int | None) -> None:
-    """A person occupies at most one seat."""
-    for pos in db.scalars(select(Position).where(Position.occupant_id == user_id)):
-        if pos.id != keep_position_id:
-            pos.occupant_id = None
+    """A person occupies at most one REAL seat. Role-template positions (see
+    resync_managers above) are a separate kind of "hat" and are deliberately
+    left alone — someone can hold their real seat and also occupy any number
+    of role-template positions (a competition's PM, a team's Lead, a team's
+    Coach, several at once) without being evicted from either."""
+    for link in db.scalars(
+        select(PositionOccupant)
+        .join(Position, PositionOccupant.position_id == Position.id)
+        .where(PositionOccupant.user_id == user_id, Position.role_template_id.is_(None))
+    ):
+        if link.position_id != keep_position_id:
+            db.delete(link)
 
 
 def audit(db: Session, actor_id: int, action: str, position_id: int | None, detail: dict) -> None:

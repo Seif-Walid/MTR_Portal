@@ -146,6 +146,9 @@ class As:
     def patch(self, url: str, **kw):
         return self._go("PATCH", url, **kw)
 
+    def put(self, url: str, **kw):
+        return self._go("PUT", url, **kw)
+
     def delete(self, url: str, **kw):
         return self._go("DELETE", url, **kw)
 
@@ -168,3 +171,54 @@ def make_task(login, assigner: str, org, assignee_key: str, title: str = "t") ->
     )
     assert r.status_code == 201, r.text
     return r.json()[0]
+
+
+def ensure_position(admin) -> int:
+    """A position ID to pass as role_root_position_id — reuses whatever's
+    already in the org tree, or creates a root position if there's none yet.
+    Competitions/teams/members only need this the very first time any
+    role-template position is ever created system-wide; passing it on every
+    call is harmless (ignored once the root is already remembered)."""
+    tree = admin.get("/api/org/tree").json()
+    if tree:
+        return tree[0]["id"]
+    r = admin.post("/api/org/positions", json={"title": "Org Root"})
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+def setup_role_templates(
+    admin, *, pm: bool = False, team_lead: bool = False, member: bool = False
+) -> dict[str, int]:
+    """Creates the minimal role templates a test needs so competitions/teams
+    behave the way they did before role templates existed: a competition-
+    scope "PM" template (grants_management + auto_assign_creator, so the
+    creator can manage what they just created) and/or a team-scope "Lead"
+    template (grants_management, occupancy set explicitly — team creation
+    never auto-assigns a manager) and/or a member-scope "Member" template (no
+    management implications, just an org-chart seat per roster member).
+    Idempotent within a test (checks by event before creating), so callers
+    can call this on every _comp()/_team() invocation without creating
+    duplicate templates."""
+    existing = {t["event"]: t["id"] for t in admin.get("/api/org/roles/templates").json()}
+    ids: dict[str, int] = {}
+
+    def _ensure(key: str, event: str, title: str, grants: bool, auto_creator: bool) -> None:
+        if event in existing:
+            ids[key] = existing[event]
+            return
+        r = admin.post("/api/org/roles/templates", json={
+            "title_template": title, "event": event,
+            "grants_management": grants, "auto_assign_creator": auto_creator,
+        })
+        assert r.status_code == 201, r.text
+        ids[key] = r.json()["id"]
+        existing[event] = ids[key]
+
+    if pm:
+        _ensure("pm", "competition_created", "{competition} PM", True, True)
+    if team_lead:
+        _ensure("team_lead", "team_created", "{team} Lead", True, False)
+    if member:
+        _ensure("member", "team_member_added", "{member}", False, False)
+    return ids

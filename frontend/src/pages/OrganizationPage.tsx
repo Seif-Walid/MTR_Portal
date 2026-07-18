@@ -1,16 +1,57 @@
-import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Empty, Form, Input, Modal, Popconfirm, Select, Space, Switch, Tag, Tree, Typography, message } from 'antd';
+import {
+  DeleteOutlined,
+  EditOutlined,
+  PlusOutlined,
+} from '@ant-design/icons';
+import {
+  Button,
+  Empty,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
+  Select,
+  Space,
+  Switch,
+  Checkbox,
+  Tag,
+  Tree,
+  Typography,
+  message,
+} from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
-import type { PositionNode, UserBrief } from '../api/types';
+import type { PositionNode, RoleEvent, RoleTemplate, UserBrief } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 
 interface EditTarget {
-  mode: 'create-root' | 'create-child' | 'edit';
+  mode: 'create-root' | 'create-child' | 'edit' | 'create-template-child' | 'edit-template';
   node?: PositionNode; // parent (create-child) or the position (edit)
+  template?: RoleTemplate; // parent role (create-template-child) or the role (edit-template)
 }
+
+const EVENT_LABELS: Record<RoleEvent, string> = {
+  competition_created: 'When a competition is created',
+  team_created: 'When a team is created',
+  team_member_added: 'When a member is added to a team',
+};
+
+// Mirrors the backend's structural lineage: competition -> team -> membership.
+// A role can only nest under one whose event fires at the same depth or
+// shallower (a competition-level role can't hang under a team-level one — no
+// team exists yet when a competition is created), so adding under an
+// automatic role only offers conditions at least as deep as the parent's.
+const EVENT_DEPTH: Record<RoleEvent, number> = {
+  competition_created: 0,
+  team_created: 1,
+  team_member_added: 2,
+};
+const childEventOptions = (parent: RoleEvent) =>
+  (Object.entries(EVENT_LABELS) as [RoleEvent, string][])
+    .filter(([e]) => EVENT_DEPTH[e] >= EVENT_DEPTH[parent])
+    .map(([value, label]) => ({ value, label }));
 
 function PositionModal({
   target,
@@ -25,39 +66,104 @@ function PositionModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [form] = Form.useForm<{ title: string; is_technical: boolean; occupant_id?: number }>();
+  const [form] = Form.useForm<{
+    title: string;
+    is_technical: boolean;
+    occupant_ids?: number[];
+    title_template: string;
+    event: RoleEvent;
+    grants_management: boolean;
+    auto_assign_creator: boolean;
+  }>();
   const [busy, setBusy] = useState(false);
-  const isEdit = target?.mode === 'edit';
+  const [automatic, setAutomatic] = useState(false);
+
+  const underTemplate = target?.mode === 'create-template-child';
+  // "template form" = the role's Title/When/checkboxes fields, as opposed to
+  // a normal position's Title/Occupants/Technical fields.
+  const isTemplateForm =
+    target?.mode === 'edit-template' ||
+    (automatic && (target?.mode === 'create-child' || target?.mode === 'create-root'));
+  const showWhenField = automatic && (target?.mode === 'create-child' || target?.mode === 'create-root');
+  const showAutomaticSwitch =
+    target?.mode === 'create-child' || target?.mode === 'create-root' || underTemplate;
 
   useEffect(() => {
     if (!open) return;
     form.resetFields();
-    if (isEdit && target?.node) {
+    setAutomatic(false);
+    if (target?.mode === 'edit' && target.node) {
       form.setFieldsValue({
         title: target.node.title,
         is_technical: target.node.is_technical,
-        occupant_id: target.node.occupant?.id,
+        occupant_ids: target.node.occupants.map((u) => u.id),
+      });
+    } else if (target?.mode === 'edit-template' && target.template) {
+      form.setFieldsValue({
+        title_template: target.template.title_template,
+        grants_management: target.template.grants_management,
+        auto_assign_creator: target.template.auto_assign_creator,
+      });
+    } else if (target?.mode === 'create-template-child') {
+      form.setFieldsValue({
+        event: target.template?.event,
+        grants_management: false,
+        auto_assign_creator: false,
       });
     } else {
-      form.setFieldsValue({ is_technical: false });
+      form.setFieldsValue({
+        is_technical: false,
+        event: 'competition_created',
+        grants_management: false,
+        auto_assign_creator: false,
+      });
     }
-  }, [open, target, isEdit, form]);
+  }, [open, target, form]);
 
-  const submit = async (values: { title: string; is_technical: boolean; occupant_id?: number }) => {
+  const submit = async (values: {
+    title: string;
+    is_technical: boolean;
+    occupant_ids?: number[];
+    title_template: string;
+    event: RoleEvent;
+    grants_management: boolean;
+    auto_assign_creator: boolean;
+  }) => {
     setBusy(true);
     try {
-      if (isEdit && target?.node) {
+      if (target?.mode === 'edit' && target.node) {
         await api.patch(`/api/org/positions/${target.node.id}`, {
           title: values.title,
           is_technical: values.is_technical,
-          ...(values.occupant_id != null ? { occupant_id: values.occupant_id } : { clear_occupant: true }),
+          occupant_ids: values.occupant_ids ?? [],
+        });
+      } else if (target?.mode === 'edit-template' && target.template) {
+        await api.patch(`/api/org/roles/templates/${target.template.id}`, {
+          title_template: values.title_template,
+          grants_management: values.grants_management,
+          auto_assign_creator: values.auto_assign_creator,
+        });
+      } else if (target?.mode === 'create-template-child' && target.template) {
+        await api.post('/api/org/roles/templates', {
+          title_template: values.title_template,
+          event: automatic && values.event ? values.event : target.template.event,
+          grants_management: automatic ? !!values.grants_management : false,
+          auto_assign_creator: automatic ? !!values.auto_assign_creator : false,
+          insert_after_id: target.template.id,
+        });
+      } else if (automatic) {
+        await api.post('/api/org/roles/templates', {
+          title_template: values.title_template,
+          event: values.event,
+          grants_management: values.grants_management,
+          auto_assign_creator: values.auto_assign_creator,
         });
       } else {
         await api.post('/api/org/positions', {
           title: values.title,
           is_technical: values.is_technical,
           parent_id: target?.mode === 'create-child' ? target.node?.id : null,
-          occupant_id: values.occupant_id ?? null,
+          occupant_ids: values.occupant_ids ?? [],
         });
       }
       message.success('Saved');
@@ -73,30 +179,102 @@ function PositionModal({
   const title =
     target?.mode === 'edit'
       ? `Edit ${target.node?.title}`
+      : target?.mode === 'edit-template'
+      ? `Edit ${target.template?.title_template}`
+      : target?.mode === 'create-template-child'
+      ? `Add a role under ${target.template?.title_template}`
       : target?.mode === 'create-child'
       ? `Add a position under ${target.node?.title}`
       : 'Add the top position';
 
+  const isEditing = target?.mode === 'edit' || target?.mode === 'edit-template';
+
   return (
     <Modal open={open} onCancel={onClose} title={title} footer={null} destroyOnHidden>
+      {showAutomaticSwitch && (
+        <Space align="center" style={{ marginBottom: 16 }}>
+          <Switch checked={automatic} onChange={setAutomatic} />
+          <Typography.Text>
+            {underTemplate
+              ? `Automatic role — pick this role's own condition instead of inheriting "${target?.template?.title_template}"'s.`
+              : 'Automatic role — seats itself when a competition/team/member event happens, chained together with any other automatic roles for the same event, instead of a position you assign by hand.'}
+          </Typography.Text>
+        </Space>
+      )}
       <Form form={form} layout="vertical" onFinish={submit}>
-        <Form.Item name="title" label="Title" rules={[{ required: true, max: 255 }]}>
-          <Input placeholder="e.g. Software Lead" />
-        </Form.Item>
-        <Form.Item name="occupant_id" label="Occupant (optional — a seat can be vacant)">
-          <Select
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            placeholder="Vacant"
-            options={holders.map((u) => ({ value: u.id, label: `${u.full_name} (${u.email})` }))}
-          />
-        </Form.Item>
-        <Form.Item name="is_technical" label="Technical position" valuePropName="checked">
-          <Switch />
-        </Form.Item>
+        {underTemplate && target?.template ? (
+          <>
+            <Form.Item
+              name="title_template"
+              label="Title"
+              rules={[{ required: true, max: 255 }]}
+              extra="Use {competition}, {team}, or {member} as placeholders"
+            >
+              <Input placeholder="e.g. Team Lead" />
+            </Form.Item>
+            {automatic ? (
+              <>
+                <Form.Item name="event" label="When" rules={[{ required: true }]}>
+                  <Select options={childEventOptions(target.template.event)} />
+                </Form.Item>
+                <Form.Item name="grants_management" valuePropName="checked">
+                  <Checkbox>Occupying this role lets someone manage that competition/team</Checkbox>
+                </Form.Item>
+                <Form.Item name="auto_assign_creator" valuePropName="checked">
+                  <Checkbox>Whoever creates it is automatically seated here</Checkbox>
+                </Form.Item>
+              </>
+            ) : (
+              <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+                Appears under "{target.template.title_template}" with the same condition —{' '}
+                {EVENT_LABELS[target.template.event]}.
+              </Typography.Paragraph>
+            )}
+          </>
+        ) : isTemplateForm ? (
+          <>
+            <Form.Item
+              name="title_template"
+              label="Title"
+              rules={[{ required: true, max: 255 }]}
+              extra="Use {competition}, {team}, or {member} as placeholders"
+            >
+              <Input placeholder="e.g. {competition} PM" />
+            </Form.Item>
+            {showWhenField && (
+              <Form.Item name="event" label="When" rules={[{ required: true }]}>
+                <Select options={Object.entries(EVENT_LABELS).map(([value, label]) => ({ value, label }))} />
+              </Form.Item>
+            )}
+            <Form.Item name="grants_management" valuePropName="checked">
+              <Checkbox>Occupying this role lets someone manage that competition/team</Checkbox>
+            </Form.Item>
+            <Form.Item name="auto_assign_creator" valuePropName="checked">
+              <Checkbox>Whoever creates it is automatically seated here</Checkbox>
+            </Form.Item>
+          </>
+        ) : (
+          <>
+            <Form.Item name="title" label="Title" rules={[{ required: true, max: 255 }]}>
+              <Input placeholder="e.g. Software Lead" />
+            </Form.Item>
+            <Form.Item name="occupant_ids" label="Occupants (optional — a seat can be vacant, or shared)">
+              <Select
+                mode="multiple"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="Vacant"
+                options={holders.map((u) => ({ value: u.id, label: `${u.full_name} (${u.email})` }))}
+              />
+            </Form.Item>
+            <Form.Item name="is_technical" label="Technical position" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+          </>
+        )}
         <Button type="primary" htmlType="submit" block loading={busy}>
-          {isEdit ? 'Save changes' : 'Add position'}
+          {isEditing ? 'Save changes' : isTemplateForm || underTemplate ? 'Add role' : 'Add position'}
         </Button>
       </Form>
     </Modal>
@@ -106,18 +284,25 @@ function PositionModal({
 export default function OrganizationPage() {
   const { me } = useAuth();
   const [roots, setRoots] = useState<PositionNode[]>([]);
+  const [templates, setTemplates] = useState<RoleTemplate[]>([]);
   const [holders, setHolders] = useState<UserBrief[]>([]);
   const [loading, setLoading] = useState(true);
   const [target, setTarget] = useState<EditTarget | null>(null);
   const [open, setOpen] = useState(false);
+  const [showAutomatic, setShowAutomatic] = useState(false);
 
   const canManage = !!me && (me.is_admin || me.roles.some((r) => r.slug === 'ceo'));
 
   const load = useCallback(() => {
     setLoading(true);
-    api
-      .get<PositionNode[]>('/api/org/tree')
-      .then(setRoots)
+    Promise.all([
+      api.get<PositionNode[]>('/api/org/tree'),
+      api.get<RoleTemplate[]>('/api/org/roles/templates'),
+    ])
+      .then(([positions, roleTemplates]) => {
+        setRoots(positions);
+        setTemplates(roleTemplates);
+      })
       .catch((e) => message.error(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -139,6 +324,19 @@ export default function OrganizationPage() {
     return map;
   }, [roots]);
 
+  const templatesByParent = useMemo(() => {
+    const map = new Map<number | null, RoleTemplate[]>();
+    for (const t of templates) {
+      const key = t.parent_template_id;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(t);
+    }
+    for (const list of map.values()) list.sort((a, b) => a.sort_order - b.sort_order);
+    return map;
+  }, [templates]);
+
+  const templatesOrdered = useMemo(() => [...templates].sort((a, b) => a.sort_order - b.sort_order), [templates]);
+
   const openModal = (t: EditTarget) => {
     setTarget(t);
     setOpen(true);
@@ -154,6 +352,60 @@ export default function OrganizationPage() {
     }
   };
 
+  const removeTemplate = async (t: RoleTemplate) => {
+    try {
+      await api.delete(`/api/org/roles/templates/${t.id}`);
+      message.success('Role removed');
+      load();
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : 'Delete failed');
+    }
+  };
+
+  const templateActions = useCallback(
+    (t: RoleTemplate) =>
+      canManage
+        ? [
+            <Button
+              key="add" type="text" size="small" icon={<PlusOutlined />} title="Add role under"
+              onClick={(e: React.MouseEvent) => { e.stopPropagation(); openModal({ mode: 'create-template-child', template: t }); }}
+            />,
+            <Button
+              key="edit" type="text" size="small" icon={<EditOutlined />} title="Edit"
+              onClick={(e: React.MouseEvent) => { e.stopPropagation(); openModal({ mode: 'edit-template', template: t }); }}
+            />,
+            <Popconfirm
+              key="del" title="Remove this role?" description="Every position it created is removed too."
+              onConfirm={() => removeTemplate(t)} onPopupClick={(e) => e.stopPropagation()}
+            >
+              <Button type="text" size="small" danger icon={<DeleteOutlined />} title="Remove"
+                onClick={(e) => e.stopPropagation()} />
+            </Popconfirm>,
+          ]
+        : [],
+    [canManage],
+  );
+
+  const toTemplateTreeData = useCallback(
+    (parentId: number | null): DataNode[] => {
+      return (templatesByParent.get(parentId) ?? []).map((t) => ({
+        key: `tpl-${t.id}`,
+        title: (
+          <Space size={6} wrap>
+            <Typography.Text strong italic>{t.title_template}</Typography.Text>
+            <Tag color="purple">automatic</Tag>
+            <Tag>{EVENT_LABELS[t.event]}</Tag>
+            {t.grants_management && <Tag color="gold">grants management</Tag>}
+            {t.auto_assign_creator && <Tag color="blue">auto-seats creator</Tag>}
+            {templateActions(t)}
+          </Space>
+        ),
+        children: toTemplateTreeData(t.id),
+      }));
+    },
+    [templatesByParent, templateActions],
+  );
+
   const toTreeData = useCallback(
     (nodes: PositionNode[]): DataNode[] =>
       nodes.map((n) => ({
@@ -161,12 +413,13 @@ export default function OrganizationPage() {
         title: (
           <Space size={6} wrap>
             <Typography.Text strong>{n.title}</Typography.Text>
-            {n.occupant ? (
-              <Typography.Text type="secondary">{n.occupant.full_name}</Typography.Text>
+            {n.occupants.length > 0 ? (
+              <Typography.Text type="secondary">{n.occupants.map((u) => u.full_name).join(', ')}</Typography.Text>
             ) : (
               <Tag>vacant</Tag>
             )}
             {n.is_technical && <Tag color="geekblue">technical</Tag>}
+            {n.role_template_id != null && <Tag color="purple">automatic</Tag>}
             {canManage && (
               <>
                 <Button type="text" size="small" icon={<PlusOutlined />} title="Add under"
@@ -182,14 +435,42 @@ export default function OrganizationPage() {
             )}
           </Space>
         ),
-        children: toTreeData(n.children),
+        children: [
+          ...toTreeData(n.children),
+          ...(showAutomatic && n.parent_id === null ? toTemplateTreeData(null) : []),
+        ],
       })),
-    [canManage],
+    [canManage, showAutomatic, toTemplateTreeData],
   );
 
   const onDrop = async (info: { dragNode: { key: React.Key }; node: { key: React.Key }; dropToGap: boolean }) => {
-    const dragId = Number(info.dragNode.key);
-    const targetId = Number(info.node.key);
+    const dragKey = String(info.dragNode.key);
+    const targetKey = String(info.node.key);
+    const dragIsTemplate = dragKey.startsWith('tpl-');
+    const targetIsTemplate = targetKey.startsWith('tpl-');
+
+    if (dragIsTemplate || targetIsTemplate) {
+      if (!dragIsTemplate || !targetIsTemplate) {
+        message.info('Automatic roles can only be reordered against other automatic roles.');
+        return;
+      }
+      const dragId = Number(dragKey.slice(4));
+      const targetId = Number(targetKey.slice(4));
+      const targetIdx = templatesOrdered.findIndex((t) => t.id === targetId);
+      if (targetIdx === -1 || dragId === targetId) return;
+      const newRank = (info.dropToGap ? targetIdx : targetIdx + 1) + 1; // 1-based
+      try {
+        await api.patch(`/api/org/roles/templates/${dragId}`, { sort_order: newRank });
+        message.success('Reordered');
+        load();
+      } catch (e) {
+        message.error(e instanceof ApiError ? e.message : 'Move failed');
+      }
+      return;
+    }
+
+    const dragId = Number(dragKey);
+    const targetId = Number(targetKey);
     const newParent = info.dropToGap ? parentOf.get(targetId) ?? null : targetId;
     if (newParent === null) {
       message.info('There can be only one top position — drop onto a position to re-parent.');
@@ -205,7 +486,31 @@ export default function OrganizationPage() {
     }
   };
 
-  const treeData = useMemo(() => toTreeData(roots), [roots, toTreeData]);
+  const treeData = useMemo(() => {
+    const positionNodes = toTreeData(roots);
+    const extraTopLevelTemplates = showAutomatic && roots.length === 0 ? toTemplateTreeData(null) : [];
+    return [...positionNodes, ...extraTopLevelTemplates];
+  }, [roots, toTreeData, showAutomatic, toTemplateTreeData]);
+
+  // `defaultExpandAll` only applies once, at mount — a node that starts with
+  // no children (or has automatic-role children hidden) never becomes
+  // expandable later just because treeData grows, so newly revealed nodes
+  // (e.g. flipping "Show automatic roles" for the first time) stayed hidden
+  // behind a collapsed switcher. Recomputing expandedKeys whenever treeData
+  // changes keeps everything expanded by default while still letting the
+  // user manually collapse a branch during their session.
+  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
+  useEffect(() => {
+    const keys: React.Key[] = [];
+    const walk = (nodes: DataNode[]) => {
+      nodes.forEach((n) => {
+        keys.push(n.key);
+        if (n.children) walk(n.children);
+      });
+    };
+    walk(treeData);
+    setExpandedKeys(keys);
+  }, [treeData]);
 
   return (
     <>
@@ -215,14 +520,21 @@ export default function OrganizationPage() {
             Organization
           </Typography.Title>
           <Typography.Text type="secondary">
-            The chart of positions (jobs). A seat can be vacant. {canManage ? 'Add positions, assign occupants, or drag to re-parent.' : 'View only.'}
+            The chart of positions (jobs). A seat can be vacant, or shared by more than one person.{' '}
+            {canManage ? 'Add positions, assign occupants, or drag to re-parent.' : 'View only.'}
           </Typography.Text>
         </div>
-        {canManage && roots.length === 0 && !loading && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal({ mode: 'create-root' })}>
-            Add top position
-          </Button>
-        )}
+        <Space direction="vertical" align="end" size={8}>
+          {canManage && roots.length === 0 && !loading && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal({ mode: 'create-root' })}>
+              Add top position
+            </Button>
+          )}
+          <Space>
+            <Switch checked={showAutomatic} onChange={setShowAutomatic} />
+            <Typography.Text>Show automatic roles</Typography.Text>
+          </Space>
+        </Space>
       </Space>
 
       {!loading && treeData.length === 0 ? (
@@ -230,7 +542,8 @@ export default function OrganizationPage() {
       ) : (
         <Tree
           treeData={treeData}
-          defaultExpandAll
+          expandedKeys={expandedKeys}
+          onExpand={setExpandedKeys}
           blockNode
           selectable={false}
           draggable={canManage ? { icon: false } : false}
