@@ -94,6 +94,14 @@ export default function AppLayout() {
         collapsible
         collapsed={collapsed}
         onBreakpoint={(broken) => setCollapsed(broken)}
+        style={{
+          position: 'fixed',
+          insetInlineStart: 0,
+          top: 0,
+          bottom: 0,
+          height: '100vh',
+          overflow: 'auto',
+        }}
       >
         <div
           style={{
@@ -115,7 +123,7 @@ export default function AppLayout() {
           onClick={(e) => navigate(e.key)}
         />
       </Sider>
-      <Layout>
+      <Layout style={{ marginInlineStart: collapsed ? 0 : 200, transition: 'margin-inline-start 0.2s' }}>
         <Header
           style={{
             background: token.colorBgContainer,
@@ -125,6 +133,9 @@ export default function AppLayout() {
             justifyContent: 'space-between',
             gap: 12,
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            position: 'sticky',
+            top: 0,
+            zIndex: 10,
           }}
         >
           <Button

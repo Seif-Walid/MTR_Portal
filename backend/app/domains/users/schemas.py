@@ -3,7 +3,6 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.schemas import Email
-from app.domains.users.models import Department
 
 
 class UserBrief(BaseModel):
@@ -46,18 +45,14 @@ class UserCreate(BaseModel):
     email: Email
     full_name: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=8, max_length=128)
-    department: Department | None = None
-    manager_id: int | None = None
     access_level_id: int | None = None
 
 
 class UserUpdate(BaseModel):
+    # No manager here on purpose: who reports to whom comes solely from the
+    # Organization chart (positions → resync_managers), never a field here.
     full_name: str | None = Field(default=None, min_length=1, max_length=255)
     password: str | None = Field(default=None, min_length=8, max_length=128)
-    department: Department | None = None
-    clear_department: bool = False
-    manager_id: int | None = None
-    clear_manager: bool = False
     is_active: bool | None = None
     access_level_id: int | None = None
     clear_access_level: bool = False

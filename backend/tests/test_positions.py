@@ -10,17 +10,49 @@ def _pos(login, who="ceo", occupant_id=None, **body):
     return login(who).post("/api/org/positions", json=body)
 
 
-def test_only_ceo_and_admin_edit_and_single_root(login, org):
-    root = _pos(login, "ceo", title="CEO", occupant_id=org["ceo"].id)
+def test_org_edit_privilege_gates_editing_and_single_root(login, org):
+    root = _pos(login, "ceo", title="CEO", occupant_id=org["ceo"].id)  # ceo=Exec has org.edit
     assert root.status_code == 201, root.text
     rid = root.json()["id"]
     # a second root is rejected
     assert _pos(login, "ceo", title="Root 2").status_code == 400
-    # admin may also edit
+    # the top-level admin may also edit
     assert _pos(login, "admin", title="CTO", parent_id=rid).status_code == 201
-    # a high-staff non-CEO (CTO) and a non-staff member cannot
+    # a Lead (cto) and a Requester (student) lack org.edit
     assert _pos(login, "cto", title="X", parent_id=rid).status_code == 403
     assert _pos(login, "student", title="Y", parent_id=rid).status_code == 403
+
+
+def test_task_assignment_follows_the_org_chart(login, org, db_session):
+    """Reporting is the Organization chart, not a separate field: occupying a
+    position lets you task whoever occupies a position below yours, because
+    manager_id is derived from position occupancy (resync_managers). None of
+    these three had a manager relationship in the chart before this."""
+    admin = login("admin")
+    boss = admin.post("/api/org/positions", json={
+        "title": "Boss", "occupant_ids": [org["cfo"].id],
+    }).json()
+    mid = admin.post("/api/org/positions", json={
+        "title": "Mid", "parent_id": boss["id"], "occupant_ids": [org["media_mgr"].id],
+    }).json()
+    admin.post("/api/org/positions", json={
+        "title": "Junior", "parent_id": mid["id"], "occupant_ids": [org["student"].id],
+    })
+
+    # cfo (Boss) can now task everyone below in the chart — directly and transitively
+    assert login("cfo").post(
+        "/api/tasks", json={"title": "t1", "assignee_ids": [org["media_mgr"].id]}
+    ).status_code == 201
+    assert login("cfo").post(
+        "/api/tasks", json={"title": "t2", "assignee_ids": [org["student"].id]}
+    ).status_code == 201
+    # media_mgr (Mid) can task the junior but NOT the boss above them
+    assert login("media_mgr").post(
+        "/api/tasks", json={"title": "t3", "assignee_ids": [org["student"].id]}
+    ).status_code == 201
+    assert login("media_mgr").post(
+        "/api/tasks", json={"title": "t4", "assignee_ids": [org["cfo"].id]}
+    ).status_code == 403
 
 
 def test_manager_is_derived_from_positions(login, org, db_session):

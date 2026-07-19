@@ -67,12 +67,5 @@ def test_assignable_list_matches_subtree(login, org):
     expected = {org[k].id for k in ("sw_emp", "mech_lead", "elec_lead", "mech_emp")}
     assert ids == expected
 
-
-def test_hierarchy_move_admin_rejects_cycles(login, org):
-    admin = login("admin")
-    # making the CTO report to their own subordinate's subordinate is a cycle
-    r = admin.patch(f"/api/users/{org['cto'].id}", json={"manager_id": org["mech_emp"].id})
-    assert r.status_code == 400
-    # self-management is a cycle too
-    r = admin.patch(f"/api/users/{org['cto'].id}", json={"manager_id": org["cto"].id})
-    assert r.status_code == 400
+# Cycle rejection lives on the Organization chart now (manager_id isn't
+# settable through User Management) — see test_positions.test_reparent_cycle_rejected.

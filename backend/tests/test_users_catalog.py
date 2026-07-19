@@ -1,14 +1,6 @@
-"""The catalogs the management UI picks from: departments (users.manage
-gated), the access ladder (any signed-in user — pickers need it), and the
-fixed privilege vocabulary that feeds the level editor."""
-
-
-def test_departments_catalog_needs_users_manage(login, org):
-    r = login("admin").get("/api/users/departments")
-    assert r.status_code == 200
-    assert set(r.json()) == {"software", "mechanical", "electrical", "media", "finance"}
-
-    assert login("student").get("/api/users/departments").status_code == 403
+"""The catalogs the management UI picks from: the access ladder (any signed-in
+user — pickers need it) and the fixed privilege vocabulary that feeds the
+level editor."""
 
 
 def test_levels_are_readable_by_anyone_signed_in(login, org):

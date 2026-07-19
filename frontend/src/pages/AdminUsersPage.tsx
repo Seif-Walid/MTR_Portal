@@ -27,23 +27,17 @@ interface UserFormValues {
   full_name: string;
   password?: string;
   access_level_id?: number | null;
-  department?: string | null;
-  manager_id?: number | null;
 }
 
 function UserModal({
   user,
-  users,
   levels,
-  departments,
   open,
   onClose,
   onSaved,
 }: {
   user: AdminUser | null; // null = create
-  users: AdminUser[];
   levels: AccessLevel[];
-  departments: string[];
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -59,20 +53,10 @@ function UserModal({
           email: user.email,
           full_name: user.full_name,
           access_level_id: user.access_level_id,
-          department: user.department,
-          manager_id: user.manager_id,
         });
       }
     }
   }, [open, user, form]);
-
-  const managerOptions = useMemo(
-    () =>
-      users
-        .filter((u) => u.id !== user?.id && u.is_active)
-        .map((u) => ({ value: u.id, label: `${u.full_name} (${u.email})` })),
-    [users, user],
-  );
 
   const submit = async (values: UserFormValues) => {
     setBusy(true);
@@ -84,12 +68,6 @@ function UserModal({
           ...(values.access_level_id != null
             ? { access_level_id: values.access_level_id }
             : { clear_access_level: true }),
-          ...(values.department
-            ? { department: values.department }
-            : { clear_department: true }),
-          ...(values.manager_id != null
-            ? { manager_id: values.manager_id }
-            : { clear_manager: true }),
         });
         message.success('User updated');
       } else {
@@ -138,15 +116,10 @@ function UserModal({
             options={levels.map((l) => ({ value: l.id, label: `${l.rank}. ${l.name}` }))}
           />
         </Form.Item>
-        <Form.Item name="department" label="Department">
-          <Select allowClear options={departments.map((d) => ({ value: d, label: d }))} />
-        </Form.Item>
-        <Form.Item
-          name="manager_id"
-          label="Reports to (drives task assignment & visibility)"
-        >
-          <Select allowClear showSearch optionFilterProp="label" options={managerOptions} />
-        </Form.Item>
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+          Where this person sits (and who they report to, for task assignment) comes from the{' '}
+          <strong>Organization</strong> chart — put them in a position there.
+        </Typography.Paragraph>
         <Button type="primary" htmlType="submit" block loading={busy}>
           {user ? 'Save changes' : 'Create user'}
         </Button>
@@ -323,7 +296,6 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [levels, setLevels] = useState<AccessLevel[]>([]);
   const [privileges, setPrivileges] = useState<Privilege[]>([]);
-  const [departments, setDepartments] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<AdminUser | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -344,12 +316,10 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     api.get<Privilege[]>('/api/access/privileges').then(setPrivileges).catch(() => {});
-    api.get<string[]>('/api/users/departments').then(setDepartments).catch(() => {});
   }, []);
 
   useEffect(load, [load]);
 
-  const byId = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
   const levelById = useMemo(() => new Map(levels.map((l) => [l.id, l])), [levels]);
 
   const toggleActive = async (user: AdminUser, active: boolean) => {
@@ -428,11 +398,6 @@ export default function AdminUsersPage() {
             ),
           },
           {
-            title: 'Reports to',
-            width: 160,
-            render: (_, u) => (u.manager_id ? byId.get(u.manager_id)?.full_name ?? '—' : '—'),
-          },
-          {
             title: 'Active',
             width: 90,
             render: (_, u) => (
@@ -459,9 +424,7 @@ export default function AdminUsersPage() {
       <LevelsEditor levels={levels} privileges={privileges} onChanged={load} />
       <UserModal
         user={editing}
-        users={users}
         levels={levels}
-        departments={departments}
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSaved={load}
