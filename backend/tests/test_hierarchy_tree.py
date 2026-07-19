@@ -72,29 +72,23 @@ def test_user_management_requires_the_privilege(login, org):
     ).status_code == 403
 
 
-def test_admin_creates_edits_and_moves_users(login, org):
+def test_admin_creates_and_edits_users(login, org):
     admin = login("admin")
     r = admin.post(
         "/api/users",
-        json={"email": "newkid@t.local", "full_name": "New Kid",
-              "password": "password123", "manager_id": org["team_lead"].id},
+        json={"email": "newkid@t.local", "full_name": "New Kid", "password": "password123"},
     )
     assert r.status_code == 201, r.text
-    assert r.json()["manager_id"] == org["team_lead"].id
-    # a fresh account with no override and no seat is a guest (bottom level)
+    # a fresh account has no seat and no manager — the org chart places them
+    assert r.json()["seats"] == []
+    # no override, no seat → the ladder's bottom rung (guest)
     assert r.json()["effective_level"] == "Guest"
 
     assert admin.patch(
         f"/api/users/{org['student'].id}", json={"full_name": "Salma Renamed"}
     ).status_code == 200
-    # reparent across branches
-    assert admin.patch(
-        f"/api/users/{org['student'].id}", json={"manager_id": org["comp_member"].id}
-    ).status_code == 200
-    # cycles still rejected
-    assert admin.patch(
-        f"/api/users/{org['team_lead'].id}", json={"manager_id": org["student"].id}
-    ).status_code == 400
+    # who reports to whom is not settable here — only the Organization chart
+    # sets manager_id (see test_positions.test_task_assignment_follows_the_org_chart)
 
 
 def test_last_top_override_is_protected(login, org):

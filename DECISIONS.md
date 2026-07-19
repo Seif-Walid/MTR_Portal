@@ -746,6 +746,17 @@ level's privilege set contains the key. Nothing anywhere reads a title.
   across it; `is_top` (effective level is rank 1) replaces the old `is_admin`
   bypass of those structural limits.
 
+**Reporting comes only from the org chart.** The old "Reports to" field in
+User Management (which set `users.manager_id` directly) was removed — it
+competed with the position tree, which already derives `manager_id` via
+`resync_managers`. `manager_id` is now settable *only* by seating someone on
+the Organization page; the user create/update endpoints no longer accept it
+(nor `department` — a hardcoded enum with no use). So who can task whom flows
+purely from the org chart: occupy a position, and you can assign tasks to
+whoever occupies a position below yours. Cycle rejection lives on the org
+tree's reparent guard, not a user field. The left nav is a fixed sidebar now
+(doesn't scroll with content).
+
 **User Management became "People & Access" — a reflection of the org, not a
 parallel truth.** The built-in role picker is gone. Per person the table
 shows the seats they hold (straight from the org chart), their computed

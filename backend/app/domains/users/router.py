@@ -6,9 +6,9 @@ from app.domains.access import service as access
 from app.domains.access.models import AccessLevel
 from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, CurrentUser
-from app.domains.hierarchy.service import assert_no_cycle, subtree_ids
+from app.domains.hierarchy.service import subtree_ids
 from app.domains.positions.models import Position, PositionOccupant
-from app.domains.users.models import Department, User
+from app.domains.users.models import User
 from app.domains.users.schemas import UserAdminOut, UserBrief, UserCreate, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -46,12 +46,6 @@ def staff_users(db: DB, user: CurrentUser) -> list[UserBrief]:
         return []
     query = select(User).where(User.id.in_(eligible)).order_by(User.full_name)
     return [UserBrief.model_validate(u) for u in db.scalars(query)]
-
-
-@router.get("/departments")
-def list_departments(db: DB, user: CurrentUser) -> list[str]:
-    access.require_privilege(db, user, "users.manage")
-    return [d.value for d in Department]
 
 
 def _admin_out(db: DB, u: User, level_by_user: dict[int, AccessLevel | None],
@@ -101,16 +95,14 @@ def create_user(payload: UserCreate, db: DB, actor: CurrentUser) -> UserAdminOut
     email = payload.email.lower()
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
-    if payload.manager_id is not None and db.get(User, payload.manager_id) is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Manager not found")
     _resolve_level(db, payload.access_level_id)
 
+    # No manager set here — a new account has no place in the org chart until
+    # someone seats them on the Organization page (which derives manager_id).
     user = User(
         email=email,
         full_name=payload.full_name,
         hashed_password=hash_password(payload.password),
-        department=payload.department,
-        manager_id=payload.manager_id,
         access_level_id=payload.access_level_id,
     )
     db.add(user)
@@ -132,27 +124,6 @@ def update_user(user_id: int, payload: UserUpdate, db: DB, actor: CurrentUser) -
         user.full_name = payload.full_name
     if payload.password is not None:
         user.hashed_password = hash_password(payload.password)
-    if payload.clear_department:
-        user.department = None
-    elif payload.department is not None:
-        user.department = payload.department
-
-    if payload.clear_manager:
-        audit_log(db, actor.id, "users", "manager_changed", "user", user.id,
-                  {"user": user.full_name, "before": user.manager_id, "after": None})
-        user.manager_id = None
-    elif payload.manager_id is not None:
-        if db.get(User, payload.manager_id) is None:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Manager not found")
-        if not assert_no_cycle(db, user.id, payload.manager_id):
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                "Invalid manager: would create a cycle in the hierarchy",
-            )
-        if payload.manager_id != user.manager_id:
-            audit_log(db, actor.id, "users", "manager_changed", "user", user.id,
-                      {"user": user.full_name, "before": user.manager_id, "after": payload.manager_id})
-        user.manager_id = payload.manager_id
 
     if payload.is_active is not None:
         if user.id == actor.id and payload.is_active is False:
