@@ -2,6 +2,7 @@ from fastapi import HTTPException, status as http_status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.domains.access import service as access
 from app.domains.audit.service import log as audit_log
 from app.domains.hierarchy.service import can_review_task, visible_user_ids
 from app.domains.notifications.models import NotificationType
@@ -46,7 +47,7 @@ def visible_tasks_query(db: Session, user: User):
 
 
 def can_view_task(db: Session, user: User, task: Task) -> bool:
-    if user.is_admin:
+    if access.is_top(db, user):
         return True
     if user.id in (task.assignee_id, task.assigner_id):
         return True
@@ -75,7 +76,7 @@ def change_status(db: Session, user: User, task: Task, new_status: TaskStatus) -
             f"Cannot move a task from '{task.status}' to '{new_status}'",
         )
     if rule == "assignee":
-        if user.id != task.assignee_id and not user.is_admin:
+        if user.id != task.assignee_id and not access.is_top(db, user):
             raise HTTPException(
                 http_status.HTTP_403_FORBIDDEN, "Only the assignee can make this change"
             )
@@ -127,12 +128,12 @@ def change_status(db: Session, user: User, task: Task, new_status: TaskStatus) -
     return task
 
 
-def can_toggle_blocked(user: User, task: Task) -> bool:
-    return user.is_admin or user.id in (task.assignee_id, task.assigner_id)
+def can_toggle_blocked(db: Session, user: User, task: Task) -> bool:
+    return access.is_top(db, user) or user.id in (task.assignee_id, task.assigner_id)
 
 
 def set_blocked(db: Session, user: User, task: Task, is_blocked: bool, reason: str) -> Task:
-    if not can_toggle_blocked(user, task):
+    if not can_toggle_blocked(db, user, task):
         raise HTTPException(
             http_status.HTTP_403_FORBIDDEN,
             "Only the assignee or assigner can change the blocked state",

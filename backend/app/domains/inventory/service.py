@@ -2,39 +2,29 @@ from fastapi import HTTPException, status as http_status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domains.hierarchy.service import ancestor_ids
+from app.domains.access import service as access
 from app.domains.inventory.models import InventoryAllocation, InventoryItem
 from app.domains.users.models import User
 
 
-def can_manage_inventory(user: User) -> bool:
-    """Staff (and the technical admin) get full storage: create, edit, delete,
-    allocate, and sync. Non-staff members are read-only."""
-    return user.is_staff or user.is_admin
+def can_manage_inventory(db: Session, user: User) -> bool:
+    """inventory.edit: create, edit, delete, allocate, import, sync."""
+    return access.has_privilege(db, user, "inventory.edit")
 
 
 def visible_items_query(db: Session, user: User):
-    """Staff see the full storage; non-staff see only equipment designated to a
-    team lead on their manager chain (their dedicated stuff). Soft-deleted
-    items never appear through the normal API."""
+    """inventory.view sees the full storage; anyone without it sees nothing.
+    Soft-deleted items never appear through the normal API."""
     base = select(InventoryItem).where(InventoryItem.deleted_at.is_(None))
-    if can_manage_inventory(user):
+    if access.has_privilege(db, user, "inventory.view"):
         return base
-    teams = ancestor_ids(db, user.id, include_self=True)
-    if not teams:
-        # no team → nothing designated to them
-        return base.where(InventoryItem.id.is_(None))
-    return base.where(InventoryItem.team_lead_id.in_(teams))
+    return base.where(InventoryItem.id.is_(None))
 
 
 def can_view_item(db: Session, user: User, item: InventoryItem) -> bool:
     if item.deleted_at is not None:
         return False
-    if can_manage_inventory(user):
-        return True
-    if item.team_lead_id is None:
-        return False
-    return item.team_lead_id in ancestor_ids(db, user.id, include_self=True)
+    return access.has_privilege(db, user, "inventory.view")
 
 
 def get_item_or_404(db: Session, user: User, item_id: int) -> InventoryItem:
@@ -44,11 +34,8 @@ def get_item_or_404(db: Session, user: User, item_id: int) -> InventoryItem:
     return item
 
 
-def require_manage(user: User) -> None:
-    if not can_manage_inventory(user):
-        raise HTTPException(
-            http_status.HTTP_403_FORBIDDEN, "Only staff can manage inventory"
-        )
+def require_manage(db: Session, user: User) -> None:
+    access.require_privilege(db, user, "inventory.edit")
 
 
 def get_allocation_or_404(

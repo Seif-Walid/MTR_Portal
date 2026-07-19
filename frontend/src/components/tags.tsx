@@ -68,14 +68,3 @@ export function PurposeTag({ purpose }: { purpose: AllocationPurpose }) {
   return <Tag color={meta.color}>{meta.label}</Tag>;
 }
 
-export function RoleTags({ roles }: { roles: { slug: string; name: string }[] }) {
-  return (
-    <>
-      {roles.map((r) => (
-        <Tag key={r.slug} color="geekblue">
-          {r.name}
-        </Tag>
-      ))}
-    </>
-  );
-}

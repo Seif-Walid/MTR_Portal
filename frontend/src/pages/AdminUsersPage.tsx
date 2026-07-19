@@ -1,9 +1,14 @@
-import { PlusOutlined } from '@ant-design/icons';
+import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import {
   Button,
+  Card,
+  Checkbox,
+  Collapse,
   Form,
   Input,
+  List,
   Modal,
+  Popconfirm,
   Select,
   Space,
   Switch,
@@ -15,14 +20,13 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
-import type { AdminUser, Role } from '../api/types';
-import { RoleTags } from '../components/tags';
+import type { AccessLevel, AdminUser, Privilege } from '../api/types';
 
 interface UserFormValues {
   email: string;
   full_name: string;
   password?: string;
-  roles: string[];
+  access_level_id?: number | null;
   department?: string | null;
   manager_id?: number | null;
 }
@@ -30,7 +34,7 @@ interface UserFormValues {
 function UserModal({
   user,
   users,
-  roles,
+  levels,
   departments,
   open,
   onClose,
@@ -38,7 +42,7 @@ function UserModal({
 }: {
   user: AdminUser | null; // null = create
   users: AdminUser[];
-  roles: Role[];
+  levels: AccessLevel[];
   departments: string[];
   open: boolean;
   onClose: () => void;
@@ -54,7 +58,7 @@ function UserModal({
         form.setFieldsValue({
           email: user.email,
           full_name: user.full_name,
-          roles: user.roles.map((r) => r.slug),
+          access_level_id: user.access_level_id,
           department: user.department,
           manager_id: user.manager_id,
         });
@@ -76,8 +80,10 @@ function UserModal({
       if (user) {
         await api.patch(`/api/users/${user.id}`, {
           full_name: values.full_name,
-          roles: values.roles,
           ...(values.password ? { password: values.password } : {}),
+          ...(values.access_level_id != null
+            ? { access_level_id: values.access_level_id }
+            : { clear_access_level: true }),
           ...(values.department
             ? { department: values.department }
             : { clear_department: true }),
@@ -121,10 +127,15 @@ function UserModal({
         >
           <Input.Password />
         </Form.Item>
-        <Form.Item name="roles" label="Roles (permissions are the union)" rules={[{ required: true }]}>
+        <Form.Item
+          name="access_level_id"
+          label="Access level override"
+          extra="Power granted directly to the person, on top of whatever their org seats confer. Most people need none — their seats decide."
+        >
           <Select
-            mode="multiple"
-            options={roles.map((r) => ({ value: r.slug, label: r.name }))}
+            allowClear
+            placeholder="None — seats (or the bottom level) decide"
+            options={levels.map((l) => ({ value: l.id, label: `${l.rank}. ${l.name}` }))}
           />
         </Form.Item>
         <Form.Item name="department" label="Department">
@@ -144,9 +155,174 @@ function UserModal({
   );
 }
 
+function LevelsEditor({
+  levels,
+  privileges,
+  onChanged,
+}: {
+  levels: AccessLevel[];
+  privileges: Privilege[];
+  onChanged: () => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState('');
+
+  const move = async (level: AccessLevel, dir: -1 | 1) => {
+    try {
+      await api.patch(`/api/access/levels/${level.id}`, { rank: level.rank + dir });
+      onChanged();
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : 'Move failed');
+    }
+  };
+
+  const rename = async (level: AccessLevel, name: string) => {
+    if (!name || name === level.name) return;
+    try {
+      await api.patch(`/api/access/levels/${level.id}`, { name });
+      onChanged();
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : 'Rename failed');
+    }
+  };
+
+  const togglePrivilege = async (level: AccessLevel, key: string, on: boolean) => {
+    const next = on
+      ? [...level.privileges, key]
+      : level.privileges.filter((k) => k !== key);
+    try {
+      await api.patch(`/api/access/levels/${level.id}`, { privileges: next });
+      onChanged();
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : 'Update failed');
+    }
+  };
+
+  const remove = async (level: AccessLevel) => {
+    try {
+      await api.delete(`/api/access/levels/${level.id}`);
+      message.success('Level removed');
+      onChanged();
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : 'Delete failed');
+    }
+  };
+
+  const addLevel = async () => {
+    if (!newName.trim()) return;
+    try {
+      await api.post('/api/access/levels', { name: newName.trim(), privileges: [] });
+      setNewName('');
+      setAdding(false);
+      onChanged();
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : 'Create failed');
+    }
+  };
+
+  return (
+    <Card
+      size="small"
+      style={{ marginTop: 24 }}
+      title="Access levels"
+      extra={
+        <Button size="small" icon={<PlusOutlined />} onClick={() => setAdding((v) => !v)}>
+          Add level
+        </Button>
+      }
+    >
+      <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+        The ladder of power, strongest first. A person's effective level is the strongest of the
+        seats they occupy plus their personal override; anyone with neither gets the bottom level.
+        Level 1 always holds every privilege and can't be edited or deleted.
+      </Typography.Paragraph>
+      {adding && (
+        <Space style={{ marginBottom: 12 }}>
+          <Input
+            size="small"
+            placeholder="Level name"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onPressEnter={addLevel}
+          />
+          <Button size="small" type="primary" onClick={addLevel}>
+            Add
+          </Button>
+        </Space>
+      )}
+      <Collapse
+        size="small"
+        items={levels.map((level, i) => ({
+          key: String(level.id),
+          label: (
+            <Space size={6}>
+              <Typography.Text strong>
+                {level.rank}. {level.name}
+              </Typography.Text>
+              {level.is_top ? (
+                <Tag color="gold">everything</Tag>
+              ) : (
+                <Tag>{level.privileges.length} privileges</Tag>
+              )}
+            </Space>
+          ),
+          extra: (
+            <Space size={0} onClick={(e) => e.stopPropagation()}>
+              <Button
+                type="text" size="small" icon={<ArrowUpOutlined />}
+                disabled={i === 0} onClick={() => move(level, -1)}
+              />
+              <Button
+                type="text" size="small" icon={<ArrowDownOutlined />}
+                disabled={i === levels.length - 1} onClick={() => move(level, 1)}
+              />
+              <Popconfirm
+                title="Delete this level?"
+                description="Seats and overrides using it fall back to no level."
+                onConfirm={() => remove(level)}
+                disabled={level.is_top}
+              >
+                <Button type="text" size="small" danger icon={<DeleteOutlined />} disabled={level.is_top} />
+              </Popconfirm>
+            </Space>
+          ),
+          children: (
+            <>
+              <Space style={{ marginBottom: 8 }}>
+                <Typography.Text type="secondary">Name:</Typography.Text>
+                <Typography.Text
+                  editable={{ onChange: (v) => rename(level, v) }}
+                >
+                  {level.name}
+                </Typography.Text>
+              </Space>
+              <List
+                size="small"
+                dataSource={privileges}
+                renderItem={(p) => (
+                  <List.Item style={{ padding: '2px 0', border: 'none' }}>
+                    <Checkbox
+                      checked={level.is_top || level.privileges.includes(p.key)}
+                      disabled={level.is_top}
+                      onChange={(e) => togglePrivilege(level, p.key, e.target.checked)}
+                    >
+                      {p.label}
+                    </Checkbox>
+                  </List.Item>
+                )}
+              />
+            </>
+          ),
+        }))}
+      />
+    </Card>
+  );
+}
+
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
+  const [levels, setLevels] = useState<AccessLevel[]>([]);
+  const [privileges, setPrivileges] = useState<Privilege[]>([]);
   const [departments, setDepartments] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<AdminUser | null>(null);
@@ -154,20 +330,27 @@ export default function AdminUsersPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    api
-      .get<AdminUser[]>('/api/users')
-      .then(setUsers)
+    Promise.all([
+      api.get<AdminUser[]>('/api/users'),
+      api.get<AccessLevel[]>('/api/access/levels'),
+    ])
+      .then(([userRows, ladder]) => {
+        setUsers(userRows);
+        setLevels(ladder);
+      })
+      .catch((e) => message.error(e instanceof ApiError ? e.message : 'Load failed'))
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
-    api.get<Role[]>('/api/users/roles').then(setRoles).catch(() => {});
+    api.get<Privilege[]>('/api/access/privileges').then(setPrivileges).catch(() => {});
     api.get<string[]>('/api/users/departments').then(setDepartments).catch(() => {});
   }, []);
 
   useEffect(load, [load]);
 
   const byId = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
+  const levelById = useMemo(() => new Map(levels.map((l) => [l.id, l])), [levels]);
 
   const toggleActive = async (user: AdminUser, active: boolean) => {
     try {
@@ -180,10 +363,16 @@ export default function AdminUsersPage() {
 
   return (
     <>
-      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
-        <Typography.Title level={4} style={{ margin: 0 }}>
-          User Management
-        </Typography.Title>
+      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }} align="start" wrap>
+        <div>
+          <Typography.Title level={4} style={{ margin: 0 }}>
+            People &amp; Access
+          </Typography.Title>
+          <Typography.Text type="secondary">
+            A reflection of the org: each person's seats come from the Organization chart, their
+            power from the access ladder. The only thing granted here directly is the override.
+          </Typography.Text>
+        </div>
         <Button
           type="primary"
           icon={<PlusOutlined />}
@@ -211,11 +400,36 @@ export default function AdminUsersPage() {
             ),
           },
           { title: 'Email', dataIndex: 'email', width: 220 },
-          { title: 'Roles', render: (_, u) => <RoleTags roles={u.roles} /> },
-          { title: 'Department', render: (_, u) => u.department ?? '—', width: 120 },
+          {
+            title: 'Seats (from the org chart)',
+            render: (_, u) =>
+              u.seats.length ? (
+                <Space size={4} wrap>
+                  {u.seats.map((s) => (
+                    <Tag key={s}>{s}</Tag>
+                  ))}
+                </Space>
+              ) : (
+                <Typography.Text type="secondary">—</Typography.Text>
+              ),
+          },
+          {
+            title: 'Level',
+            width: 170,
+            render: (_, u) => (
+              <Space size={4}>
+                {u.effective_level ? <Tag color="gold">{u.effective_level}</Tag> : '—'}
+                {u.access_level_id != null && (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    (override: {levelById.get(u.access_level_id)?.name ?? '?'})
+                  </Typography.Text>
+                )}
+              </Space>
+            ),
+          },
           {
             title: 'Reports to',
-            width: 180,
+            width: 160,
             render: (_, u) => (u.manager_id ? byId.get(u.manager_id)?.full_name ?? '—' : '—'),
           },
           {
@@ -242,10 +456,11 @@ export default function AdminUsersPage() {
           },
         ]}
       />
+      <LevelsEditor levels={levels} privileges={privileges} onChanged={load} />
       <UserModal
         user={editing}
         users={users}
-        roles={roles}
+        levels={levels}
         departments={departments}
         open={modalOpen}
         onClose={() => setModalOpen(false)}

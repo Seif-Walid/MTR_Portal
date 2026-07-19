@@ -1,8 +1,9 @@
 from fastapi import APIRouter
 from sqlalchemy import select
 
+from app.domains.access import service as access
 from app.domains.audit.models import AuditLog
-from app.domains.auth.deps import DB, AdminUser
+from app.domains.auth.deps import DB, CurrentUser
 from app.domains.users.models import User
 
 router = APIRouter(prefix="/audit", tags=["audit"])
@@ -11,14 +12,15 @@ router = APIRouter(prefix="/audit", tags=["audit"])
 @router.get("")
 def list_audit_log(
     db: DB,
-    _: AdminUser,
+    user: CurrentUser,
     domain: str | None = None,
     entity_type: str | None = None,
     entity_id: int | None = None,
     limit: int = 100,
 ) -> list[dict]:
-    """Admin-only. Filter by domain (users|inventory|competitions), entity
-    type, or a specific entity id."""
+    """Filter by domain (users|inventory|competitions), entity type, or a
+    specific entity id."""
+    access.require_privilege(db, user, "audit.view")
     query = select(AuditLog)
     if domain:
         query = query.where(AuditLog.domain == domain)

@@ -34,12 +34,3 @@ def get_current_user(
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 DB = Annotated[Session, Depends(get_db)]
-
-
-def require_admin(user: CurrentUser) -> User:
-    if not user.is_admin:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
-    return user
-
-
-AdminUser = Annotated[User, Depends(require_admin)]

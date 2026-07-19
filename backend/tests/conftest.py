@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base, get_db
 
 # import all model modules so create_all sees every table
+from app.domains.access import models as _access  # noqa: F401
 from app.domains.audit import models as _audit  # noqa: F401
 from app.domains.auth import models as _auth  # noqa: F401
 from app.domains.competitions import models as _competitions  # noqa: F401
@@ -21,8 +22,11 @@ from app.domains.sync import models as _sync  # noqa: F401
 from app.domains.tasks import models as _tasks  # noqa: F401
 from app.domains.users import models as _users  # noqa: F401
 
+import json
+
 from app.core.security import hash_password
-from app.domains.users.models import NON_STAFF_ROLES, Role, RoleSlug, User, UserRole
+from app.domains.access.models import AccessLevel
+from app.domains.users.models import User
 from app.main import app
 
 PASSWORD = "testpass123"
@@ -69,12 +73,45 @@ def client(db_session):
     app.dependency_overrides.clear()
 
 
+# The test ladder mirrors the app's old effective tiers so the reference
+# hierarchy keeps its historical powers: Exec ~ the old CEO (org editor,
+# rebuilds, manages any competition), Lead ~ old high staff (creates and
+# manages-where-seated), Staff ~ old plain employee (runs inventory, assigns
+# tasks, no competition creation), Member ~ old student/competition member.
+TEST_LEVELS: list[tuple[str, list[str]]] = [
+    ("Admin", []),  # rank 1 implicitly holds everything
+    ("Exec", [
+        "inventory.view", "inventory.request", "inventory.approve", "inventory.edit",
+        "competitions.view", "competitions.manage_seated", "competitions.create",
+        "competitions.manage_any", "tasks.use", "tasks.assign", "org.view", "org.edit",
+        "people.view", "audit.view", "sync.export", "sync.rebuild",
+    ]),
+    ("Lead", [
+        "inventory.view", "inventory.request", "inventory.approve", "inventory.edit",
+        "competitions.view", "competitions.manage_seated", "competitions.create",
+        "tasks.use", "tasks.assign", "org.view", "people.view",
+    ]),
+    ("Staff", [
+        "inventory.view", "inventory.request", "inventory.approve", "inventory.edit",
+        "competitions.view", "tasks.use", "tasks.assign", "org.view", "people.view",
+    ]),
+    ("Requester", [
+        "inventory.view", "inventory.request",
+        "competitions.view", "tasks.use", "org.view", "people.view",
+    ]),
+    ("Member", [
+        "competitions.view", "tasks.use", "org.view", "people.view",
+    ]),
+    ("Guest", []),  # the bottom rung: the default for unassigned accounts
+]
+
+
 @pytest.fixture()
 def org(db_session):
     """The reference hierarchy:
 
     ceo
-    ├── cto (multi-role: CTO + Software Lead)
+    ├── cto
     │   ├── sw_emp
     │   ├── mech_lead ── mech_emp
     │   └── elec_lead
@@ -84,43 +121,41 @@ def org(db_session):
     admin (outside the tree)
     """
     db = db_session
-    roles: dict[RoleSlug, Role] = {}
-    for slug in RoleSlug:
-        role = Role(slug=slug, name=slug.replace("_", " ").title(),
-                    is_staff=slug not in NON_STAFF_ROLES)
-        db.add(role)
-        roles[slug] = role
+    levels: dict[str, AccessLevel] = {}
+    for rank, (name, keys) in enumerate(TEST_LEVELS, start=1):
+        level = AccessLevel(rank=rank, name=name, privileges=json.dumps(keys))
+        db.add(level)
+        levels[name] = level
     db.flush()
 
-    def mk(email: str, role_slugs: list[RoleSlug], manager: User | None = None) -> User:
+    def mk(email: str, level: str | None, manager: User | None = None) -> User:
         user = User(
             email=email,
             full_name=email.split("@")[0],
             hashed_password=_PASSWORD_HASH,
             manager_id=manager.id if manager else None,
+            access_level_id=levels[level].id if level else None,
         )
         db.add(user)
         db.flush()
-        for slug in role_slugs:
-            db.add(UserRole(user_id=user.id, role_id=roles[slug].id))
         return user
 
     # .local domain on purpose: the login schema must accept internal domains
     users = {}
-    users["admin"] = mk("admin@t.local", [RoleSlug.ADMIN])
-    users["ceo"] = mk("ceo@t.local", [RoleSlug.CEO])
-    users["cto"] = mk("cto@t.local", [RoleSlug.CTO, RoleSlug.SOFTWARE_LEAD], users["ceo"])
-    users["cfo"] = mk("cfo@t.local", [RoleSlug.CFO], users["ceo"])
-    users["media_mgr"] = mk("media@t.local", [RoleSlug.MEDIA_MANAGER], users["ceo"])
-    users["pm"] = mk("pm@t.local", [RoleSlug.PROJECT_MANAGER], users["ceo"])
-    users["sw_emp"] = mk("sw@t.local", [RoleSlug.EMPLOYEE], users["cto"])
-    users["mech_lead"] = mk("mlead@t.local", [RoleSlug.MECHANICAL_LEAD], users["cto"])
-    users["elec_lead"] = mk("elead@t.local", [RoleSlug.ELECTRICAL_LEAD], users["cto"])
-    users["mech_emp"] = mk("memp@t.local", [RoleSlug.EMPLOYEE], users["mech_lead"])
-    users["fin_emp"] = mk("fin@t.local", [RoleSlug.EMPLOYEE], users["cfo"])
-    users["team_lead"] = mk("tl@t.local", [RoleSlug.TEAM_LEAD], users["pm"])
-    users["student"] = mk("stud@t.local", [RoleSlug.STUDENT], users["team_lead"])
-    users["comp_member"] = mk("comp@t.local", [RoleSlug.COMPETITION_MEMBER], users["team_lead"])
+    users["admin"] = mk("admin@t.local", "Admin")
+    users["ceo"] = mk("ceo@t.local", "Exec")
+    users["cto"] = mk("cto@t.local", "Lead", users["ceo"])
+    users["cfo"] = mk("cfo@t.local", "Lead", users["ceo"])
+    users["media_mgr"] = mk("media@t.local", "Lead", users["ceo"])
+    users["pm"] = mk("pm@t.local", "Lead", users["ceo"])
+    users["sw_emp"] = mk("sw@t.local", "Staff", users["cto"])
+    users["mech_lead"] = mk("mlead@t.local", "Lead", users["cto"])
+    users["elec_lead"] = mk("elead@t.local", "Lead", users["cto"])
+    users["mech_emp"] = mk("memp@t.local", "Staff", users["mech_lead"])
+    users["fin_emp"] = mk("fin@t.local", "Staff", users["cfo"])
+    users["team_lead"] = mk("tl@t.local", "Lead", users["pm"])
+    users["student"] = mk("stud@t.local", "Requester", users["team_lead"])
+    users["comp_member"] = mk("comp@t.local", "Member", users["team_lead"])
     db.commit()
     return users
 
@@ -187,38 +222,50 @@ def ensure_position(admin) -> int:
     return r.json()["id"]
 
 
+def _level_id_by_name(admin, name: str) -> int:
+    levels = admin.get("/api/access/levels").json()
+    return next(lvl["id"] for lvl in levels if lvl["name"] == name)
+
+
 def setup_role_templates(
     admin, *, pm: bool = False, team_lead: bool = False, member: bool = False
 ) -> dict[str, int]:
-    """Creates the minimal role templates a test needs so competitions/teams
-    behave the way they did before role templates existed: a competition-
-    scope "PM" template (grants_management + auto_assign_creator, so the
-    creator can manage what they just created) and/or a team-scope "Lead"
-    template (grants_management, occupancy set explicitly — team creation
-    never auto-assigns a manager) and/or a member-scope "Member" template (no
-    management implications, just an org-chart seat per roster member).
-    Idempotent within a test (checks by event before creating), so callers
-    can call this on every _comp()/_team() invocation without creating
-    duplicate templates."""
+    """Creates the minimal role templates a test needs: a competition-scope
+    "PM" template and/or a team-scope "Lead" template, both carrying the
+    test ladder's "Lead" level (whose privileges include
+    competitions.manage_seated — occupants manage that entity), and/or a
+    member-scope "{member}" template with no level (a bare org-chart seat).
+    Seats always start vacant — see seat_role to appoint someone.
+    Idempotent within a test (checks by event before creating)."""
     existing = {t["event"]: t["id"] for t in admin.get("/api/org/roles/templates").json()}
     ids: dict[str, int] = {}
+    lead_level = _level_id_by_name(admin, "Lead") if (pm or team_lead) else None
 
-    def _ensure(key: str, event: str, title: str, grants: bool, auto_creator: bool) -> None:
+    def _ensure(key: str, event: str, title: str, level_id: int | None) -> None:
         if event in existing:
             ids[key] = existing[event]
             return
         r = admin.post("/api/org/roles/templates", json={
-            "title_template": title, "event": event,
-            "grants_management": grants, "auto_assign_creator": auto_creator,
+            "title_template": title, "event": event, "access_level_id": level_id,
         })
         assert r.status_code == 201, r.text
         ids[key] = r.json()["id"]
         existing[event] = ids[key]
 
     if pm:
-        _ensure("pm", "competition_created", "{competition} PM", True, True)
+        _ensure("pm", "competition_created", "{competition} PM", lead_level)
     if team_lead:
-        _ensure("team_lead", "team_created", "{team} Lead", True, False)
+        _ensure("team_lead", "team_created", "{team} Lead", lead_level)
     if member:
-        _ensure("member", "team_member_added", "{member}", False, False)
+        _ensure("member", "team_member_added", "{member}", None)
     return ids
+
+
+def seat_role(admin, entity_json: dict, user_ids: list[int], role_index: int = 0) -> None:
+    """Appoints occupants into an entity's role seat (e.g. the PM seat of a
+    freshly created competition) — nothing auto-seats creators anymore, so
+    tests that need a scoped manager appoint one explicitly."""
+    position_id = entity_json["roles"][role_index]["position_id"]
+    assert position_id is not None, entity_json
+    r = admin.put(f"/api/org/roles/positions/{position_id}/occupants", json={"user_ids": user_ids})
+    assert r.status_code == 200, r.text

@@ -86,7 +86,7 @@ def _renumber(db: Session, ordered_ids: list[int]) -> None:
 
 def create_template(
     db: Session, *, title_template: str, event: str,
-    grants_management: bool = False, auto_assign_creator: bool = False,
+    access_level_id: int | None = None,
     insert_after_id: int | None = None,
 ) -> RoleTemplate:
     """insert_after_id places the new template immediately after that one in
@@ -100,7 +100,7 @@ def create_template(
     next_order = (db.scalar(select(RoleTemplate.sort_order).order_by(RoleTemplate.sort_order.desc())) or 0) + 1
     template = RoleTemplate(
         title_template=title_template, event=event, sort_order=next_order,
-        grants_management=grants_management, auto_assign_creator=auto_assign_creator,
+        access_level_id=access_level_id,
     )
     db.add(template)
     db.flush()
@@ -115,7 +115,7 @@ def create_template(
 
 def update_template(
     db: Session, template_id: int, *, title_template: str | None = None,
-    grants_management: bool | None = None, auto_assign_creator: bool | None = None,
+    access_level_id: int | None = None, clear_access_level: bool = False,
     new_sort_order: int | None = None,
 ) -> RoleTemplate:
     template = db.get(RoleTemplate, template_id)
@@ -123,10 +123,13 @@ def update_template(
         raise HTTPException(http_status.HTTP_404_NOT_FOUND, "Role not found")
     if title_template is not None:
         template.title_template = title_template
-    if grants_management is not None:
-        template.grants_management = grants_management
-    if auto_assign_creator is not None:
-        template.auto_assign_creator = auto_assign_creator
+    if clear_access_level or access_level_id is not None:
+        template.access_level_id = None if clear_access_level else access_level_id
+        # produced positions carry a copy of the template's level (so the
+        # generic seat query never special-cases templates) — keep them in
+        # sync when the template's level changes
+        for pos in db.scalars(select(Position).where(Position.role_template_id == template_id)):
+            pos.access_level_id = template.access_level_id
     if new_sort_order is not None:
         ordered = [t.id for t in list_templates(db) if t.id != template_id]
         index = max(0, min(new_sort_order - 1, len(ordered)))
@@ -231,7 +234,7 @@ def _seed_occupants(db: Session, position: Position, user_ids: list[int]) -> Non
 def apply_event(
     db: Session, *, event: str, entity_type: str, entity_id: int,
     lineage: dict[str, int], names: dict[str, str],
-    creator_id: int | None = None, member_id: int | None = None,
+    member_id: int | None = None,
     root_position_id: int | None = None,
 ) -> None:
     """Ensures a position exists for every template matching `event`, for
@@ -259,16 +262,17 @@ def apply_event(
         position = Position(
             title=_safe_title(template.title_template, names),
             parent_id=parent_id, is_technical=False,
+            access_level_id=template.access_level_id,
             role_template_id=template.id, entity_type=entity_type, entity_id=entity_id,
         )
         db.add(position)
         db.flush()
         if used_root:
             _remember_root(db, parent_id)
+        # every seat starts vacant — except a member seat, where the added
+        # member is the seat's whole meaning
         if event == "team_member_added" and member_id is not None:
             _seed_occupants(db, position, [member_id])
-        elif template.auto_assign_creator and creator_id is not None:
-            _seed_occupants(db, position, [creator_id])
 
 
 def retitle_positions_for_entity(db: Session, entity_type: str, entity_id: int, names: dict[str, str]) -> None:
@@ -313,20 +317,21 @@ def resync_position_parent(db: Session, *, entity_type: str, entity_id: int, lin
             pos.parent_id = new_parent_id
 
 
-def can_manage_via_role(db: Session, user_id: int, entity_type: str, entity_id: int) -> bool:
-    """Does this user occupy any grants_management position for this entity?"""
-    return db.scalar(
-        select(Position.id)
-        .join(RoleTemplate, Position.role_template_id == RoleTemplate.id)
+def occupied_seat_level_ids(db: Session, user_id: int, entity_type: str, entity_id: int) -> list[int]:
+    """Access-level ids of the role seats this user occupies for this entity.
+    The caller (competitions/service) decides what those levels permit — this
+    module stays ignorant of the privilege vocabulary."""
+    return list(db.scalars(
+        select(Position.access_level_id)
         .join(PositionOccupant, PositionOccupant.position_id == Position.id)
         .where(
             Position.entity_type == entity_type,
             Position.entity_id == entity_id,
-            RoleTemplate.grants_management.is_(True),
+            Position.access_level_id.is_not(None),
             PositionOccupant.user_id == user_id,
         )
-        .limit(1)
-    ) is not None
+        .distinct()
+    ))
 
 
 def set_position_occupants(db: Session, position: Position, user_ids: list[int]) -> None:

@@ -6,7 +6,7 @@ import { useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
 import type { Task, TaskStatus } from '../api/types';
-import { useAuth } from '../auth/AuthContext';
+import { can, useAuth } from '../auth/AuthContext';
 import NewTaskModal from '../components/NewTaskModal';
 import TaskDrawer from '../components/TaskDrawer';
 import { PriorityTag, STATUS_META, StatusTag } from '../components/tags';
@@ -36,7 +36,7 @@ export default function TasksPage() {
 
   useEffect(load, [load]);
 
-  const canCreate = useMemo(() => me && (me.has_team || me.is_admin), [me]);
+  const canCreate = useMemo(() => can(me, 'tasks.assign') && (me!.has_team || me!.privileges.includes('users.manage')), [me]);
 
   const viewOptions = [
     { label: 'Assigned to me', value: 'assigned' },

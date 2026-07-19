@@ -74,5 +74,5 @@ def test_delete_allocation_frees_capacity(login, org):
 def test_non_staff_cannot_manage_allocations(login, org):
     item_id = _item(login, team_lead_id=None)
     r = _alloc(login, item_id, 1, who="student")
-    # non-staff can't even see the general-storage item → 404
-    assert r.status_code == 404
+    # a requester tier sees the item but lacks inventory.edit
+    assert r.status_code == 403

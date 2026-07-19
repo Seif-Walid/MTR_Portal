@@ -5,7 +5,7 @@ import dayjs from 'dayjs';
 
 import { api, ApiError } from '../api/client';
 import type { InventoryRequest, InventoryRequestStatus, Location, Whereabouts } from '../api/types';
-import { useAuth } from '../auth/AuthContext';
+import { can, useAuth } from '../auth/AuthContext';
 import RequestUnitsModal from './RequestUnitsModal';
 
 const STATUS_META: Record<InventoryRequestStatus, { label: string; color: string }> = {
@@ -114,7 +114,7 @@ function ReturnModal({ req, open, onClose, onDone }: {
 
 export default function InventoryRequestsDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { me } = useAuth();
-  const canManage = !!me && (me.is_staff || me.is_admin);
+  const canManage = can(me, 'inventory.approve');
   const [view, setView] = useState<'mine' | 'to_review'>('mine');
   const [requests, setRequests] = useState<InventoryRequest[]>([]);
   const [loading, setLoading] = useState(false);

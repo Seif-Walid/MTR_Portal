@@ -13,7 +13,6 @@ import {
   Select,
   Space,
   Switch,
-  Checkbox,
   Tag,
   Tree,
   Typography,
@@ -23,8 +22,8 @@ import type { DataNode } from 'antd/es/tree';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
-import type { PositionNode, RoleEvent, RoleTemplate, UserBrief } from '../api/types';
-import { useAuth } from '../auth/AuthContext';
+import type { AccessLevel as AccessLevelT, PositionNode, RoleEvent, RoleTemplate, UserBrief } from '../api/types';
+import { can, useAuth } from '../auth/AuthContext';
 
 interface EditTarget {
   mode: 'create-root' | 'create-child' | 'edit' | 'create-template-child' | 'edit-template';
@@ -56,12 +55,14 @@ const childEventOptions = (parent: RoleEvent) =>
 function PositionModal({
   target,
   holders,
+  levels,
   open,
   onClose,
   onSaved,
 }: {
   target: EditTarget | null;
   holders: UserBrief[];
+  levels: AccessLevelT[];
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -72,8 +73,7 @@ function PositionModal({
     occupant_ids?: number[];
     title_template: string;
     event: RoleEvent;
-    grants_management: boolean;
-    auto_assign_creator: boolean;
+    access_level_id: number | null;
   }>();
   const [busy, setBusy] = useState(false);
   const [automatic, setAutomatic] = useState(false);
@@ -97,25 +97,23 @@ function PositionModal({
         title: target.node.title,
         is_technical: target.node.is_technical,
         occupant_ids: target.node.occupants.map((u) => u.id),
+        access_level_id: target.node.access_level_id,
       });
     } else if (target?.mode === 'edit-template' && target.template) {
       form.setFieldsValue({
         title_template: target.template.title_template,
-        grants_management: target.template.grants_management,
-        auto_assign_creator: target.template.auto_assign_creator,
+        access_level_id: target.template.access_level_id,
       });
     } else if (target?.mode === 'create-template-child') {
       form.setFieldsValue({
         event: target.template?.event,
-        grants_management: false,
-        auto_assign_creator: false,
+        access_level_id: null,
       });
     } else {
       form.setFieldsValue({
         is_technical: false,
         event: 'competition_created',
-        grants_management: false,
-        auto_assign_creator: false,
+        access_level_id: null,
       });
     }
   }, [open, target, form]);
@@ -126,8 +124,7 @@ function PositionModal({
     occupant_ids?: number[];
     title_template: string;
     event: RoleEvent;
-    grants_management: boolean;
-    auto_assign_creator: boolean;
+    access_level_id?: number | null;
   }) => {
     setBusy(true);
     try {
@@ -136,27 +133,27 @@ function PositionModal({
           title: values.title,
           is_technical: values.is_technical,
           occupant_ids: values.occupant_ids ?? [],
+          access_level_id: values.access_level_id ?? null,
+          clear_access_level: values.access_level_id == null,
         });
       } else if (target?.mode === 'edit-template' && target.template) {
         await api.patch(`/api/org/roles/templates/${target.template.id}`, {
           title_template: values.title_template,
-          grants_management: values.grants_management,
-          auto_assign_creator: values.auto_assign_creator,
+          access_level_id: values.access_level_id ?? null,
+          clear_access_level: values.access_level_id == null,
         });
       } else if (target?.mode === 'create-template-child' && target.template) {
         await api.post('/api/org/roles/templates', {
           title_template: values.title_template,
           event: automatic && values.event ? values.event : target.template.event,
-          grants_management: automatic ? !!values.grants_management : false,
-          auto_assign_creator: automatic ? !!values.auto_assign_creator : false,
+          access_level_id: automatic ? values.access_level_id ?? null : null,
           insert_after_id: target.template.id,
         });
       } else if (automatic) {
         await api.post('/api/org/roles/templates', {
           title_template: values.title_template,
           event: values.event,
-          grants_management: values.grants_management,
-          auto_assign_creator: values.auto_assign_creator,
+          access_level_id: values.access_level_id ?? null,
         });
       } else {
         await api.post('/api/org/positions', {
@@ -164,6 +161,7 @@ function PositionModal({
           is_technical: values.is_technical,
           parent_id: target?.mode === 'create-child' ? target.node?.id : null,
           occupant_ids: values.occupant_ids ?? [],
+          access_level_id: values.access_level_id ?? null,
         });
       }
       message.success('Saved');
@@ -217,12 +215,17 @@ function PositionModal({
                 <Form.Item name="event" label="When" rules={[{ required: true }]}>
                   <Select options={childEventOptions(target.template.event)} />
                 </Form.Item>
-                <Form.Item name="grants_management" valuePropName="checked">
-                  <Checkbox>Occupying this role lets someone manage that competition/team</Checkbox>
-                </Form.Item>
-                <Form.Item name="auto_assign_creator" valuePropName="checked">
-                  <Checkbox>Whoever creates it is automatically seated here</Checkbox>
-                </Form.Item>
+                <Form.Item
+              name="access_level_id"
+              label="Access level"
+              extra="The power this seat gives whoever occupies it — none by default"
+            >
+              <Select
+                allowClear
+                placeholder="No level — confers nothing"
+                options={levels.map((l) => ({ value: l.id, label: `${l.rank}. ${l.name}` }))}
+              />
+            </Form.Item>
               </>
             ) : (
               <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
@@ -246,11 +249,16 @@ function PositionModal({
                 <Select options={Object.entries(EVENT_LABELS).map(([value, label]) => ({ value, label }))} />
               </Form.Item>
             )}
-            <Form.Item name="grants_management" valuePropName="checked">
-              <Checkbox>Occupying this role lets someone manage that competition/team</Checkbox>
-            </Form.Item>
-            <Form.Item name="auto_assign_creator" valuePropName="checked">
-              <Checkbox>Whoever creates it is automatically seated here</Checkbox>
+            <Form.Item
+              name="access_level_id"
+              label="Access level"
+              extra="The power this seat gives whoever occupies it — none by default"
+            >
+              <Select
+                allowClear
+                placeholder="No level — confers nothing"
+                options={levels.map((l) => ({ value: l.id, label: `${l.rank}. ${l.name}` }))}
+              />
             </Form.Item>
           </>
         ) : (
@@ -266,6 +274,17 @@ function PositionModal({
                 optionFilterProp="label"
                 placeholder="Vacant"
                 options={holders.map((u) => ({ value: u.id, label: `${u.full_name} (${u.email})` }))}
+              />
+            </Form.Item>
+            <Form.Item
+              name="access_level_id"
+              label="Access level"
+              extra="The power this seat gives whoever occupies it — none by default"
+            >
+              <Select
+                allowClear
+                placeholder="No level — confers nothing"
+                options={levels.map((l) => ({ value: l.id, label: `${l.rank}. ${l.name}` }))}
               />
             </Form.Item>
             <Form.Item name="is_technical" label="Technical position" valuePropName="checked">
@@ -285,23 +304,26 @@ export default function OrganizationPage() {
   const { me } = useAuth();
   const [roots, setRoots] = useState<PositionNode[]>([]);
   const [templates, setTemplates] = useState<RoleTemplate[]>([]);
+  const [levels, setLevels] = useState<AccessLevelT[]>([]);
   const [holders, setHolders] = useState<UserBrief[]>([]);
   const [loading, setLoading] = useState(true);
   const [target, setTarget] = useState<EditTarget | null>(null);
   const [open, setOpen] = useState(false);
   const [showAutomatic, setShowAutomatic] = useState(false);
 
-  const canManage = !!me && (me.is_admin || me.roles.some((r) => r.slug === 'ceo'));
+  const canManage = can(me, 'org.edit');
 
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
       api.get<PositionNode[]>('/api/org/tree'),
       api.get<RoleTemplate[]>('/api/org/roles/templates'),
+      api.get<AccessLevelT[]>('/api/access/levels'),
     ])
-      .then(([positions, roleTemplates]) => {
+      .then(([positions, roleTemplates, ladder]) => {
         setRoots(positions);
         setTemplates(roleTemplates);
+        setLevels(ladder);
       })
       .catch((e) => message.error(e.message))
       .finally(() => setLoading(false));
@@ -309,7 +331,7 @@ export default function OrganizationPage() {
 
   useEffect(() => {
     load();
-    if (me && (me.is_staff || me.is_admin)) {
+    if (can(me, 'people.view')) {
       api.get<UserBrief[]>('/api/inventory/holders').then(setHolders).catch(() => {});
     }
   }, [load, me]);
@@ -336,6 +358,11 @@ export default function OrganizationPage() {
   }, [templates]);
 
   const templatesOrdered = useMemo(() => [...templates].sort((a, b) => a.sort_order - b.sort_order), [templates]);
+
+  const levelName = useCallback(
+    (id: number) => levels.find((l) => l.id === id)?.name ?? '?',
+    [levels],
+  );
 
   const openModal = (t: EditTarget) => {
     setTarget(t);
@@ -395,15 +422,16 @@ export default function OrganizationPage() {
             <Typography.Text strong italic>{t.title_template}</Typography.Text>
             <Tag color="purple">automatic</Tag>
             <Tag>{EVENT_LABELS[t.event]}</Tag>
-            {t.grants_management && <Tag color="gold">grants management</Tag>}
-            {t.auto_assign_creator && <Tag color="blue">auto-seats creator</Tag>}
+            {t.access_level_id != null && (
+              <Tag color="gold">{levelName(t.access_level_id)}</Tag>
+            )}
             {templateActions(t)}
           </Space>
         ),
         children: toTemplateTreeData(t.id),
       }));
     },
-    [templatesByParent, templateActions],
+    [templatesByParent, templateActions, levelName],
   );
 
   const toTreeData = useCallback(
@@ -554,6 +582,7 @@ export default function OrganizationPage() {
       <PositionModal
         target={target}
         holders={holders}
+        levels={levels}
         open={open}
         onClose={() => setOpen(false)}
         onSaved={load}

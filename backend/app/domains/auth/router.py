@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import hash_password, new_session_token, verify_password
+from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.auth.models import AuthSession
 from app.domains.auth.schemas import LoginIn, RegisterIn
@@ -31,16 +32,15 @@ def _google_enabled() -> bool:
 
 
 def _me_payload(db: Session, user: User) -> MeOut:
+    level = access.effective_level(db, user)
     return MeOut(
         id=user.id,
         email=user.email,
         full_name=user.full_name,
         department=user.department,
-        roles=user.roles,
         manager_id=user.manager_id,
-        is_admin=user.is_admin,
-        is_staff=user.is_staff,
-        is_high_staff=user.is_high_staff,
+        level=level,
+        privileges=sorted(access.privileges_of(db, level)),
         has_team=len(subtree_ids(db, user.id)) > 0,
         google_linked=user.google_linked,
     )
@@ -85,8 +85,8 @@ def login(payload: LoginIn, response: Response, db: DB) -> MeOut:
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register(payload: RegisterIn, response: Response, db: DB) -> MeOut:
-    """Open self-signup: the account starts with no roles and no place in the
-    hierarchy — the admin assigns those afterwards."""
+    """Open self-signup: the account starts with no access level and no seat
+    — a guest, until someone grants more."""
     if db.scalar(select(User).where(User.email == payload.email)):
         raise HTTPException(status.HTTP_409_CONFLICT, "An account with this email already exists")
     user = User(
@@ -153,8 +153,7 @@ def _peek_session_user(db: Session, session_token: str | None) -> User | None:
 def google_login() -> RedirectResponse:
     """Kick off the Google OAuth flow. An unrecognized-but-verified Google
     email auto-provisions a new account (same as open self-registration) —
-    it starts with no roles and no place in the hierarchy; an admin assigns
-    those afterward. Narrow who can sign in at all via GOOGLE_ALLOWED_DOMAINS."""
+    it starts as a guest: no access level, no seat, until someone grants more. Narrow who can sign in at all via GOOGLE_ALLOWED_DOMAINS."""
     if not _google_enabled():
         return _login_error("google_not_configured")
     state = secrets.token_urlsafe(24)
@@ -248,8 +247,7 @@ def google_callback(
     if user is None:
         # Any verified Google identity may sign in — this is an alternate
         # entry point into the same open-signup model as POST /auth/register:
-        # a brand-new account with no roles and no place in the hierarchy,
-        # which an admin grants afterward. The domain allowlist above is the
+        # a brand-new guest account with no access level and no seat. The domain allowlist above is the
         # only gate on who gets this far.
         user = User(
             email=email,

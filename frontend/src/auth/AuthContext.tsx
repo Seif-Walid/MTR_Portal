@@ -3,6 +3,11 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { api, ApiError } from '../api/client';
 import type { Me } from '../api/types';
 
+/** Does the signed-in user's effective level include this privilege? */
+export function can(me: Me | null, key: string): boolean {
+  return !!me && me.privileges.includes(key);
+}
+
 interface AuthState {
   me: Me | null;
   loading: boolean;

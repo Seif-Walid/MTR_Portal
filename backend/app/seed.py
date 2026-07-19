@@ -1,5 +1,5 @@
-"""Seed dev data: roles, the technical admin, one user per role, a multi-role
-user (CTO + Software Lead), and a full CEO → PM → Team Lead → Student chain.
+"""Seed dev data: the access ladder, the technical admin (top-level
+override), and a demo org with people at every rung.
 
 Run:  python -m app.seed
 Idempotent — safe to re-run. All seeded accounts use password: portal123
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.database import Base, SessionLocal, engine
 
 # import all model modules so Base.metadata is complete
+from app.domains.access import models as _access_models  # noqa: F401
 from app.domains.audit import models as _audit_models  # noqa: F401
 from app.domains.auth import models as _auth_models  # noqa: F401
 from app.domains.competitions import models as _comp_models  # noqa: F401
@@ -47,45 +48,25 @@ from app.domains.positions.models import Position, PositionOccupant
 from app.domains.positions.service import resync_managers
 from app.domains.requests.models import RequestStatus, WorkRequest
 from app.domains.tasks.models import Task, TaskPriority, TaskStatus
-from app.domains.users.models import NON_STAFF_ROLES, Department, Role, RoleSlug, User, UserRole
+from app.domains.access import service as access
+from app.domains.access.models import AccessLevel
+from app.domains.users.models import Department, User
 
 DEV_PASSWORD = "portal123"
 
-ROLE_NAMES = {
-    RoleSlug.ADMIN: "Technical Admin",
-    RoleSlug.CEO: "CEO",
-    RoleSlug.CTO: "CTO",
-    RoleSlug.CFO: "CFO",
-    RoleSlug.SOFTWARE_LEAD: "Software Lead",
-    RoleSlug.MECHANICAL_LEAD: "Mechanical Lead",
-    RoleSlug.ELECTRICAL_LEAD: "Electrical Lead",
-    RoleSlug.MEDIA_MANAGER: "Media Manager",
-    RoleSlug.PROJECT_MANAGER: "Project Manager",
-    RoleSlug.TEAM_LEAD: "Team Lead",
-    RoleSlug.EMPLOYEE: "Employee",
-    RoleSlug.STUDENT: "Student",
-    RoleSlug.COMPETITION_MEMBER: "Competition Member",
-}
 
-
-def seed_roles(db: Session) -> dict[str, Role]:
-    roles: dict[str, Role] = {}
-    for slug, name in ROLE_NAMES.items():
-        role = db.scalar(select(Role).where(Role.slug == slug))
-        if role is None:
-            role = Role(slug=slug, name=name, is_staff=slug not in NON_STAFF_ROLES)
-            db.add(role)
-            db.flush()
-        roles[slug] = role
-    return roles
+def seed_levels(db: Session) -> dict[str, AccessLevel]:
+    """The preset ladder (see access.service.PRESET_LEVELS), by name."""
+    access.ensure_preset_levels(db)
+    return {lvl.name: lvl for lvl in access.list_levels(db)}
 
 
 def ensure_user(
     db: Session,
-    roles: dict[str, Role],
+    levels: dict[str, AccessLevel],
     email: str,
     full_name: str,
-    role_slugs: list[RoleSlug],
+    level_name: str | None,
     manager: User | None = None,
     department: Department | None = None,
 ) -> User:
@@ -97,11 +78,10 @@ def ensure_user(
             hashed_password=hash_password(DEV_PASSWORD),
             department=department,
             manager_id=manager.id if manager else None,
+            access_level_id=levels[level_name].id if level_name else None,
         )
         db.add(user)
         db.flush()
-        for slug in role_slugs:
-            db.add(UserRole(user_id=user.id, role_id=roles[slug].id))
     return user
 
 
@@ -267,66 +247,62 @@ def seed_positions(db: Session) -> None:
     db.flush()
 
 
-def seed_admin(db: Session, roles: dict[str, Role]) -> User:
-    """The one always-present account: a technical admin so the portal is
-    usable on a fresh database. Email/password come from SEED_ADMIN_EMAIL /
-    SEED_ADMIN_PASSWORD (defaults below) — change them for a real deployment."""
+def seed_admin(db: Session, levels: dict[str, AccessLevel]) -> User:
+    """The one always-present account: a top-level override so the portal is
+    usable (and can never be locked out) on a fresh database. Email/password
+    come from SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD (defaults below)."""
     email = os.getenv("SEED_ADMIN_EMAIL", "admin@org.local")
     password = os.getenv("SEED_ADMIN_PASSWORD", DEV_PASSWORD)
+    top = min(levels.values(), key=lambda lvl: lvl.rank)
     admin = db.scalar(select(User).where(User.email == email))
     if admin is None:
         admin = User(
-            email=email, full_name="Technical Admin", hashed_password=hash_password(password)
+            email=email, full_name="Technical Admin", hashed_password=hash_password(password),
+            access_level_id=top.id,
         )
         db.add(admin)
         db.flush()
-        db.add(UserRole(user_id=admin.id, role_id=roles[RoleSlug.ADMIN].id))
+    elif admin.access_level_id is None:
+        admin.access_level_id = top.id
     return admin
 
 
-def seed_demo(db: Session, roles: dict[str, Role]) -> None:
+def seed_demo(db: Session, levels: dict[str, AccessLevel]) -> None:
     """Optional sample org, tasks, requests and inventory — only for exploring
     the app. Run with `--demo`. Idempotent."""
-    ensure_user(db, roles, "admin@org.local", "Technical Admin", [RoleSlug.ADMIN])
-    ceo = ensure_user(db, roles, "ceo@org.local", "Sara Chief", [RoleSlug.CEO])
-    # multi-role: CTO + Software Lead in one account
-    cto = ensure_user(
-        db, roles, "cto@org.local", "Tarek Tech",
-        [RoleSlug.CTO, RoleSlug.SOFTWARE_LEAD], manager=ceo, department=Department.SOFTWARE,
-    )
-    cfo = ensure_user(db, roles, "cfo@org.local", "Farid Finance", [RoleSlug.CFO],
+    ceo = ensure_user(db, levels, "ceo@org.local", "Sara Chief", "Board")
+    cto = ensure_user(db, levels, "cto@org.local", "Tarek Tech", "Lead",
+                      manager=ceo, department=Department.SOFTWARE)
+    cfo = ensure_user(db, levels, "cfo@org.local", "Farid Finance", "Lead",
                       manager=ceo, department=Department.FINANCE)
-    media_mgr = ensure_user(db, roles, "media@org.local", "Mona Media",
-                            [RoleSlug.MEDIA_MANAGER], manager=ceo, department=Department.MEDIA)
-    pm = ensure_user(db, roles, "pm@org.local", "Peter Projects",
-                     [RoleSlug.PROJECT_MANAGER], manager=ceo)
+    media_mgr = ensure_user(db, levels, "media@org.local", "Mona Media", "Lead",
+                            manager=ceo, department=Department.MEDIA)
+    pm = ensure_user(db, levels, "pm@org.local", "Peter Projects", "Lead", manager=ceo)
 
-    mech_lead = ensure_user(db, roles, "mech.lead@org.local", "Malak Mech",
-                            [RoleSlug.MECHANICAL_LEAD], manager=cto,
-                            department=Department.MECHANICAL)
-    elec_lead = ensure_user(db, roles, "elec.lead@org.local", "Eman Electric",
-                            [RoleSlug.ELECTRICAL_LEAD], manager=cto,
-                            department=Department.ELECTRICAL)
+    mech_lead = ensure_user(db, levels, "mech.lead@org.local", "Malak Mech", "Lead",
+                            manager=cto, department=Department.MECHANICAL)
+    elec_lead = ensure_user(db, levels, "elec.lead@org.local", "Eman Electric", "Lead",
+                            manager=cto, department=Department.ELECTRICAL)
 
-    sw_emp = ensure_user(db, roles, "sw.emp@org.local", "Samir Software",
-                         [RoleSlug.EMPLOYEE], manager=cto, department=Department.SOFTWARE)
-    mech_emp = ensure_user(db, roles, "mech.emp@org.local", "Mostafa Mechanical",
-                           [RoleSlug.EMPLOYEE], manager=mech_lead,
-                           department=Department.MECHANICAL)
-    ensure_user(db, roles, "elec.emp@org.local", "Esraa Electrical",
-                [RoleSlug.EMPLOYEE], manager=elec_lead, department=Department.ELECTRICAL)
-    ensure_user(db, roles, "media.emp@org.local", "Mariam MediaTeam",
-                [RoleSlug.EMPLOYEE], manager=media_mgr, department=Department.MEDIA)
-    ensure_user(db, roles, "fin.emp@org.local", "Fatma FinanceTeam",
-                [RoleSlug.EMPLOYEE], manager=cfo, department=Department.FINANCE)
+    sw_emp = ensure_user(db, levels, "sw.emp@org.local", "Samir Software", "Member",
+                         manager=cto, department=Department.SOFTWARE)
+    mech_emp = ensure_user(db, levels, "mech.emp@org.local", "Mostafa Mechanical", "Member",
+                           manager=mech_lead, department=Department.MECHANICAL)
+    ensure_user(db, levels, "elec.emp@org.local", "Esraa Electrical", "Member",
+                manager=elec_lead, department=Department.ELECTRICAL)
+    ensure_user(db, levels, "media.emp@org.local", "Mariam MediaTeam", "Member",
+                manager=media_mgr, department=Department.MEDIA)
+    ensure_user(db, levels, "fin.emp@org.local", "Fatma FinanceTeam", "Member",
+                manager=cfo, department=Department.FINANCE)
 
-    # full chain: CEO -> PM -> Team Lead -> Student / Competition Member
-    team_lead = ensure_user(db, roles, "teamlead@org.local", "Tamer TeamLead",
-                            [RoleSlug.TEAM_LEAD], manager=pm)
-    student = ensure_user(db, roles, "student@org.local", "Salma Student",
-                          [RoleSlug.STUDENT], manager=team_lead)
-    ensure_user(db, roles, "comp@org.local", "Karim Competitor",
-                [RoleSlug.COMPETITION_MEMBER], manager=team_lead)
+    # full chain: CEO -> PM -> Team Lead -> Student / Competition Member —
+    # the competitor is left with no level at all: a live "guest" example
+    team_lead = ensure_user(db, levels, "teamlead@org.local", "Tamer TeamLead", "Lead",
+                            manager=pm)
+    student = ensure_user(db, levels, "student@org.local", "Salma Student", "Member",
+                          manager=team_lead)
+    ensure_user(db, levels, "comp@org.local", "Karim Competitor", None,
+                manager=team_lead)
 
     # sample tasks across the workflow
     soon = date.today() + timedelta(days=7)
@@ -362,25 +338,25 @@ def seed_demo(db: Session, roles: dict[str, Role]) -> None:
 
 
 def run(demo: bool = False) -> None:
-    """Default: roles + a single admin account (real-ready, no sample data).
-    With demo=True, also load the sample org, tasks, requests and inventory."""
+    """Default: the access ladder + a single admin account (real-ready, no
+    sample data). With demo=True, also the sample org/tasks/inventory."""
     Base.metadata.create_all(engine)
     db = SessionLocal()
     try:
-        roles = seed_roles(db)
-        admin = seed_admin(db, roles)
+        levels = seed_levels(db)
+        admin = seed_admin(db, levels)
         if demo:
-            seed_demo(db, roles)
+            seed_demo(db, levels)
         db.commit()
 
         if demo:
-            print("Seeded roles + demo org. All demo accounts use password:", DEV_PASSWORD)
-            print("Try: admin@org.local, ceo@org.local, cto@org.local (multi-role), "
+            print("Seeded the access ladder + demo org. All demo accounts use password:", DEV_PASSWORD)
+            print("Try: admin@org.local, ceo@org.local, cto@org.local, "
                   "mech.lead@org.local, sw.emp@org.local, pm@org.local, "
-                  "teamlead@org.local, student@org.local")
+                  "teamlead@org.local, student@org.local, comp@org.local (guest)")
         else:
             pw = "SEED_ADMIN_PASSWORD" if os.getenv("SEED_ADMIN_PASSWORD") else f"'{DEV_PASSWORD}'"
-            print("Seeded roles + admin bootstrap account (no sample data).")
+            print("Seeded the access ladder + admin bootstrap account (no sample data).")
             print(f"Admin login: {admin.email}  (password: {pw})")
             print("Add real users, teams and inventory through the app. "
                   "Re-run with `--demo` to load the sample org for testing.")

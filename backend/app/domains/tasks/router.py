@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.domains.audit.models import AuditLog
 from app.domains.audit.service import log as audit_log
+from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.hierarchy.service import can_assign_task
 from app.domains.notifications.models import NotificationType
@@ -58,6 +59,7 @@ def list_tasks(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_task(payload: TaskCreate, db: DB, user: CurrentUser) -> list[TaskOut]:
+    access.require_privilege(db, user, "tasks.assign")
     """Creates one task per assignee. With more than one assignee ("team
     assignment"), the resulting tasks share a batch_id so the assigner can
     track them together — each still moves through the workflow independently."""
@@ -115,7 +117,7 @@ def get_task(task_id: int, db: DB, user: CurrentUser) -> TaskOut:
 @router.patch("/{task_id}")
 def edit_task(task_id: int, payload: TaskEdit, db: DB, user: CurrentUser) -> TaskOut:
     task = get_task_or_404(db, user, task_id)
-    if user.id != task.assigner_id and not user.is_admin:
+    if user.id != task.assigner_id and not access.is_top(db, user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the assigner can edit a task")
     changed: dict[str, str] = {}
     if payload.title is not None and payload.title != task.title:
@@ -192,7 +194,7 @@ def get_batch(batch_id: str, db: DB, user: CurrentUser) -> list[TaskOut]:
     tasks = list(db.scalars(select(Task).where(Task.batch_id == batch_id)))
     if not tasks:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Batch not found")
-    if not user.is_admin and user.id != tasks[0].assigner_id:
+    if not access.is_top(db, user) and user.id != tasks[0].assigner_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the assigner can view the batch")
     return [TaskOut.model_validate(t) for t in tasks]
 
@@ -206,7 +208,7 @@ def set_status(task_id: int, payload: StatusChange, db: DB, user: CurrentUser) -
 @router.post("/{task_id}/attachments", status_code=status.HTTP_201_CREATED)
 def upload_attachment(task_id: int, file: UploadFile, db: DB, user: CurrentUser) -> AttachmentOut:
     task = get_task_or_404(db, user, task_id)
-    if user.id not in (task.assigner_id, task.assignee_id) and not user.is_admin:
+    if user.id not in (task.assigner_id, task.assignee_id) and not access.is_top(db, user):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Only the assigner or assignee can attach files"
         )

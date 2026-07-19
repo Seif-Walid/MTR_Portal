@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
+from app.domains.access.router import router as access_router
 from app.domains.audit.router import router as audit_router
 from app.domains.auth.router import router as auth_router
 from app.domains.competitions.router import router as competitions_router
@@ -29,6 +30,7 @@ app.add_middleware(
 # users and the hierarchy permission layer.
 for domain_router in (
     auth_router,
+    access_router,
     users_router,
     tasks_router,
     requests_router,
