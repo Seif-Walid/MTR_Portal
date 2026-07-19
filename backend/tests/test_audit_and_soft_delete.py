@@ -3,7 +3,7 @@ soft delete for inventory items and competition teams."""
 
 import json
 
-from tests.conftest import ensure_position, setup_role_templates
+from tests.conftest import ensure_position, seat_role, setup_role_templates
 
 
 def _new_comp(login, name: str) -> dict:
@@ -12,7 +12,11 @@ def _new_comp(login, name: str) -> dict:
     body = {"name": name}
     if not admin.get("/api/org/roles/root").json()["root_position_id"]:
         body["role_root_position_id"] = ensure_position(admin)
-    return login("cto").post("/api/competitions", json=body).json()
+    comp = login("cto").post("/api/competitions", json=body).json()
+    # seats start vacant now — appoint the creator so cto manages what it made
+    me = login("cto").get("/api/auth/me").json()
+    seat_role(admin, comp, [me["id"]])
+    return comp
 
 
 def _new_team(login, cat_id: int, name: str) -> dict:
@@ -86,8 +90,9 @@ def test_audit_log_records_quantity_role_and_occupant_changes(login, org):
     iid = login("cto").post("/api/inventory", json={"name": "Arduino", "quantity": 10}).json()["id"]
     login("cto").patch(f"/api/inventory/{iid}", json={"quantity": 20})
 
-    # permission change (role)
-    login("admin").patch(f"/api/users/{org['sw_emp'].id}", json={"roles": ["employee", "team_lead"]})
+    # permission change (access-level override)
+    lead_id = next(l["id"] for l in login("admin").get("/api/access/levels").json() if l["name"] == "Lead")
+    login("admin").patch(f"/api/users/{org['sw_emp'].id}", json={"access_level_id": lead_id})
 
     # a role-position occupant change (the new generic replacement for the
     # old dedicated "PM added" competition action)
@@ -100,7 +105,7 @@ def test_audit_log_records_quantity_role_and_occupant_changes(login, org):
 
     entries = login("admin").get("/api/audit").json()
     actions = {e["action"] for e in entries}
-    assert {"quantity_changed", "role_changed", "role_occupants_changed"} <= actions
+    assert {"quantity_changed", "level_changed", "role_occupants_changed"} <= actions
 
     inv_only = login("admin").get("/api/audit?domain=inventory").json()
     assert inv_only and all(e["domain"] == "inventory" for e in inv_only)

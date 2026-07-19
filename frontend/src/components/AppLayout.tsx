@@ -13,17 +13,16 @@ import {
   TeamOutlined,
   TrophyOutlined,
 } from '@ant-design/icons';
-import { Avatar, Button, Dropdown, Layout, Menu, Space, Typography, message, theme } from 'antd';
+import { Avatar, Button, Dropdown, Layout, Menu, Space, Tag, Typography, message, theme } from 'antd';
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
-import { useAuth } from '../auth/AuthContext';
+import { can, useAuth } from '../auth/AuthContext';
 import { brand } from '../theme/brand';
 import { LogoImage, Wordmark } from './Logo';
 import NotificationsBell from './NotificationsBell';
 import ThemeToggle from './ThemeToggle';
-import { RoleTags } from './tags';
 
 const { Header, Sider, Content } = Layout;
 
@@ -53,26 +52,32 @@ export default function AppLayout() {
 
   if (!me) return null;
 
-  const isOrgManager = me.is_admin || me.roles.some((r) => r.slug === 'ceo');
-
   const items = [
-    { key: '/tasks', icon: <CheckSquareOutlined />, label: 'My Tasks' },
-    { key: '/inventory', icon: <InboxOutlined />, label: 'Inventory' },
-    ...(me.is_high_staff
+    ...(can(me, 'tasks.use')
+      ? [{ key: '/tasks', icon: <CheckSquareOutlined />, label: 'My Tasks' }]
+      : []),
+    ...(can(me, 'inventory.view')
+      ? [{ key: '/inventory', icon: <InboxOutlined />, label: 'Inventory' }]
+      : []),
+    ...(can(me, 'competitions.view')
       ? [{ key: '/competitions', icon: <TrophyOutlined />, label: 'Competitions' }]
       : []),
-    { key: '/requests', icon: <SendOutlined />, label: 'Requests' },
-    ...(me.has_team || me.is_admin
+    ...(can(me, 'tasks.use')
+      ? [{ key: '/requests', icon: <SendOutlined />, label: 'Requests' }]
+      : []),
+    ...(can(me, 'people.view') && (me.has_team || can(me, 'users.manage'))
       ? [{ key: '/team', icon: <TeamOutlined />, label: 'My Team' }]
       : []),
-    { key: '/organization', icon: <ApartmentOutlined />, label: 'Organization' },
-    ...(me.is_admin
+    ...(can(me, 'org.view')
+      ? [{ key: '/organization', icon: <ApartmentOutlined />, label: 'Organization' }]
+      : []),
+    ...(can(me, 'users.manage')
       ? [{ key: '/admin/users', icon: <SettingOutlined />, label: 'User Management' }]
       : []),
-    ...(me.is_admin
+    ...(can(me, 'audit.view')
       ? [{ key: '/admin/audit', icon: <AuditOutlined />, label: 'Audit Log' }]
       : []),
-    ...(isOrgManager
+    ...(can(me, 'sync.export') || can(me, 'sync.rebuild')
       ? [{ key: '/admin/sync', icon: <CloudSyncOutlined />, label: 'Data Sync' }]
       : []),
   ];
@@ -167,7 +172,7 @@ export default function AppLayout() {
               <div style={{ lineHeight: 1.2 }}>
                 <Typography.Text strong>{me.full_name}</Typography.Text>
                 <div>
-                  <RoleTags roles={me.roles} />
+                  {me.level ? <Tag>{me.level.name}</Tag> : <Tag>No level</Tag>}
                 </div>
               </div>
             </Space>

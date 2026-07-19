@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { api } from '../api/client';
 import type { Task, TeamMember } from '../api/types';
-import { RoleTags, STATUS_META, StatusTag } from '../components/tags';
+import { STATUS_META, StatusTag } from '../components/tags';
 import TaskDrawer from '../components/TaskDrawer';
 
 export default function TeamPage() {
@@ -75,7 +75,6 @@ export default function TeamPage() {
             ),
           },
           { title: 'Email', render: (_, m) => m.user.email, width: 240 },
-          { title: 'Roles', render: (_, m) => <RoleTags roles={m.user.roles} /> },
           {
             title: 'Department',
             render: (_, m) => m.user.department ?? '—',

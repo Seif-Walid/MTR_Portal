@@ -26,7 +26,7 @@ import type {
   InventoryItem,
   UserBrief,
 } from '../api/types';
-import { useAuth } from '../auth/AuthContext';
+import { can, useAuth } from '../auth/AuthContext';
 import HoldingsMatrix from './HoldingsMatrix';
 import RequestUnitsModal from './RequestUnitsModal';
 import { ConditionTag, PURPOSE_META, PurposeTag } from './tags';
@@ -53,7 +53,7 @@ export default function InventoryItemDrawer({
   const [busy, setBusy] = useState(false);
   const [requesting, setRequesting] = useState(false);
 
-  const canManage = !!me && (me.is_staff || me.is_admin);
+  const canManage = can(me, 'inventory.edit');
 
   const load = (id: number) =>
     api.get<InventoryItem>(`/api/inventory/${id}`).then(setItem).catch((e) => message.error(e.message));
@@ -273,7 +273,7 @@ export default function InventoryItemDrawer({
                   Delete item
                 </Button>
               </Popconfirm>
-              {me.is_admin && (
+              {me?.level?.rank === 1 && (
                 <Popconfirm
                   title="Permanently delete this item?"
                   description="This really removes it, including all its allocation, movement and request history. Admin-only — use for genuine mistakes."

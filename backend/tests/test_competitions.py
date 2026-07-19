@@ -1,6 +1,7 @@
-"""Competition CRUD, high-staff gate, archiving, and role-position authority."""
+"""Competition CRUD, the competitions.create gate, archiving, and
+seat-level (manage-where-seated) authority."""
 
-from tests.conftest import ensure_position, setup_role_templates
+from tests.conftest import ensure_position, seat_role, setup_role_templates
 
 
 def _comp(login, who="cto", name="RoboCup 2026", **over):
@@ -13,17 +14,28 @@ def _comp(login, who="cto", name="RoboCup 2026", **over):
     return login(who).post("/api/competitions", json=body)
 
 
+def _managed_comp(login, org, who="cto", name="RoboCup 2026", **over) -> dict:
+    """Create a competition and seat the creator into its PM role — nothing
+    auto-seats anymore, so scoped management is an explicit appointment."""
+    r = _comp(login, who, name=name, **over)
+    assert r.status_code == 201, r.text
+    comp = r.json()
+    seat_role(login("admin"), comp, [org[who].id])
+    return comp
+
+
 def _pm_position_id(comp_json: dict) -> int:
     return comp_json["roles"][0]["position_id"]
 
 
-def test_high_staff_creates_and_is_auto_pm(login, org):
+def test_create_gate_and_vacant_pm_seat(login, org):
     r = _comp(login, "cto")
     assert r.status_code == 201, r.text
     data = r.json()
-    assert any(u["id"] == org["cto"].id for u in data["roles"][0]["occupants"])  # creator auto-seated
-    assert data["can_manage"] is True
-    # a plain employee and a non-staff member cannot create competitions
+    # every seat starts vacant — creating a competition grants nothing
+    assert data["roles"][0]["occupants"] == []
+    assert data["can_manage"] is False
+    # a plain staff member and a member-tier user cannot create competitions
     assert _comp(login, "sw_emp", name="X").status_code == 403
     assert _comp(login, "student", name="Y").status_code == 403
 
@@ -34,8 +46,8 @@ def test_duplicate_name_conflicts(login, org):
 
 
 def test_archive_hides_by_default(login, org):
-    keep = _comp(login, "cto", name="Active Cup").json()
-    gone = _comp(login, "cto", name="Old Cup").json()
+    keep = _managed_comp(login, org, "cto", name="Active Cup")
+    gone = _managed_comp(login, org, "cto", name="Old Cup")
     login("cto").patch(f"/api/competitions/{gone['id']}", json={"status": "archived"})
     active = {c["name"] for c in login("cto").get("/api/competitions").json()}
     assert "Active Cup" in active and "Old Cup" not in active
@@ -45,17 +57,17 @@ def test_archive_hides_by_default(login, org):
 
 
 def test_role_occupant_appointment_grants_scoped_management(login, org):
-    comp = _comp(login, "cto").json()
+    comp = _managed_comp(login, org, "cto")
     cid = comp["id"]
     pos_id = _pm_position_id(comp)
-    # the creator (already an occupant via auto_assign_creator) appoints a
-    # plain employee (not high staff) as a co-occupant of the PM role
+    # a seated PM appoints a plain staff member as a co-occupant
     r = login("cto").put(
         f"/api/org/roles/positions/{pos_id}/occupants",
         json={"user_ids": [org["cto"].id, org["sw_emp"].id]},
     )
     assert r.status_code == 200, r.text
-    # as an occupant, the employee can now manage THIS competition's structure
+    # as an occupant of a manage_seated-level seat, the employee can now
+    # manage THIS competition's structure
     assert login("sw_emp").post(f"/api/competitions/{cid}/categories", json={"name": "Senior"}).status_code == 201
     # but someone who manages nothing cannot touch the roles panel at all
     assert login("student").put(
@@ -65,7 +77,7 @@ def test_role_occupant_appointment_grants_scoped_management(login, org):
 
 
 def test_role_scope_does_not_leak_across_competitions(login, org):
-    a = _comp(login, "cto", name="Comp A").json()
+    a = _managed_comp(login, org, "cto", name="Comp A")
     b = _comp(login, "cto", name="Comp B").json()
     login("cto").put(
         f"/api/org/roles/positions/{_pm_position_id(a)}/occupants",

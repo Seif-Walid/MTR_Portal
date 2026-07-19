@@ -47,7 +47,8 @@ from app.domains.positions.models import OrgAuditLog, Position, PositionOccupant
 from app.domains.requests.models import WorkRequest
 from app.domains.sync.models import RebuildBatch, RebuildStatus, SheetExport
 from app.domains.tasks.models import Task, TaskAttachment
-from app.domains.users.models import Role, RoleSlug, User, UserRole
+from app.domains.access.models import AccessLevel
+from app.domains.users.models import User
 from app.domains.audit.models import AuditLog as GeneralAuditLog
 
 MIRROR_BANNER = (
@@ -94,20 +95,21 @@ def _parse_int(v: str) -> int | None:
 
 # --- export: DB row -> sheet row -------------------------------------------
 def _export_people(db: Session) -> tuple[list[str], list[list[str]]]:
-    header = ["id", "email", "full_name", "department", "roles", "manager_id", "is_active"]
+    header = ["id", "email", "full_name", "department", "access_level", "manager_id", "is_active"]
     rows = []
     for u in db.scalars(select(User).order_by(User.id)):
         rows.append([
             _s(u.id), u.email, u.full_name, _s(u.department),
-            ";".join(sorted(u.role_slugs)), _s(u.manager_id), _s(u.is_active),
+            u.access_level.name if u.access_level else "", _s(u.manager_id), _s(u.is_active),
         ])
     return header, rows
 
 
 def _export_positions(db: Session) -> tuple[list[str], list[list[str]]]:
-    header = ["id", "title", "parent_id", "occupant_ids", "is_technical"]
+    header = ["id", "title", "parent_id", "occupant_ids", "is_technical", "access_level"]
     rows = [
-        [_s(p.id), p.title, _s(p.parent_id), ";".join(str(u.id) for u in p.occupants), _s(p.is_technical)]
+        [_s(p.id), p.title, _s(p.parent_id), ";".join(str(u.id) for u in p.occupants), _s(p.is_technical),
+         p.access_level.name if p.access_level else ""]
         for p in db.scalars(select(Position).order_by(Position.id))
     ]
     return header, rows
@@ -274,7 +276,7 @@ def _read_all_tabs(spreadsheet_id: str) -> dict[str, list[dict[str, str]]]:
     return data
 
 
-def _validate(sheet_data: dict[str, list[dict[str, str]]]) -> tuple[dict[str, list[dict]], dict[str, int], list[str]]:
+def _validate(db: Session, sheet_data: dict[str, list[dict[str, str]]]) -> tuple[dict[str, list[dict]], dict[str, int], list[str]]:
     """Parse + cross-reference every tab in dependency order. Returns
     (parsed rows per tab, row counts, errors). Parsing continues past errors
     so the report is complete, but the caller must refuse to commit if
@@ -283,7 +285,7 @@ def _validate(sheet_data: dict[str, list[dict[str, str]]]) -> tuple[dict[str, li
     counts: dict[str, int] = {}
     parsed: dict[str, list[dict]] = {}
     known_ids: dict[str, set[int]] = {t: set() for t in TAB_ORDER}
-    valid_roles = {r.value for r in RoleSlug}
+    valid_levels = {lvl.name for lvl in db.scalars(select(AccessLevel))}
 
     # people
     people = []
@@ -291,15 +293,14 @@ def _validate(sheet_data: dict[str, list[dict[str, str]]]) -> tuple[dict[str, li
         if not _require(row, "id", "email", "full_name", tab="people", errors=errors):
             continue
         rid = int(row["id"])
-        roles = [r for r in row.get("roles", "").split(";") if r]
-        bad_roles = [r for r in roles if r not in valid_roles]
-        if bad_roles:
-            errors.append(f"people row {rid}: unknown role(s) {', '.join(bad_roles)}")
+        level_name = (row.get("access_level") or "").strip()
+        if level_name and level_name not in valid_levels:
+            errors.append(f"people row {rid}: unknown access level '{level_name}'")
             continue
         known_ids["people"].add(rid)
         people.append({
             "id": rid, "email": row["email"].strip().lower(), "full_name": row["full_name"],
-            "department": row.get("department") or None, "roles": roles,
+            "department": row.get("department") or None, "access_level": level_name,
             "manager_id_raw": row.get("manager_id", ""), "is_active": _bool(row.get("is_active", "true")),
         })
     parsed["people"] = people
@@ -316,10 +317,15 @@ def _validate(sheet_data: dict[str, list[dict[str, str]]]) -> tuple[dict[str, li
             for v in row.get("occupant_ids", "").split(";") if v.strip()
         ]
         known_ids["positions"].add(rid)
+        level_name = (row.get("access_level") or "").strip()
+        if level_name and level_name not in valid_levels:
+            errors.append(f"positions row {rid}: unknown access level '{level_name}'")
+            continue
         positions.append({
             "id": rid, "title": row["title"], "parent_id_raw": row.get("parent_id", ""),
             "occupant_ids": [o for o in occ_ids if o is not None],
             "is_technical": _bool(row.get("is_technical", "false")),
+            "access_level": level_name,
         })
     for p in positions:  # parent refs its own tab, validate in a second pass
         if p["parent_id_raw"].strip():
@@ -449,10 +455,11 @@ def _validate(sheet_data: dict[str, list[dict[str, str]]]) -> tuple[dict[str, li
     return parsed, counts, errors
 
 
-def dry_run(spreadsheet_id: str) -> tuple[dict[str, int], list[str]]:
-    """Read + validate every tab. Never touches the DB."""
+def dry_run(db: Session, spreadsheet_id: str) -> tuple[dict[str, int], list[str]]:
+    """Read + validate every tab. Never writes to the DB (the session is
+    only used to look up valid access-level names)."""
     sheet_data = _read_all_tabs(spreadsheet_id)
-    _, counts, errors = _validate(sheet_data)
+    _, counts, errors = _validate(db, sheet_data)
     return counts, errors
 
 
@@ -469,8 +476,8 @@ def _write_snapshot(db: Session) -> str:
 
     snapshot = {
         "taken_at": stamp,
-        "people": dump(User, ["id", "email", "full_name", "department", "manager_id", "is_active"]),
-        "positions": dump(Position, ["id", "title", "parent_id", "is_technical"]),
+        "people": dump(User, ["id", "email", "full_name", "department", "manager_id", "is_active", "access_level_id"]),
+        "positions": dump(Position, ["id", "title", "parent_id", "is_technical", "access_level_id"]),
         "position_occupants": dump(PositionOccupant, ["id", "position_id", "user_id"]),
         "competitions": dump(Competition, ["id", "name", "description", "start_date", "end_date", "status"]),
         "competition_categories": dump(CompetitionCategory, ["id", "competition_id", "name"]),
@@ -514,32 +521,29 @@ def _truncate_managed_tables(db: Session) -> None:
     db.execute(update(Position).values(parent_id=None))
     db.execute(delete(Position))
     db.execute(update(User).values(manager_id=None))
-    db.execute(delete(UserRole))
     db.execute(delete(User))
 
 
 def _import_all(db: Session, parsed: dict[str, list[dict]]) -> None:
-    roles_by_slug = {r.slug: r for r in db.scalars(select(Role))}
+    levels_by_name = {lvl.name: lvl for lvl in db.scalars(select(AccessLevel))}
 
     for p in parsed["people"]:
-        u = User(
+        level = levels_by_name.get(p["access_level"]) if p.get("access_level") else None
+        db.add(User(
             id=p["id"], email=p["email"], full_name=p["full_name"], department=p["department"],
+            access_level_id=level.id if level else None,
             is_active=p["is_active"], hashed_password=hash_password("rebuild-" + str(p["id"]) + "-" +
                                                                        datetime.now(timezone.utc).isoformat()),
-        )
-        db.add(u)
-        db.flush()
-        for slug in p["roles"]:
-            role = roles_by_slug.get(slug)
-            if role is not None:
-                db.add(UserRole(user_id=u.id, role_id=role.id))
+        ))
     db.flush()
     for p in parsed["people"]:  # second pass: self-referential manager_id
         if p["manager_id_raw"].strip():
             db.get(User, p["id"]).manager_id = int(p["manager_id_raw"])
 
     for pos in parsed["positions"]:
-        db.add(Position(id=pos["id"], title=pos["title"], is_technical=pos["is_technical"]))
+        level = levels_by_name.get(pos["access_level"]) if pos.get("access_level") else None
+        db.add(Position(id=pos["id"], title=pos["title"], is_technical=pos["is_technical"],
+                        access_level_id=level.id if level else None))
     db.flush()
     for pos in parsed["positions"]:
         if pos["parent_id_raw"].strip():
@@ -582,7 +586,7 @@ def commit_rebuild(db: Session, spreadsheet_id: str, actor_id: int) -> RebuildBa
     sheet are provably identical again. All inside one transaction — if
     anything raises, nothing is committed."""
     sheet_data = _read_all_tabs(spreadsheet_id)
-    parsed, counts, errors = _validate(sheet_data)
+    parsed, counts, errors = _validate(db, sheet_data)
 
     batch = RebuildBatch(
         actor_id=actor_id, spreadsheet_id=spreadsheet_id,

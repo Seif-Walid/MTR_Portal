@@ -28,6 +28,12 @@ class Position(Base):
         ForeignKey("positions.id", ondelete="SET NULL"), nullable=True, index=True
     )
     is_technical: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The power this seat confers on its occupants (see app/domains/access).
+    # NULL — the default — confers nothing: creating org structure never
+    # accidentally hands out privileges.
+    access_level_id: Mapped[int | None] = mapped_column(
+        ForeignKey("access_levels.id", ondelete="SET NULL"), nullable=True
+    )
     role_template_id: Mapped[int | None] = mapped_column(
         ForeignKey("role_templates.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -44,6 +50,7 @@ class Position(Base):
 
     parent: Mapped["Position | None"] = relationship(remote_side=[id])
     role_template: Mapped["RoleTemplate | None"] = relationship()
+    access_level = relationship("AccessLevel", lazy="joined")
     occupant_links: Mapped[list["PositionOccupant"]] = relationship(
         back_populates="position", cascade="all, delete-orphan",
         order_by="PositionOccupant.id", lazy="selectin",
@@ -86,14 +93,17 @@ class RoleTemplate(Base):
     has a position for an ancestor entity (competition -> team ->
     membership), or under RoleChainRoot if none does yet.
 
-    grants_management: occupying a position from this template confers the
-    same authority a competition PM / team lead used to (competition-level if
-    event="competition_created", team-level if event="team_created").
-    auto_assign_creator: whoever created the competition/team is seated here
-    automatically (this is how "create a competition and you're its PM"
-    keeps working without hardcoding which role that is) — meaningless for
-    event="team_member_added", where the added member is always the
-    occupant regardless of this flag.
+    access_level_id: the power every position this template produces confers
+    on its occupants — same meaning as Position.access_level_id, copied onto
+    each produced position at creation time. This is what replaced the old
+    grants_management flag: a "{competition} PM" template set to a level
+    whose privileges include competitions.manage_seated makes its occupants
+    managers of that competition; a "{member}" template with no level (or a
+    powerless one) is just an org-chart seat. NULL confers nothing.
+
+    Every seat starts vacant — nothing auto-seats a creator — except
+    event="team_member_added", where the added member *is* the seat's
+    meaning and always occupies it.
 
     Chaining: this template's positions parent under whichever earlier
     (lower sort_order) template already has a position for an ancestor
@@ -111,8 +121,11 @@ class RoleTemplate(Base):
     title_template: Mapped[str] = mapped_column(String(255))
     event: Mapped[str] = mapped_column(String(30), index=True)
     sort_order: Mapped[int] = mapped_column(Integer, unique=True)
-    grants_management: Mapped[bool] = mapped_column(Boolean, default=False)
-    auto_assign_creator: Mapped[bool] = mapped_column(Boolean, default=False)
+    access_level_id: Mapped[int | None] = mapped_column(
+        ForeignKey("access_levels.id", ondelete="SET NULL"), nullable=True
+    )
+
+    access_level = relationship("AccessLevel", lazy="joined")
 
 
 class RoleChainRoot(Base):

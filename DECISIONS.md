@@ -695,3 +695,78 @@ are deleted from the org"): the org chart only shows active work.
   by removal instead of vacating.
 - `vacate_positions_for_entity` lost its last caller and was deleted from
   `role_engine.py`.
+
+## Access ladder replaces built-in roles (Discord-style privileges)
+
+The org chart was a nice map with no teeth: authority still came from a
+hardcoded role enum (`RoleSlug`: admin/ceo/cto/employee/…) and predicates
+like `is_high_staff` scattered across every router. Replaced the whole thing
+with a **data-driven access ladder** — the same "zero hardcoded names"
+principle already applied to role templates, now applied to permissions
+themselves.
+
+**The split that makes it work.** *Privileges* are a fixed vocabulary in code
+(`access.service.PRIVILEGES` — `inventory.edit`, `competitions.create`,
+`org.edit`, `users.manage`, …): they're the things the app can actually gate,
+just like the three role-template events are the only points that can seat
+someone. *Levels* are pure data (`AccessLevel`: rank + name + a JSON list of
+privilege keys) — the admin renames, reorders, retoggles, adds and deletes
+them on the site. What ships is a starting ladder
+(Admin/Board/Lead/Member/Guest), created by the migration on real DBs and by
+`access.service.ensure_preset_levels` on fresh/test ones.
+
+**Power flows from the org chart.** Every `Position` (real seat or automatic
+role) and every `RoleTemplate` gained an `access_level_id` (NULL = confers
+nothing, the default — so building structure never leaks authority).
+`User.access_level_id` is a *personal override*. A person's **effective
+level** = the strongest (lowest rank) of the levels of the seats they occupy
+plus their override; with neither, the ladder's bottom rung
+(`access.service.effective_level`). `has_privilege` then asks whether that
+level's privilege set contains the key. Nothing anywhere reads a title.
+
+- **`grants_management` on RoleTemplate is gone** — replaced by the seat's
+  level. A "{competition} PM" template set to a level whose privileges
+  include `competitions.manage_seated` makes its occupants that competition's
+  managers; `competitions/service` reads the *seat's* level, not the person's
+  (so a powerful person occupying a powerless member seat still manages
+  nothing there). The migration maps every old `grants_management=1` template
+  to the preset "Lead" level, whose privileges carry `manage_seated`.
+- **`auto_assign_creator` is also gone**, per the same request that drove
+  this — nothing auto-seats a creator anymore; every seat starts vacant
+  (except `team_member_added`, where the added member is the seat's meaning).
+  Creating a competition grants nothing until someone is appointed to a
+  managing seat.
+- **The old dedicated checks** (`is_admin`, `is_ceo`, `is_high_staff`,
+  `require_high_staff`, `is_org_manager`, `can_manage_inventory` = "is
+  staff", the hierarchy `can_manage_user`/`can_place_under` predicates, the
+  `roles`/`user_roles` tables, `RoleSlug`, `NON_STAFF_ROLES`) were all
+  deleted. Every router now calls `access.require_privilege(db, user, key)`.
+  The one thing kept structural is the **task/visibility subtree**
+  (`users.manager_id`) — tasks still flow down a manager tree, requests up
+  across it; `is_top` (effective level is rank 1) replaces the old `is_admin`
+  bypass of those structural limits.
+
+**User Management became "People & Access" — a reflection of the org, not a
+parallel truth.** The built-in role picker is gone. Per person the table
+shows the seats they hold (straight from the org chart), their computed
+effective level, and the one thing editable there — the personal override
+(plus active/inactive). The **level editor** (rename tiers, toggle any
+privilege, reorder, add/remove) lives on the same page for `users.manage`.
+
+**Lockout guards.** The rank-1 (top) level always behaves as if it holds
+every privilege regardless of what's stored (`privileges_of`) — an admin
+can't toggle themselves out of the controls — and it can't be edited or
+deleted. At least one active user must always keep a *top-level override*
+(`assert_not_last_top_override`), enforced on level change and on
+deactivation, so no sequence of edits can lock everyone out.
+
+**Migration `e5a9c8b4d2f1`** (data-carry-forward, verified both directions on
+SQLite + a throwaway Postgres 16 container before touching the real dev DB):
+creates `access_levels` + the presets; adds `access_level_id` to users,
+positions and role_templates; carries every `admin`-role holder forward as a
+top-level override (so nobody who could administrate before is locked out
+after); maps `grants_management` templates → Lead and copies the level onto
+their already-produced positions; then drops `roles`, `user_roles`, and the
+two template flags. `downgrade` recreates the role catalog, re-grants the
+admin slug to top-override holders, and restores `grants_management` from
+whichever level carries `manage_seated`.

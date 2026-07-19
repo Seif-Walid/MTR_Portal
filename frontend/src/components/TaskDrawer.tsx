@@ -114,7 +114,7 @@ export default function TaskDrawer({
   }, [taskId]);
 
   useEffect(() => {
-    if (task?.batch_id && me && (task.assigner.id === me.id || me.is_admin)) {
+    if (task?.batch_id && me && (task.assigner.id === me.id || me.level?.rank === 1)) {
       api.get<Task[]>(`/api/tasks/batch/${task.batch_id}`).then(setBatch).catch(() => setBatch(null));
     } else {
       setBatch(null);
@@ -144,13 +144,13 @@ export default function TaskDrawer({
 
   const isAssignee = task?.assignee.id === me.id;
   const isAssigner = task?.assigner.id === me.id;
-  const canToggleBlocked = isAssignee || isAssigner || me.is_admin;
+  const canToggleBlocked = isAssignee || isAssigner || me.level?.rank === 1;
   const actions = task
     ? [
-        ...(isAssignee || me.is_admin ? ASSIGNEE_ACTIONS[task.status] ?? [] : []),
+        ...(isAssignee || me.level?.rank === 1 ? ASSIGNEE_ACTIONS[task.status] ?? [] : []),
         // the API decides who may review; we optimistically show the buttons
         // to anyone who is not the assignee and let 403s surface otherwise
-        ...(!isAssignee || me.is_admin ? REVIEWER_ACTIONS[task.status] ?? [] : []),
+        ...(!isAssignee || me.level?.rank === 1 ? REVIEWER_ACTIONS[task.status] ?? [] : []),
       ]
     : [];
 
@@ -332,7 +332,7 @@ export default function TaskDrawer({
               </List.Item>
             )}
           />
-          {(isAssignee || task.assigner.id === me.id || me.is_admin) && (
+          {(isAssignee || task.assigner.id === me.id || me.level?.rank === 1) && (
             <Upload beforeUpload={upload} showUploadList={false}>
               <Button icon={<UploadOutlined />} style={{ marginTop: 8 }}>
                 Add attachment

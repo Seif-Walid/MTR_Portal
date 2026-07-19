@@ -10,6 +10,7 @@ class PositionNode(BaseModel):
     title: str
     is_technical: bool
     parent_id: int | None
+    access_level_id: int | None = None
     occupants: list[UserBrief] = []
     role_template_id: int | None = None
     children: list["PositionNode"] = []
@@ -22,6 +23,7 @@ class PositionCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     parent_id: int | None = None
     is_technical: bool = False
+    access_level_id: int | None = None  # power this seat confers; None = nothing
     occupant_ids: list[int] = []
 
 
@@ -30,6 +32,8 @@ class PositionEdit(BaseModel):
     is_technical: bool | None = None
     parent_id: int | None = None  # reparent
     occupant_ids: list[int] | None = None  # replaces the whole occupant list
+    access_level_id: int | None = None
+    clear_access_level: bool = False
 
 
 class RoleTemplateOut(BaseModel):
@@ -39,23 +43,21 @@ class RoleTemplateOut(BaseModel):
     title_template: str
     event: str
     sort_order: int
-    grants_management: bool
-    auto_assign_creator: bool
+    access_level_id: int | None = None
     parent_template_id: int | None = None
 
 
 class RoleTemplateCreate(BaseModel):
     title_template: str = Field(min_length=1, max_length=255)
     event: str
-    grants_management: bool = False
-    auto_assign_creator: bool = False
+    access_level_id: int | None = None  # power the produced seats confer
     insert_after_id: int | None = None  # chain right after this template, not at the end
 
 
 class RoleTemplateEdit(BaseModel):
     title_template: str | None = Field(default=None, min_length=1, max_length=255)
-    grants_management: bool | None = None
-    auto_assign_creator: bool | None = None
+    access_level_id: int | None = None
+    clear_access_level: bool = False
     sort_order: int | None = None
 
 

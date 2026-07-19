@@ -1,6 +1,6 @@
 """Google SSO: config flag, unconfigured redirects, state validation, the
 domain allowlist, that an unrecognized-but-verified email auto-provisions a
-fresh no-roles account (same as open self-registration), and — for an email
+fresh guest account (same as open self-registration), and — for an email
 that already has a password account — that it must be linked explicitly,
 never silently matched."""
 
@@ -91,7 +91,7 @@ def _do_callback(client, cookies=None):
     )
 
 
-def test_unknown_email_is_auto_provisioned_with_no_roles(client, org, google_enabled, monkeypatch):
+def test_unknown_email_is_auto_provisioned_as_guest(client, org, google_enabled, monkeypatch):
     _mock_google(monkeypatch, "nobody@t.local")
     r = _do_callback(client)
     assert r.headers["location"].endswith("/tasks")
@@ -101,9 +101,8 @@ def test_unknown_email_is_auto_provisioned_with_no_roles(client, org, google_ena
     assert me.status_code == 200
     body = me.json()
     assert body["email"] == "nobody@t.local"
-    assert body["roles"] == []
-    assert body["is_admin"] is False
-    assert body["is_staff"] is False
+    assert body["level"]["name"] == "Guest"  # bottom of the ladder
+    assert body["privileges"] == []
     assert body["google_linked"] is True
 
     # a password login is not viable for a Google-provisioned account —

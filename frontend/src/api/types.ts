@@ -1,22 +1,30 @@
-export interface Role {
-  slug: string;
-  name: string;
-  is_staff: boolean;
-}
-
 export interface UserBrief {
   id: number;
   email: string;
   full_name: string;
   department: string | null;
-  roles: Role[];
+}
+
+export interface LevelBrief {
+  id: number;
+  rank: number;
+  name: string;
+}
+
+export interface Privilege {
+  key: string;
+  label: string;
+}
+
+export interface AccessLevel extends LevelBrief {
+  privileges: string[];
+  is_top: boolean;
 }
 
 export interface Me extends UserBrief {
   manager_id: number | null;
-  is_admin: boolean;
-  is_staff: boolean;
-  is_high_staff: boolean;
+  level: LevelBrief | null;
+  privileges: string[];
   has_team: boolean;
   google_linked: boolean;
 }
@@ -26,6 +34,10 @@ export interface AdminUser extends UserBrief {
   is_active: boolean;
   google_linked: boolean;
   created_at: string;
+  access_level_id: number | null; // the personal override
+  effective_level: string | null; // computed from seats + override
+  effective_rank: number | null;
+  seats: string[]; // org positions occupied — the org's reflection
 }
 
 export type TaskStatus =
@@ -292,7 +304,7 @@ export interface OrgTreeNode {
   full_name: string;
   email: string;
   department: string | null;
-  roles: Role[];
+  level: string | null; // effective access level name
   manager_id: number | null;
   is_active: boolean;
   can_manage: boolean;
@@ -304,6 +316,7 @@ export interface PositionNode {
   title: string;
   is_technical: boolean;
   parent_id: number | null;
+  access_level_id: number | null; // power this seat confers
   occupants: UserBrief[];
   role_template_id: number | null;
   children: PositionNode[];
@@ -316,8 +329,7 @@ export interface RoleTemplate {
   title_template: string;
   event: RoleEvent;
   sort_order: number;
-  grants_management: boolean;
-  auto_assign_creator: boolean;
+  access_level_id: number | null; // power the produced seats confer
   parent_template_id: number | null;
 }
 

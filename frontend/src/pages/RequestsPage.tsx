@@ -89,7 +89,7 @@ function NewRequestModal({
             placeholder="Select a staff member"
             options={staff.map((u) => ({
               value: u.id,
-              label: `${u.full_name} — ${u.roles.map((r) => r.name).join(', ')}`,
+              label: `${u.full_name} (${u.email})`,
             }))}
           />
         </Form.Item>

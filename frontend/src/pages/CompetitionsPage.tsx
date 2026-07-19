@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
 import type { Competition, RoleRoot } from '../api/types';
-import { useAuth } from '../auth/AuthContext';
+import { can, useAuth } from '../auth/AuthContext';
 import CompetitionDetailPanel from '../components/CompetitionDetailPanel';
 import PositionPicker from '../components/PositionPicker';
 
@@ -105,7 +105,7 @@ export default function CompetitionsPage() {
   const [editing, setEditing] = useState<Competition | null>(null);
   const [open, setOpen] = useState(false);
 
-  const canCreate = !!me?.is_high_staff;
+  const canCreate = can(me, 'competitions.create');
 
   const load = useCallback(() => {
     setLoading(true);

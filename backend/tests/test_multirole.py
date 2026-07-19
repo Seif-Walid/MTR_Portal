@@ -1,63 +1,58 @@
-"""Multi-role users: effective permissions are the union of all held roles.
-The seeded 'cto' user holds CTO + Software Lead simultaneously."""
+"""Effective power comes from one place: the access ladder. The /me payload
+reports the resolved level + privileges, hierarchy reach stays structural
+(the manager subtree), and user management is a privilege — not something a
+job title or tree position ever implies."""
 
 from tests.conftest import make_task
 
 
-def test_me_reports_union_of_roles(login, org):
+def test_me_reports_level_and_privileges(login, org):
     me = login("cto").get("/api/auth/me").json()
-    assert {r["slug"] for r in me["roles"]} == {"cto", "software_lead"}
-    assert me["is_staff"] is True
+    assert me["level"]["name"] == "Lead"
+    assert "tasks.assign" in me["privileges"]
+    assert "users.manage" not in me["privileges"]
     assert me["has_team"] is True
 
 
-def test_multirole_reach_covers_both_hats(login, org):
+def test_subtree_reach_covers_the_whole_branch(login, org):
     cto = login("cto")
-    # Software Lead hat: direct software employees
+    # direct reports
     r = cto.post("/api/tasks", json={"title": "sw", "assignee_ids": [org["sw_emp"].id]})
     assert r.status_code == 201
-    # CTO hat: the whole technical branch, including mech employees below a sub-lead
+    # the whole technical branch, including mech employees below a sub-lead
     r = cto.post("/api/tasks", json={"title": "mech", "assignee_ids": [org["mech_emp"].id]})
     assert r.status_code == 201
-    # union does NOT extend outside the node's subtree
+    # reach does NOT extend outside the node's subtree
     r = cto.post("/api/tasks", json={"title": "fin", "assignee_ids": [org["fin_emp"].id]})
     assert r.status_code == 403
 
 
-def test_multirole_visibility_is_union(login, org):
+def test_task_visibility_covers_the_subtree(login, org):
     t_sw = make_task(login, "cto", org, "sw_emp")
     t_mech = make_task(login, "mech_lead", org, "mech_emp")
     seen = {t["id"] for t in login("cto").get("/api/tasks", params={"view": "all"}).json()}
     assert {t_sw["id"], t_mech["id"]} <= seen
 
 
-def test_staff_flag_unions_across_roles(login, org, db_session):
-    """A student who is also a team lead becomes a valid request recipient."""
-    from sqlalchemy import select
-
-    from app.domains.users.models import Role, RoleSlug, UserRole
-
-    student = org["student"]
-    # student alone: not staff -> request rejected (fin_emp is outside their subtree)
-    r = login("fin_emp").post(
-        "/api/requests", json={"recipient_id": student.id, "title": "help"}
-    )
+def test_override_grants_power_without_a_seat(login, org):
+    """The per-user override is a direct grant — bump a guest to Staff and
+    they become a valid request recipient with no org seat involved."""
+    fresh = login("admin").post("/api/users", json={
+        "email": "advisor@t.local", "full_name": "Advisor", "password": "password123",
+    }).json()
+    # a guest (bottom rung) can't receive work requests
+    r = login("cfo").post("/api/requests", json={"recipient_id": fresh["id"], "title": "help"})
     assert r.status_code == 400
 
-    tl_role = db_session.scalar(select(Role).where(Role.slug == RoleSlug.TEAM_LEAD))
-    db_session.add(UserRole(user_id=student.id, role_id=tl_role.id))
-    db_session.commit()
-    db_session.expire(student)  # shared test session caches the roles relationship
-
-    r = login("fin_emp").post(
-        "/api/requests", json={"recipient_id": student.id, "title": "help"}
-    )
+    levels = {l["name"]: l["id"] for l in login("admin").get("/api/access/levels").json()}
+    login("admin").patch(f"/api/users/{fresh['id']}", json={"access_level_id": levels["Staff"]})
+    r = login("cfo").post("/api/requests", json={"recipient_id": fresh["id"], "title": "help"})
     assert r.status_code == 201
 
 
-def test_admin_role_is_separate_from_hierarchy(login, org):
-    # admin manages users...
+def test_user_management_is_a_privilege_not_a_title(login, org):
+    # the top-level admin manages users...
     r = login("admin").get("/api/users")
     assert r.status_code == 200
-    # ...but hierarchy roles don't grant user management, even for the CEO
+    # ...but an Exec without users.manage does not, whatever their position
     assert login("ceo").get("/api/users").status_code == 403

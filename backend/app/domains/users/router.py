@@ -2,40 +2,23 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.core.security import hash_password
+from app.domains.access import service as access
+from app.domains.access.models import AccessLevel
 from app.domains.audit.service import log as audit_log
-from app.domains.auth.deps import DB, AdminUser, CurrentUser
-from app.domains.hierarchy.service import (
-    assert_no_cycle,
-    can_manage_user,
-    can_place_under,
-    subtree_ids,
-)
-from app.domains.users.models import NON_STAFF_ROLES, Department, Role, RoleSlug, User, UserRole
-from app.domains.users.schemas import RoleOut, UserAdminOut, UserBrief, UserCreate, UserUpdate
+from app.domains.auth.deps import DB, CurrentUser
+from app.domains.hierarchy.service import assert_no_cycle, subtree_ids
+from app.domains.positions.models import Position, PositionOccupant
+from app.domains.users.models import Department, User
+from app.domains.users.schemas import UserAdminOut, UserBrief, UserCreate, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])
-
-
-def _load_roles(db: DB, slugs: list[str]) -> list[Role]:
-    roles = list(db.scalars(select(Role).where(Role.slug.in_(slugs))))
-    if len(roles) != len(set(slugs)):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown role")
-    return roles
-
-
-def _set_roles(db: DB, user: User, roles: list[Role]) -> None:
-    for link in db.scalars(select(UserRole).where(UserRole.user_id == user.id)):
-        db.delete(link)
-    db.flush()
-    for role in roles:
-        db.add(UserRole(user_id=user.id, role_id=role.id))
 
 
 @router.get("/assignable")
 def assignable_users(db: DB, user: CurrentUser) -> list[UserBrief]:
     """Everyone the current user may assign tasks to (their strict subtree;
-    admin sees all active users)."""
-    if user.is_admin:
+    a top-level user sees all active users)."""
+    if access.is_top(db, user):
         query = select(User).where(User.is_active, User.id != user.id)
     else:
         ids = subtree_ids(db, user.id)
@@ -47,72 +30,80 @@ def assignable_users(db: DB, user: CurrentUser) -> list[UserBrief]:
 
 @router.get("/directory")
 def directory(db: DB, user: CurrentUser) -> list[UserBrief]:
-    """Active users, for people-pickers (e.g. competition team members). Any
-    signed-in user may read it — a scoped team lead needs it to add members."""
+    """Active users, for people-pickers (e.g. competition team members)."""
+    access.require_privilege(db, user, "people.view")
     users = db.scalars(select(User).where(User.is_active).order_by(User.full_name))
     return [UserBrief.model_validate(u) for u in users]
 
 
 @router.get("/staff")
 def staff_users(db: DB, user: CurrentUser) -> list[UserBrief]:
-    """Valid request recipients: active staff users the current user cannot
-    task directly (outside their subtree, not themselves)."""
+    """Valid request recipients: active users who work with tasks and whom the
+    current user cannot task directly (outside their subtree, not themselves)."""
     excluded = subtree_ids(db, user.id, include_self=True)
-    staff_role_ids = select(Role.id).where(Role.slug.not_in([r.value for r in NON_STAFF_ROLES]))
-    query = (
-        select(User)
-        .join(UserRole, UserRole.user_id == User.id)
-        .where(
-            UserRole.role_id.in_(staff_role_ids),
-            User.is_active,
-            User.id.not_in(excluded),
-        )
-        .distinct()
-        .order_by(User.full_name)
-    )
+    eligible = access.users_with_privilege(db, "tasks.use") - excluded
+    if not eligible:
+        return []
+    query = select(User).where(User.id.in_(eligible)).order_by(User.full_name)
     return [UserBrief.model_validate(u) for u in db.scalars(query)]
 
 
-@router.get("/roles")
-def list_roles(db: DB, _: AdminUser) -> list[RoleOut]:
-    """The full role catalog, for the admin user-management role picker —
-    sourced from the DB (seeded once) rather than duplicated as a frontend
-    literal, so a role's display name never drifts from what's shown
-    elsewhere (e.g. RoleTags)."""
-    return [RoleOut.model_validate(r) for r in db.scalars(select(Role).order_by(Role.name))]
-
-
 @router.get("/departments")
-def list_departments(_: AdminUser) -> list[str]:
+def list_departments(db: DB, user: CurrentUser) -> list[str]:
+    access.require_privilege(db, user, "users.manage")
     return [d.value for d in Department]
 
 
+def _admin_out(db: DB, u: User, level_by_user: dict[int, AccessLevel | None],
+               seats_by_user: dict[int, list[str]]) -> UserAdminOut:
+    effective = level_by_user.get(u.id)
+    out = UserAdminOut.model_validate(u)
+    out.access_level_id = u.access_level_id
+    out.effective_level = effective.name if effective else None
+    out.effective_rank = effective.rank if effective else None
+    out.seats = seats_by_user.get(u.id, [])
+    return out
+
+
+def _seats_by_user(db: DB, user_ids: list[int]) -> dict[int, list[str]]:
+    rows = db.execute(
+        select(PositionOccupant.user_id, Position.title)
+        .join(Position, Position.id == PositionOccupant.position_id)
+        .where(PositionOccupant.user_id.in_(user_ids))
+        .order_by(Position.title)
+    )
+    seats: dict[int, list[str]] = {}
+    for uid, title in rows:
+        seats.setdefault(uid, []).append(title)
+    return seats
+
+
 @router.get("")
-def list_users(db: DB, _: AdminUser) -> list[UserAdminOut]:
-    users = db.scalars(select(User).order_by(User.full_name))
-    return [UserAdminOut.model_validate(u) for u in users]
+def list_users(db: DB, user: CurrentUser) -> list[UserAdminOut]:
+    """The management view: every account with its seats (straight from the
+    org chart), computed effective level, and personal override."""
+    access.require_privilege(db, user, "users.manage")
+    users = list(db.scalars(select(User).order_by(User.full_name)))
+    ids = [u.id for u in users]
+    levels = access.effective_levels_bulk(db, ids)
+    seats = _seats_by_user(db, ids)
+    return [_admin_out(db, u, levels, seats) for u in users]
+
+
+def _resolve_level(db: DB, level_id: int | None) -> None:
+    if level_id is not None and db.get(AccessLevel, level_id) is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown access level")
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_user(payload: UserCreate, db: DB, actor: CurrentUser) -> UserAdminOut:
-    # Admin can add anyone anywhere; a staff manager can add people under
-    # themselves or anyone already in their subtree.
-    if not actor.is_admin:
-        if not (actor.is_staff and can_place_under(db, actor, payload.manager_id)):
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
-                "You can only add people under yourself or your team.",
-            )
-        if RoleSlug.ADMIN in payload.roles:
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN, "Only an admin can grant the admin role."
-            )
-
+    access.require_privilege(db, actor, "users.manage")
     email = payload.email.lower()
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
     if payload.manager_id is not None and db.get(User, payload.manager_id) is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Manager not found")
+    _resolve_level(db, payload.access_level_id)
 
     user = User(
         email=email,
@@ -120,41 +111,22 @@ def create_user(payload: UserCreate, db: DB, actor: CurrentUser) -> UserAdminOut
         hashed_password=hash_password(payload.password),
         department=payload.department,
         manager_id=payload.manager_id,
+        access_level_id=payload.access_level_id,
     )
     db.add(user)
-    db.flush()
-    _set_roles(db, user, _load_roles(db, payload.roles))
     db.commit()
     db.refresh(user)
-    return UserAdminOut.model_validate(user)
+    return _admin_out(
+        db, user, access.effective_levels_bulk(db, [user.id]), _seats_by_user(db, [user.id])
+    )
 
 
 @router.patch("/{user_id}")
 def update_user(user_id: int, payload: UserUpdate, db: DB, actor: CurrentUser) -> UserAdminOut:
+    access.require_privilege(db, actor, "users.manage")
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
-
-    # Non-admins may only manage people inside their own subtree, may not grant
-    # the admin role, and may not detach someone from the tree or move them
-    # outside their reach.
-    if not actor.is_admin:
-        if not can_manage_user(db, actor, user):
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN, "You can only manage people in your team."
-            )
-        if payload.roles is not None and RoleSlug.ADMIN in payload.roles:
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN, "Only an admin can grant the admin role."
-            )
-        if payload.clear_manager:
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN, "Only an admin can detach a person from the tree."
-            )
-        if payload.manager_id is not None and not can_place_under(db, actor, payload.manager_id):
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN, "You can only move people within your team."
-            )
 
     if payload.full_name is not None:
         user.full_name = payload.full_name
@@ -185,19 +157,34 @@ def update_user(user_id: int, payload: UserUpdate, db: DB, actor: CurrentUser) -
     if payload.is_active is not None:
         if user.id == actor.id and payload.is_active is False:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot deactivate yourself")
+        if payload.is_active is False:
+            access.assert_not_last_top_override(db, user.id)
         if payload.is_active != user.is_active:
             audit_log(db, actor.id, "users", "activated" if payload.is_active else "deactivated",
                       "user", user.id, {"user": user.full_name})
         user.is_active = payload.is_active
 
-    if payload.roles is not None:
-        before = sorted(user.role_slugs)
-        _set_roles(db, user, _load_roles(db, payload.roles))
-        after = sorted(payload.roles)
-        if before != after:
-            audit_log(db, actor.id, "users", "role_changed", "user", user.id,
-                      {"user": user.full_name, "before": before, "after": after})
+    if payload.clear_access_level or payload.access_level_id is not None:
+        new_level_id = None if payload.clear_access_level else payload.access_level_id
+        _resolve_level(db, new_level_id)
+        if new_level_id != user.access_level_id:
+            # never orphan the ladder: someone must keep a top-level override
+            if user.access_level_id is not None:
+                current = db.get(AccessLevel, user.access_level_id)
+                if current is not None and current.rank == access.top_rank(db):
+                    new = db.get(AccessLevel, new_level_id) if new_level_id else None
+                    if new is None or new.rank != current.rank:
+                        access.assert_not_last_top_override(db, user.id)
+            before = db.get(AccessLevel, user.access_level_id) if user.access_level_id else None
+            after = db.get(AccessLevel, new_level_id) if new_level_id else None
+            audit_log(db, actor.id, "users", "level_changed", "user", user.id,
+                      {"user": user.full_name,
+                       "before": before.name if before else None,
+                       "after": after.name if after else None})
+            user.access_level_id = new_level_id
 
     db.commit()
     db.refresh(user)
-    return UserAdminOut.model_validate(user)
+    return _admin_out(
+        db, user, access.effective_levels_bulk(db, [user.id]), _seats_by_user(db, [user.id])
+    )

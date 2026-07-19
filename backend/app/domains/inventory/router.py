@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.domains.audit.service import log as audit_log
+from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.competitions.models import Competition
 from app.domains.inventory import file_import, sheets, stock
@@ -71,7 +72,7 @@ def _resolve_competition(db: DB, competition_id: int | None) -> int | None:
 def holder_options(db: DB, user: CurrentUser) -> list[UserBrief]:
     """People who can hold equipment. Staff manage org-wide, so they pick from
     all active users."""
-    require_manage(user)
+    access.require_privilege(db, user, "people.view")
     users = db.scalars(
         select(User).where(User.is_active).order_by(User.full_name)
     )
@@ -89,19 +90,19 @@ def item_directory(db: DB, user: CurrentUser) -> list[ItemBrief]:
 
 
 @router.get("/sheets/status")
-def sheets_status(user: CurrentUser) -> dict[str, bool]:
+def sheets_status(db: DB, user: CurrentUser) -> dict[str, bool]:
     """Google Sheets capabilities: `configured` gates the Sync button (needs a
     default target sheet); `credentials` gates Import (needs only the key)."""
     return {
         "configured": sheets.is_configured(),
         "credentials": sheets.credentials_available(),
-        "can_sync": can_manage_inventory(user),
+        "can_sync": can_manage_inventory(db, user),
     }
 
 
 @router.post("/sync")
 def sync_to_sheets(db: DB, user: CurrentUser) -> dict[str, object]:
-    require_manage(user)
+    require_manage(db, user)
     if not sheets.is_configured():
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -192,7 +193,7 @@ def _import_rows(
 @router.post("/import/preview")
 def import_preview(payload: ImportPreviewRequest, db: DB, user: CurrentUser) -> ImportPreviewOut:
     """Read a sheet's headers + first rows so the UI can map columns."""
-    require_manage(user)
+    require_manage(db, user)
     _require_credentials()
     spreadsheet_id = sheets.parse_spreadsheet_id(payload.source)
     try:
@@ -212,7 +213,7 @@ def import_preview(payload: ImportPreviewRequest, db: DB, user: CurrentUser) -> 
 def import_items(payload: ImportRequest, db: DB, user: CurrentUser) -> ImportResult:
     """Create (or upsert) inventory items from a Google Sheet. The portal takes
     over as the source of truth once imported."""
-    require_manage(user)
+    require_manage(db, user)
     _require_credentials()
     if not payload.mapping.get("name"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Map a column to the item name.")
@@ -244,7 +245,7 @@ def import_file_preview(
     """Read an uploaded .xlsx/.csv's headers + first rows — no Google Sheets
     credentials needed. For workbooks with multiple tabs, omit `sheet` to get
     the first one plus the full tab list, then re-call with a chosen tab."""
-    require_manage(user)
+    require_manage(db, user)
     data = _read_upload(file)
     try:
         sheet_names = file_import.list_sheets(data, file.filename or "")
@@ -271,7 +272,7 @@ def import_file(
     upsert: bool = Form(True),
 ) -> ImportResult:
     """Create (or upsert) inventory items from an uploaded .xlsx/.csv."""
-    require_manage(user)
+    require_manage(db, user)
     try:
         mapping_dict = json.loads(mapping)
     except json.JSONDecodeError as exc:
@@ -295,7 +296,7 @@ def list_locations(db: DB, user: CurrentUser) -> list[LocationOut]:
 
 @router.post("/locations", status_code=status.HTTP_201_CREATED)
 def create_location(payload: LocationCreate, db: DB, user: CurrentUser) -> LocationOut:
-    require_manage(user)
+    require_manage(db, user)
     loc = Location(name=payload.name, kind=payload.kind, notes=payload.notes)
     db.add(loc)
     db.commit()
@@ -305,7 +306,7 @@ def create_location(payload: LocationCreate, db: DB, user: CurrentUser) -> Locat
 
 @router.delete("/locations/{location_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_location(location_id: int, db: DB, user: CurrentUser) -> None:
-    require_manage(user)
+    require_manage(db, user)
     loc = db.get(Location, location_id)
     if loc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Location not found")
@@ -330,14 +331,14 @@ def list_items(
 @router.get("/low-stock")
 def low_stock_items(db: DB, user: CurrentUser) -> list[ItemOut]:
     """Items whose owned quantity has dropped to (or below) their threshold."""
-    require_manage(user)
+    access.require_privilege(db, user, "inventory.view")
     items = db.scalars(visible_items_query(db, user).order_by(InventoryItem.name)).unique()
     return [ItemOut.model_validate(i) for i in items if i.quantity <= i.low_stock_threshold]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_item(payload: ItemCreate, db: DB, user: CurrentUser) -> ItemOut:
-    require_manage(user)
+    require_manage(db, user)
     item = InventoryItem(
         name=payload.name,
         category=payload.category,
@@ -365,7 +366,7 @@ def get_item(item_id: int, db: DB, user: CurrentUser) -> ItemOut:
 @router.patch("/{item_id}")
 def edit_item(item_id: int, payload: ItemEdit, db: DB, user: CurrentUser) -> ItemOut:
     item = get_item_or_404(db, user, item_id)
-    require_manage(user)
+    require_manage(db, user)
     if payload.quantity is not None and payload.quantity != item.quantity:
         assert_quantity_covers_allocations(item, payload.quantity)
         audit_log(db, user.id, "inventory", "quantity_changed", "inventory_item", item.id,
@@ -391,11 +392,11 @@ def delete_item(item_id: int, db: DB, user: CurrentUser, permanent: bool = False
     reference this item, so removing the row would destroy their history.
     `permanent=true` really removes it — a genuine mistake, admin only."""
     item = get_item_or_404(db, user, item_id)
-    require_manage(user)
+    require_manage(db, user)
     if permanent:
-        if not user.is_admin:
+        if not access.is_top(db, user):
             raise HTTPException(
-                status.HTTP_403_FORBIDDEN, "Only an admin can permanently delete an item"
+                status.HTTP_403_FORBIDDEN, "Only a top-level user can permanently delete an item"
             )
         audit_log(db, user.id, "inventory", "item_purged", "inventory_item", item.id,
                   {"name": item.name})
@@ -413,7 +414,7 @@ def add_allocation(
     item_id: int, payload: AllocationCreate, db: DB, user: CurrentUser
 ) -> ItemOut:
     item = get_item_or_404(db, user, item_id)
-    require_manage(user)
+    require_manage(db, user)
     assert_fits(item, payload.quantity)
     allocation = InventoryAllocation(
         item_id=item.id,
@@ -435,7 +436,7 @@ def edit_allocation(
     allocation_id: int, payload: AllocationEdit, db: DB, user: CurrentUser
 ) -> ItemOut:
     allocation = get_allocation_or_404(db, user, allocation_id)
-    require_manage(user)
+    require_manage(db, user)
     item = allocation.item
     if payload.quantity is not None:
         assert_fits(item, payload.quantity, exclude_id=allocation.id)
@@ -462,7 +463,7 @@ def edit_allocation(
 @router.delete("/allocations/{allocation_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_allocation(allocation_id: int, db: DB, user: CurrentUser) -> None:
     allocation = get_allocation_or_404(db, user, allocation_id)
-    require_manage(user)
+    require_manage(db, user)
     db.delete(allocation)
     db.commit()
 
@@ -508,7 +509,7 @@ def item_movements(item_id: int, db: DB, user: CurrentUser, limit: int = 100) ->
 @router.post("/{item_id}/movements", status_code=status.HTTP_201_CREATED)
 def add_movement(item_id: int, payload: MovementCreate, db: DB, user: CurrentUser) -> WhereaboutsOut:
     item = get_item_or_404(db, user, item_id)
-    require_manage(user)
+    access.require_privilege(db, user, "inventory.approve")
     for uid in (payload.from_holder_id, payload.to_holder_id):
         _resolve_user(db, uid, "Holder") if uid else None
     for lid in (payload.from_location_id, payload.to_location_id):

@@ -12,7 +12,7 @@ import { useSearchParams } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
 import type { InventoryItem, SheetsStatus } from '../api/types';
-import { useAuth } from '../auth/AuthContext';
+import { can, useAuth } from '../auth/AuthContext';
 import ImportFromSheetModal from '../components/ImportFromSheetModal';
 import InventoryItemDrawer from '../components/InventoryItemDrawer';
 import InventoryRequestsDrawer from '../components/InventoryRequestsDrawer';
@@ -33,7 +33,7 @@ export default function InventoryPage() {
   const [sheets, setSheets] = useState<SheetsStatus | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const canManage = !!me && (me.is_staff || me.is_admin);
+  const canManage = can(me, 'inventory.edit');
   const openItemId = searchParams.get('item') ? Number(searchParams.get('item')) : null;
 
   const load = useCallback(() => {

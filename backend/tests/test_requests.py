@@ -19,10 +19,15 @@ def test_request_into_own_subtree_rejected(login, org):
     assert send(login, org, "ceo", "cfo").status_code == 400
 
 
-def test_request_to_non_staff_rejected(login, org):
+def test_request_to_subtree_self_or_guest_rejected(login, org):
     assert send(login, org, "pm", "student").status_code == 400  # student in own subtree anyway
-    assert send(login, org, "cfo", "comp_member").status_code == 400  # non-staff
     assert send(login, org, "sw_emp", "sw_emp").status_code == 400  # self
+    # a guest (no level -> bottom rung, no tasks.use) is not a valid recipient
+    guest = login("admin").post("/api/users", json={
+        "email": "guest@t.local", "full_name": "Guest", "password": "password123",
+    }).json()
+    r = login("cfo").post("/api/requests", json={"recipient_id": guest["id"], "title": "help"})
+    assert r.status_code == 400
 
 
 def test_accept_spawns_task_and_notifies_requester(login, org):

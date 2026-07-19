@@ -99,7 +99,9 @@ def test_low_stock_endpoint(login, org):
     iid = _item(login, org, quantity=3, low_stock_threshold=5).json()["id"]
     items = login("cto").get("/api/inventory/low-stock").json()
     assert any(i["id"] == iid for i in items)
-    assert login("student").get("/api/inventory/low-stock").status_code == 403
+    # inventory.view is enough for the readout now; a no-view tier gets 403
+    assert any(i["id"] == iid for i in login("student").get("/api/inventory/low-stock").json())
+    assert login("comp_member").get("/api/inventory/low-stock").status_code == 403
 
 
 def test_overdue_flag(login, org):

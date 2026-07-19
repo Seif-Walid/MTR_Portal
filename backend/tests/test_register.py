@@ -1,5 +1,5 @@
-"""Open registration: personal emails welcome; new accounts start with no
-roles and no hierarchy position until the admin places them."""
+"""Open registration: personal emails welcome; new accounts start at the
+ladder's bottom rung (guest) with no seat until someone grants more."""
 
 
 def test_register_creates_account_and_logs_in(client, org):
@@ -10,8 +10,8 @@ def test_register_creates_account_and_logs_in(client, org):
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["email"] == "new.person@gmail.com"  # normalized
-    assert body["roles"] == []
-    assert body["is_admin"] is False and body["is_staff"] is False and body["has_team"] is False
+    assert body["level"]["name"] == "Guest"  # the ladder's bottom rung
+    assert body["privileges"] == [] and body["has_team"] is False
 
     # the register response set a session cookie
     me = client.get("/api/auth/me", cookies=dict(r.cookies))

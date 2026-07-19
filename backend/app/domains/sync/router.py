@@ -6,8 +6,8 @@ from sqlalchemy import select
 
 from app.core import gsheets
 from app.core.config import settings
+from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
-from app.domains.hierarchy.service import is_org_manager
 from app.domains.sync import service
 from app.domains.sync.models import RebuildBatch
 from app.domains.sync.schemas import (
@@ -20,11 +20,6 @@ from app.domains.sync.schemas import (
 router = APIRouter(prefix="/sync", tags=["sync"])
 
 
-def _require_org_manager(user) -> None:
-    if not is_org_manager(user):
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, "Only the CEO or an admin can manage the Sheets mirror"
-        )
 
 
 class ExportRequest(BaseModel):
@@ -43,13 +38,13 @@ def sync_status(db: DB, user: CurrentUser) -> dict[str, bool | str]:
 
 @router.get("/exports")
 def list_exports(db: DB, user: CurrentUser) -> list[SheetExportOut]:
-    _require_org_manager(user)
+    access.require_privilege(db, user, "sync.export")
     return [SheetExportOut.model_validate(r) for r in service.list_exports(db)]
 
 
 @router.post("/export")
 def run_export(payload: ExportRequest, db: DB, user: CurrentUser) -> dict[str, int]:
-    _require_org_manager(user)
+    access.require_privilege(db, user, "sync.export")
     if not gsheets.credentials_available():
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google Sheets is not configured on the server.")
     spreadsheet_id = gsheets.parse_spreadsheet_id(payload.spreadsheet_id)
@@ -66,12 +61,12 @@ def run_export(payload: ExportRequest, db: DB, user: CurrentUser) -> dict[str, i
 @router.post("/rebuild/dry-run")
 def rebuild_dry_run(payload: DryRunRequest, db: DB, user: CurrentUser) -> RebuildReport:
     """Read + validate every tab. Never touches the database."""
-    _require_org_manager(user)
+    access.require_privilege(db, user, "sync.rebuild")
     if not gsheets.credentials_available():
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google Sheets is not configured on the server.")
     spreadsheet_id = gsheets.parse_spreadsheet_id(payload.spreadsheet_id)
     try:
-        counts, errors = service.dry_run(spreadsheet_id)
+        counts, errors = service.dry_run(db, spreadsheet_id)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Could not read the sheet: {exc}") from exc
     return RebuildReport(ok=not errors, tab_counts=counts, errors=errors)
@@ -82,8 +77,7 @@ def rebuild_commit(payload: RebuildCommitRequest, db: DB, user: CurrentUser) -> 
     """The destructive path. Admin/CEO only. Requires typing the exact
     confirmation phrase. Always re-validates before touching anything —
     a dry-run that failed cannot be forced through."""
-    if not user.is_admin and not user.is_ceo:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the CEO or an admin can rebuild from Sheets")
+    access.require_privilege(db, user, "sync.rebuild")
     if payload.confirm_phrase != settings.org_name:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -109,6 +103,6 @@ def rebuild_commit(payload: RebuildCommitRequest, db: DB, user: CurrentUser) -> 
 
 @router.get("/rebuild/history")
 def rebuild_history(db: DB, user: CurrentUser, limit: int = 20) -> list[RebuildBatchOut]:
-    _require_org_manager(user)
+    access.require_privilege(db, user, "sync.rebuild")
     rows = db.scalars(select(RebuildBatch).order_by(RebuildBatch.started_at.desc()).limit(min(limit, 100)))
     return [RebuildBatchOut.model_validate(r) for r in rows]

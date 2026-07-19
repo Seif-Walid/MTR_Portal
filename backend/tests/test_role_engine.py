@@ -1,10 +1,11 @@
 """The generic, admin-configurable role-chain engine: template CRUD and
 ordering, the single ask-once root, event-triggered seating (competition/
-team/member), multi-occupancy, grants_management authority, retitle/vacate/
-delete cascades, and the manager_id/real-seat exclusion guarantee — all
-without any role name ever being hardcoded in the app itself."""
+team/member), multi-occupancy, seat-level authority (a seat whose access
+level carries competitions.manage_seated makes its occupants that entity's
+managers), retitle/removal cascades, and the manager_id/real-seat exclusion
+guarantee — all without any role name ever being hardcoded in the app."""
 
-from tests.conftest import ensure_position
+from tests.conftest import ensure_position, seat_role
 
 
 def _tree_by_title(login):
@@ -17,11 +18,16 @@ def _tree_by_title(login):
     return walk(login("admin").get("/api/org/tree").json())
 
 
-def _template(login, *, title, event, grants=False, auto_creator=False, who="admin"):
-    r = login(who).post("/api/org/roles/templates", json={
-        "title_template": title, "event": event,
-        "grants_management": grants, "auto_assign_creator": auto_creator,
-    })
+def _level_id(login, name: str) -> int:
+    levels = login("admin").get("/api/access/levels").json()
+    return next(lvl["id"] for lvl in levels if lvl["name"] == name)
+
+
+def _template(login, *, title, event, level=None, who="admin"):
+    body = {"title_template": title, "event": event}
+    if level is not None:
+        body["access_level_id"] = _level_id(login, level)
+    r = login(who).post("/api/org/roles/templates", json=body)
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -57,7 +63,7 @@ def test_template_crud_auto_orders_and_renumbers(login, org):
     remaining = login("admin").get("/api/org/roles/templates").json()
     assert [t["sort_order"] for t in remaining] == [1, 2]  # renumbered, no gap
 
-    # only CEO/Admin may configure roles
+    # only org.edit levels may configure roles
     assert login("cto").post(
         "/api/org/roles/templates",
         json={"title_template": "x", "event": "competition_created"},
@@ -83,26 +89,34 @@ def test_first_role_position_requires_a_parent_then_remembers_it(login, org):
     assert comp_a["roles"][0]["title"] == "Cup A PM"
 
 
-def test_multi_occupant_seats_and_grants_management(login, org):
-    _template(login, title="{competition} PM", event="competition_created", grants=True, auto_creator=True)
+def test_seats_start_vacant_and_seat_level_confers_scoped_management(login, org):
+    _template(login, title="{competition} PM", event="competition_created", level="Lead")
     comp = _comp(login, root=ensure_position(login("admin")))
     pos_id = comp["roles"][0]["position_id"]
 
-    # the creator is auto-seated
-    assert [u["id"] for u in comp["roles"][0]["occupants"]] == [org["cto"].id]
-    assert login("cto").get(f"/api/competitions/{comp['id']}").json()["can_manage"] is True
+    # nothing auto-seats the creator: the seat starts vacant and the creator
+    # has no authority over what they just made
+    assert comp["roles"][0]["occupants"] == []
+    assert login("cto").get(f"/api/competitions/{comp['id']}").json()["can_manage"] is False
 
-    # add a second, non-high-staff occupant — the seat holds both at once
+    # appoint the creator + a plain staff member — the seat holds both, and
+    # the SEAT's level (Lead, which carries competitions.manage_seated) makes
+    # both of them managers, regardless of their own personal levels
+    seat_role(login("admin"), comp, [org["cto"].id, org["sw_emp"].id])
+    r = login("admin").get(f"/api/org/tree")
+    assert login("cto").get(f"/api/competitions/{comp['id']}").json()["can_manage"] is True
+    assert login("sw_emp").get(f"/api/competitions/{comp['id']}").json()["can_manage"] is True
+    # someone not seated still can't manage it
+    assert login("student").get(f"/api/competitions/{comp['id']}").json()["can_manage"] is False
+
+    # a seated manager can appoint others (entity-manager path, not org.edit)
     r = login("cto").put(
         f"/api/org/roles/positions/{pos_id}/occupants",
-        json={"user_ids": [org["cto"].id, org["sw_emp"].id]},
+        json={"user_ids": [org["cto"].id]},
     )
     assert r.status_code == 200, r.text
-    assert {u["id"] for u in r.json()["occupants"]} == {org["cto"].id, org["sw_emp"].id}
-    # grants_management applies to every occupant, not just the first
-    assert login("sw_emp").get(f"/api/competitions/{comp['id']}").json()["can_manage"] is True
-    # someone not in the list still can't manage it
-    assert login("student").get(f"/api/competitions/{comp['id']}").json()["can_manage"] is False
+    assert [u["id"] for u in r.json()["occupants"]] == [org["cto"].id]
+    assert login("sw_emp").get(f"/api/competitions/{comp['id']}").json()["can_manage"] is False
 
 
 def test_pm_seat_never_sets_manager_id_or_evicts_a_real_seat(login, org):
@@ -115,14 +129,15 @@ def test_pm_seat_never_sets_manager_id_or_evicts_a_real_seat(login, org):
     })
     assert login("cto").get("/api/auth/me").json()["manager_id"] == org["ceo"].id
 
-    _template(login, title="{competition} PM", event="competition_created", auto_creator=True)
-    _comp(login, root=ceo_seat["id"])
+    _template(login, title="{competition} PM", event="competition_created")
+    comp = _comp(login, root=ceo_seat["id"])
+    seat_role(admin, comp, [org["cto"].id])
 
     tree = _tree_by_title(login)
     assert tree["CTO Seat"]["occupants"][0]["id"] == org["cto"].id  # not evicted by becoming a PM
     assert tree["Cup PM"]["occupants"][0]["id"] == org["cto"].id
     me = login("cto").get("/api/auth/me").json()
-    assert me["manager_id"] == org["ceo"].id  # unaffected by the auto PM seat
+    assert me["manager_id"] == org["ceo"].id  # unaffected by the PM seat
 
 
 def test_manager_id_picks_earliest_occupant_of_a_multi_occupant_parent(login, org):
@@ -138,13 +153,14 @@ def test_manager_id_picks_earliest_occupant_of_a_multi_occupant_parent(login, or
 
 def test_four_level_chain_seats_correctly(login, org):
     """pm (competition) -> coach (team) -> team_lead (team) -> member (membership)."""
-    _template(login, title="{competition} PM", event="competition_created", grants=True, auto_creator=True)
+    _template(login, title="{competition} PM", event="competition_created", level="Lead")
     _template(login, title="{team} Coach", event="team_created")
-    _template(login, title="{team} Lead", event="team_created", grants=True)
+    _template(login, title="{team} Lead", event="team_created", level="Lead")
     _template(login, title="{member}", event="team_member_added")
 
     root = ensure_position(login("admin"))
     comp = _comp(login, root=root, name="Cup")
+    seat_role(login("admin"), comp, [org["cto"].id])
     cat = login("cto").post(f"/api/competitions/{comp['id']}/categories", json={"name": "Senior"}).json()
     team = _team(login, cat["id"], name="Alpha")
     login("cto").post(f"/api/competitions/teams/{team['id']}/members", json={"user_id": org["student"].id})
@@ -159,10 +175,11 @@ def test_four_level_chain_seats_correctly(login, org):
 
 
 def test_team_lead_role_grants_member_management(login, org):
-    _template(login, title="{competition} PM", event="competition_created", grants=True, auto_creator=True)
-    _template(login, title="{team} Lead", event="team_created", grants=True)
+    _template(login, title="{competition} PM", event="competition_created", level="Lead")
+    _template(login, title="{team} Lead", event="team_created", level="Lead")
     root = ensure_position(login("admin"))
     comp = _comp(login, root=root)
+    seat_role(login("admin"), comp, [org["cto"].id])
     cat = login("cto").post(f"/api/competitions/{comp['id']}/categories", json={"name": "Senior"}).json()
     team = _team(login, cat["id"])
     lead_pos = team["roles"][0]["position_id"]
@@ -174,11 +191,12 @@ def test_team_lead_role_grants_member_management(login, org):
 
 
 def test_retitle_cascades_through_the_whole_chain(login, org):
-    _template(login, title="{competition} PM", event="competition_created", grants=True, auto_creator=True)
+    _template(login, title="{competition} PM", event="competition_created", level="Lead")
     _template(login, title="{team} Lead", event="team_created")
     _template(login, title="{member}", event="team_member_added")
     root = ensure_position(login("admin"))
     comp = _comp(login, root=root, name="Old Comp")
+    seat_role(login("admin"), comp, [org["cto"].id])
     cat = login("cto").post(f"/api/competitions/{comp['id']}/categories", json={"name": "Senior"}).json()
     team = _team(login, cat["id"], name="Old Team")
     login("cto").post(f"/api/competitions/teams/{team['id']}/members", json={"user_id": org["student"].id})
@@ -192,11 +210,12 @@ def test_retitle_cascades_through_the_whole_chain(login, org):
 
 
 def test_archive_removes_the_whole_subtree_and_reactivate_rebuilds_it(login, org):
-    _template(login, title="{competition} PM", event="competition_created", grants=True, auto_creator=True)
+    _template(login, title="{competition} PM", event="competition_created", level="Lead")
     _template(login, title="{team} Lead", event="team_created")
     _template(login, title="{member}", event="team_member_added")
     root = ensure_position(login("admin"))
     comp = _comp(login, root=root, name="Doomed")
+    seat_role(login("admin"), comp, [org["cto"].id])
     cat = login("cto").post(f"/api/competitions/{comp['id']}/categories", json={"name": "Senior"}).json()
     team = _team(login, cat["id"], name="Squad")
     login("cto").post(f"/api/competitions/teams/{team['id']}/members", json={"user_id": org["student"].id})
@@ -218,7 +237,7 @@ def test_archive_removes_the_whole_subtree_and_reactivate_rebuilds_it(login, org
     assert tree[stud]["parent_id"] == tree["Squad Lead"]["id"]
     assert [u["id"] for u in tree[stud]["occupants"]] == [org["student"].id]
     # cto's PM seat was not restored, so their authority is gone until
-    # someone re-appoints them — only admin/CEO can act on it meanwhile
+    # someone re-appoints them — only manage_any levels can act meanwhile
     assert login("cto").delete(f"/api/competitions/{comp['id']}").status_code == 403
 
     assert login("admin").delete(f"/api/competitions/{comp['id']}").status_code == 204
@@ -230,11 +249,12 @@ def test_team_soft_and_permanent_delete_both_remove_positions(login, org):
     """Soft delete keeps the team row queryable as history, but its role
     positions leave the org chart either way — the chart only shows active
     work."""
-    _template(login, title="{competition} PM", event="competition_created", grants=True, auto_creator=True)
+    _template(login, title="{competition} PM", event="competition_created", level="Lead")
     _template(login, title="{team} Lead", event="team_created")
     _template(login, title="{member}", event="team_member_added")
     root = ensure_position(login("admin"))
     comp = _comp(login, root=root)
+    seat_role(login("admin"), comp, [org["cto"].id])
     cat = login("cto").post(f"/api/competitions/{comp['id']}/categories", json={"name": "Senior"}).json()
 
     stud, comp_member = org["student"].full_name, org["comp_member"].full_name
@@ -269,6 +289,27 @@ def test_reordering_a_template_live_reparents_existing_positions(login, org):
     tree = _tree_by_title(login)
     assert tree["Reorder Lead"]["parent_id"] == root
     assert tree["Reorder Coach"]["parent_id"] == tree["Reorder Lead"]["id"]
+
+
+def test_template_level_edit_propagates_to_existing_positions(login, org):
+    """Changing a role's access level updates the seats it already produced —
+    occupants gain/lose the scoped authority instantly."""
+    tpl = _template(login, title="{competition} PM", event="competition_created")
+    comp = _comp(login, root=ensure_position(login("admin")))
+    seat_role(login("admin"), comp, [org["cto"].id])
+    # seat has no level: occupancy confers nothing
+    assert login("cto").get(f"/api/competitions/{comp['id']}").json()["can_manage"] is False
+
+    r = login("admin").patch(
+        f"/api/org/roles/templates/{tpl['id']}",
+        json={"access_level_id": _level_id(login, "Lead")},
+    )
+    assert r.status_code == 200, r.text
+    assert login("cto").get(f"/api/competitions/{comp['id']}").json()["can_manage"] is True
+
+    r = login("admin").patch(f"/api/org/roles/templates/{tpl['id']}", json={"clear_access_level": True})
+    assert r.status_code == 200, r.text
+    assert login("cto").get(f"/api/competitions/{comp['id']}").json()["can_manage"] is False
 
 
 def test_parent_template_id_previews_the_chain_before_anything_real_exists(login, org):
@@ -320,11 +361,11 @@ def test_template_added_after_entity_exists_blocks_dependents_instead_of_orphani
     be skipped entirely rather than falling back to root (which would
     silently orphan it ahead of a role that's supposed to come first)."""
     old_comp = _comp(login, who="cto", name="Preexisting")  # created before any templates exist
-    _template(login, title="{competition} PM", event="competition_created", grants=True, auto_creator=True)
+    _template(login, title="{competition} PM", event="competition_created", level="Lead")
     _template(login, title="{team} Coach", event="team_created")
 
-    # cto has no role position on this old competition (PM never applied to it) — only
-    # admin/CEO can manage it until someone configures things, same bootstrap gap as always
+    # cto has no role seat on this old competition (PM never applied to it) —
+    # only manage_any levels can manage it until someone configures things
     old_cat = login("admin").post(f"/api/competitions/{old_comp['id']}/categories", json={"name": "Senior"}).json()
     old_team = _team(login, old_cat["id"], who="admin", name="Alpha")  # no root passed — must never be needed
 
@@ -337,6 +378,7 @@ def test_template_added_after_entity_exists_blocks_dependents_instead_of_orphani
     # a *new* competition, created after both templates exist, chains normally
     root = ensure_position(login("admin"))
     new_comp = _comp(login, root=root, who="cto", name="Fresh")
+    seat_role(login("admin"), new_comp, [org["cto"].id])
     new_cat = login("cto").post(f"/api/competitions/{new_comp['id']}/categories", json={"name": "Senior"}).json()
     _team(login, new_cat["id"], name="Beta")
 
@@ -346,11 +388,12 @@ def test_template_added_after_entity_exists_blocks_dependents_instead_of_orphani
 
 
 def test_deleting_a_template_splices_out_its_positions(login, org):
-    pm = _template(login, title="{competition} PM", event="competition_created", grants=True, auto_creator=True)
+    pm = _template(login, title="{competition} PM", event="competition_created", level="Lead")
     coach = _template(login, title="{team} Coach", event="team_created")
     lead = _template(login, title="{team} Lead", event="team_created")
     root = ensure_position(login("admin"))
     comp = _comp(login, root=root, name="Splice")
+    seat_role(login("admin"), comp, [org["cto"].id])
     cat = login("cto").post(f"/api/competitions/{comp['id']}/categories", json={"name": "Senior"}).json()
     _team(login, cat["id"], name="Team")
 

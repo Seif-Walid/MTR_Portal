@@ -6,8 +6,9 @@ from sqlalchemy import select
 from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.competitions.role_sync import resync_all as resync_all_role_positions
+from app.domains.access import service as access
+from app.domains.access.models import AccessLevel
 from app.domains.competitions.service import can_manage_entity
-from app.domains.hierarchy.service import is_org_manager
 from app.domains.positions import role_engine
 from app.domains.positions.models import OrgAuditLog, Position
 from app.domains.positions.schemas import (
@@ -33,11 +34,13 @@ from app.domains.users.schemas import UserBrief
 router = APIRouter(prefix="/org", tags=["organization"])
 
 
-def _require_org_manager(user: User) -> None:
-    if not is_org_manager(user):
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, "Only the CEO or an admin can edit the org tree"
-        )
+def _require_org_manager(db: DB, user: User) -> None:
+    access.require_privilege(db, user, "org.edit")
+
+
+def _resolve_level(db: DB, level_id: int | None) -> None:
+    if level_id is not None and db.get(AccessLevel, level_id) is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown access level")
 
 
 def _resolve_occupants(db: DB, user_ids: list[int]) -> list[int]:
@@ -55,7 +58,8 @@ def _set_real_occupants(db: DB, position: Position, user_ids: list[int]) -> None
 
 @router.get("/tree")
 def org_tree(db: DB, user: CurrentUser) -> list[PositionNode]:
-    """The whole position tree. Vacant seats included. Any signed-in user may view."""
+    """The whole position tree. Vacant seats included."""
+    access.require_privilege(db, user, "org.view")
     positions = list(db.scalars(select(Position)))
     children: dict[int | None, list[Position]] = defaultdict(list)
     for p in positions:
@@ -73,7 +77,7 @@ def org_tree(db: DB, user: CurrentUser) -> list[PositionNode]:
 
 @router.post("/positions", status_code=status.HTTP_201_CREATED)
 def create_position(payload: PositionCreate, db: DB, user: CurrentUser) -> PositionNode:
-    _require_org_manager(user)
+    _require_org_manager(db, user)
     if payload.parent_id is None:
         if db.scalar(select(Position).where(Position.parent_id.is_(None))) is not None:
             raise HTTPException(
@@ -84,10 +88,12 @@ def create_position(payload: PositionCreate, db: DB, user: CurrentUser) -> Posit
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Parent position not found")
 
     occupant_ids = _resolve_occupants(db, payload.occupant_ids)
+    _resolve_level(db, payload.access_level_id)
     position = Position(
         title=payload.title,
         parent_id=payload.parent_id,
         is_technical=payload.is_technical,
+        access_level_id=payload.access_level_id,
     )
     db.add(position)
     db.flush()
@@ -102,7 +108,7 @@ def create_position(payload: PositionCreate, db: DB, user: CurrentUser) -> Posit
 
 @router.patch("/positions/{position_id}")
 def edit_position(position_id: int, payload: PositionEdit, db: DB, user: CurrentUser) -> PositionNode:
-    _require_org_manager(user)
+    _require_org_manager(db, user)
     position = db.get(Position, position_id)
     if position is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Position not found")
@@ -119,6 +125,10 @@ def edit_position(position_id: int, payload: PositionEdit, db: DB, user: Current
     if payload.occupant_ids is not None:
         occupant_ids = _resolve_occupants(db, payload.occupant_ids)
         _set_real_occupants(db, position, occupant_ids)
+    if payload.clear_access_level or payload.access_level_id is not None:
+        new_level = None if payload.clear_access_level else payload.access_level_id
+        _resolve_level(db, new_level)
+        position.access_level_id = new_level
 
     db.flush()
     resync_managers(db)
@@ -132,7 +142,7 @@ def edit_position(position_id: int, payload: PositionEdit, db: DB, user: Current
 
 @router.delete("/positions/{position_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_position(position_id: int, db: DB, user: CurrentUser) -> None:
-    _require_org_manager(user)
+    _require_org_manager(db, user)
     position = db.get(Position, position_id)
     if position is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Position not found")
@@ -155,7 +165,7 @@ def delete_position(position_id: int, db: DB, user: CurrentUser) -> None:
 
 @router.get("/audit")
 def org_audit(db: DB, user: CurrentUser, limit: int = 50) -> list[dict]:
-    _require_org_manager(user)
+    _require_org_manager(db, user)
     rows = db.scalars(
         select(OrgAuditLog).order_by(OrgAuditLog.created_at.desc()).limit(min(limit, 200))
     )
@@ -188,10 +198,11 @@ def list_role_templates(db: DB, user: CurrentUser) -> list[RoleTemplateOut]:
 
 @router.post("/roles/templates", status_code=status.HTTP_201_CREATED)
 def create_role_template(payload: RoleTemplateCreate, db: DB, user: CurrentUser) -> RoleTemplateOut:
-    _require_org_manager(user)
+    _require_org_manager(db, user)
+    _resolve_level(db, payload.access_level_id)
     template = role_engine.create_template(
         db, title_template=payload.title_template, event=payload.event,
-        grants_management=payload.grants_management, auto_assign_creator=payload.auto_assign_creator,
+        access_level_id=payload.access_level_id,
         insert_after_id=payload.insert_after_id,
     )
     db.commit()
@@ -203,10 +214,12 @@ def create_role_template(payload: RoleTemplateCreate, db: DB, user: CurrentUser)
 def edit_role_template(
     template_id: int, payload: RoleTemplateEdit, db: DB, user: CurrentUser
 ) -> RoleTemplateOut:
-    _require_org_manager(user)
+    _require_org_manager(db, user)
+    if not payload.clear_access_level:
+        _resolve_level(db, payload.access_level_id)
     template = role_engine.update_template(
         db, template_id, title_template=payload.title_template,
-        grants_management=payload.grants_management, auto_assign_creator=payload.auto_assign_creator,
+        access_level_id=payload.access_level_id, clear_access_level=payload.clear_access_level,
         new_sort_order=payload.sort_order,
     )
     if payload.sort_order is not None:
@@ -219,7 +232,7 @@ def edit_role_template(
 
 @router.delete("/roles/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_role_template(template_id: int, db: DB, user: CurrentUser) -> None:
-    _require_org_manager(user)
+    _require_org_manager(db, user)
     role_engine.delete_template(db, template_id)
     resync_all_role_positions(db)
     resync_managers(db)
@@ -246,7 +259,7 @@ def set_role_position_occupants(
     position = db.get(Position, position_id)
     if position is None or position.role_template_id is None or position.entity_type is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Role position not found")
-    if not is_org_manager(user) and not can_manage_entity(
+    if not access.has_privilege(db, user, "org.edit") and not can_manage_entity(
         db, user, position.entity_type, position.entity_id
     ):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You don't manage this competition/team")

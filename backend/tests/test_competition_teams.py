@@ -1,15 +1,21 @@
 """Competition nesting (category -> team -> members) and team-role scoping."""
 
-from tests.conftest import ensure_position, setup_role_templates
+from tests.conftest import ensure_position, seat_role, setup_role_templates
 
 
 def _comp(login, who="cto", name="C"):
+    """Creates a competition and seats the creator as its managing PM —
+    nothing auto-seats anymore, the appointment is explicit."""
     admin = login("admin")
     setup_role_templates(admin, pm=True)
     body = {"name": name}
     if not admin.get("/api/org/roles/root").json()["root_position_id"]:
         body["role_root_position_id"] = ensure_position(admin)
-    return login(who).post("/api/competitions", json=body)
+    r = login(who).post("/api/competitions", json=body)
+    if r.status_code == 201:
+        me = login(who).get("/api/auth/me").json()
+        seat_role(admin, r.json(), [me["id"]])
+    return r
 
 
 def _category(login, cid, who="cto", name="Senior"):

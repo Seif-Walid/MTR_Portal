@@ -3,15 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.schemas import Email
-from app.domains.users.models import Department, RoleSlug
-
-
-class RoleOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    slug: str
-    name: str
-    is_staff: bool
+from app.domains.users.models import Department
 
 
 class UserBrief(BaseModel):
@@ -21,14 +13,20 @@ class UserBrief(BaseModel):
     email: str
     full_name: str
     department: str | None
-    roles: list[RoleOut]
+
+
+class LevelBrief(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    rank: int
+    name: str
 
 
 class MeOut(UserBrief):
     manager_id: int | None
-    is_admin: bool
-    is_staff: bool
-    is_high_staff: bool
+    level: LevelBrief | None  # effective level (strongest of seats + override)
+    privileges: list[str]
     has_team: bool
     google_linked: bool
 
@@ -38,23 +36,28 @@ class UserAdminOut(UserBrief):
     is_active: bool
     google_linked: bool
     created_at: datetime
+    access_level_id: int | None = None  # the personal override (may be None)
+    effective_level: str | None = None  # computed: strongest of seats + override
+    effective_rank: int | None = None
+    seats: list[str] = []  # titles of org positions occupied — the org's reflection
 
 
 class UserCreate(BaseModel):
     email: Email
     full_name: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=8, max_length=128)
-    roles: list[RoleSlug] = Field(min_length=1)
     department: Department | None = None
     manager_id: int | None = None
+    access_level_id: int | None = None
 
 
 class UserUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=1, max_length=255)
     password: str | None = Field(default=None, min_length=8, max_length=128)
-    roles: list[RoleSlug] | None = Field(default=None, min_length=1)
     department: Department | None = None
     clear_department: bool = False
     manager_id: int | None = None
     clear_manager: bool = False
     is_active: bool | None = None
+    access_level_id: int | None = None
+    clear_access_level: bool = False

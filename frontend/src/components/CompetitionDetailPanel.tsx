@@ -152,7 +152,7 @@ export default function CompetitionDetailPanel({ competitionId, onChanged }: {
   const [roleRootParent, setRoleRootParent] = useState<Record<number, number | undefined>>({});
   const [roleRoot, setRoleRoot] = useState<RoleRoot | null>(null);
 
-  const isAdmin = !!me?.is_admin;
+  const isAdmin = me?.level?.rank === 1;
 
   const load = useCallback(() => {
     api.get<CompetitionDetail>(`/api/competitions/${competitionId}`).then(setDetail).catch(() => {});

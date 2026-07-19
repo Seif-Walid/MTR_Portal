@@ -15,37 +15,50 @@ browser, defaults to the OS preference). The logo lives at
 
 ## How permissions work
 
-Everything derives from one data-driven tree (`users.manager_id`):
+Power comes from a **Discord-style access ladder** — data, not code. The *privileges* are
+a fixed vocabulary the app can actually gate (`inventory.edit`, `competitions.create`,
+`org.edit`, `users.manage`, …); the *levels* are admin-editable tiers on the site, each a
+bundle of privileges. A person's **effective level** is the strongest of the org seats they
+occupy plus an optional personal override; with neither, they get the ladder's bottom rung.
+There is **no hardcoded role or job title anywhere** — a position titled "CEO" grants
+nothing unless you gave that seat a level. Ships with a starting ladder
+(Admin/Board/Lead/Member/Guest) you can rename, reorder, retoggle, add to, or delete.
 
-- **Tasks flow down** — you can task anyone in your recursive subtree, and only them.
-- **Requests flow up/across** — anyone can request work from staff they *can't* task.
-  The recipient accepts (spawns a task they own, optionally delegated into their own
-  subtree) or declines with a reason. The requester tracks the resulting task. A request
-  can optionally attach an **inventory item + quantity** (searchable across the whole
-  catalogue, not just what you can normally see — the request is exactly how you ask for
-  something outside your reach); it's informational context for the recipient, not a
-  checkout — issuing that item still goes through Inventory → Requests.
-- **Visibility** — own tasks + everything in your subtree, computed by a recursive CTE.
-- **Multi-role users** hold the union of their roles (one tree node, e.g. CTO + Software Lead).
-- **Admin** is a technical account outside the tree: user management + full access.
+- **Seats carry the power.** Every org position (real seat or automatic role) has an
+  optional access level. Occupy the seat, get its level. New seats confer nothing by
+  default, so building org structure never leaks authority.
+- **Per-user override.** User Management can pin a level directly on a person (bootstrap
+  admin, an advisor with no seat) — independent of any position.
+- **Guests see nothing.** A fresh sign-up (or Google auto-provision) lands at the bottom
+  rung with no privileges until someone grants more.
 
-Moving a person in the tree instantly changes who can see and task them. No code or
-permission changes. All rules are enforced server-side in the API; the UI only hides what
-the API already forbids.
+Two structural rules stay on the people tree (`users.manager_id`), separate from the ladder:
 
-The **Organization** page (`/organization`) is a chart of **positions** (jobs): a title
-with an optional occupant and a parent — a vacant seat still exists. **CEO and Admin** add
-positions, assign occupants, mark a position technical, and drag to re-parent (no cycles,
-single root, leaf-only delete). Assigning or moving a position **derives** each occupant's
-`manager_id`, so the permission engine (which runs on the people tree) stays in sync — one
-editable structure. Every structural change is written to an `OrgAuditLog`. People are still
-given roles/accounts in the admin's **User Management** table.
+- **Tasks flow down** — you can task anyone in your recursive subtree (needs `tasks.assign`).
+- **Requests flow up/across** — request work from anyone who uses tasks but whom you *can't*
+  task directly. The recipient accepts (spawns a task) or declines. A request can attach an
+  **inventory item + quantity** as context; issuing still goes through Inventory → Requests.
+
+All rules are enforced server-side; the UI only hides what the API already forbids. The
+**access ladder itself** (rename tiers, toggle any privilege, reorder, add/remove) lives in
+the **People &amp; Access** page for anyone with `users.manage`; the top level always holds
+every privilege and can't be edited away, and at least one top-level override must always
+exist so no one can lock everyone out.
+
+The **Organization** page (`/organization`) is a chart of **positions** (jobs): a title, an
+optional access level, zero or more occupants, and a parent — a vacant seat still exists.
+Anyone with `org.edit` adds positions, assigns occupants, sets a seat's access level, marks
+a position technical, and drags to re-parent (no cycles, single root, leaf-only delete).
+Assigning or moving a position **derives** each occupant's `manager_id`, so the task/
+visibility tree stays in sync — one editable structure. Every structural change is written
+to an `OrgAuditLog`. Accounts, their personal override, and the ladder itself are managed in
+the **People &amp; Access** table.
 
 ## Audit log & soft delete
 
-Beyond the org-structure log above, a general **Audit Log** (admin-only, `/admin/audit`)
-records every **permission change** (role, manager, active/inactive), **inventory quantity
-change**, and **competition-role change** (PM/lead/member) — actor, before/after, when.
+Beyond the org-structure log above, a general **Audit Log** (`audit.view`, `/admin/audit`)
+records every **access change** (level override, manager, active/inactive), **inventory
+quantity change**, and **role-occupant change** — actor, before/after, when.
 
 **Delete defaults to soft delete**: inventory items and competition teams carry a
 `deleted_at` — removing one hides it everywhere (it's invisible via the normal API) but
@@ -215,12 +228,12 @@ py -3.13 -m venv .venv
 .venv\Scripts\pip install -r requirements-dev.txt
 copy .env.example .env
 .venv\Scripts\alembic upgrade head        # apply migrations
-.venv\Scripts\python -m app.seed          # roles + one admin account (real-ready)
+.venv\Scripts\python -m app.seed          # access ladder + one admin account (real-ready)
 .venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
 ```
 
-`python -m app.seed` seeds a **clean, real-ready database**: the roles plus a single
-technical-admin login (email/password overridable via `SEED_ADMIN_EMAIL` /
+`python -m app.seed` seeds a **clean, real-ready database**: the starting access ladder
+plus a single top-level admin login (email/password overridable via `SEED_ADMIN_EMAIL` /
 `SEED_ADMIN_PASSWORD`, default `admin@org.local` / `portal123` — change these for a real
 deployment). You then add real users, teams, and inventory through the app — nothing is
 hardcoded. To load the sample org for exploring/testing instead, run
@@ -243,15 +256,16 @@ technical admin, from which you create everyone else in User Management.
 
 Running `python -m app.seed --demo` adds a sample org for exploration:
 
-| Email | Who |
+| Email | Level (via personal override) |
 |---|---|
-| `ceo@org.local` | CEO — sees everything |
-| `cto@org.local` | **Multi-role**: CTO + Software Lead |
-| `mech.lead@org.local` | Mechanical Lead |
-| `sw.emp@org.local` | Software employee (leaf) |
-| `pm@org.local` | Project Manager |
-| `teamlead@org.local` | Team Lead (under PM) |
-| `student@org.local` | Student (under Team Lead) |
+| `ceo@org.local` | Board |
+| `cto@org.local` | Lead |
+| `mech.lead@org.local` | Lead |
+| `sw.emp@org.local` | Member |
+| `pm@org.local` | Lead |
+| `teamlead@org.local` | Lead |
+| `student@org.local` | Member |
+| `comp@org.local` | *(none — a live "guest" example)* |
 
 Also seeded by `--demo`: `cfo@`, `media@`, `elec.lead@`, `mech.emp@`, `elec.emp@`,
 `media.emp@`, `fin.emp@`, `comp@` — all `@org.local` — plus sample tasks, a request, and
@@ -264,14 +278,14 @@ There are no organization-issued emails — people join with personal addresses:
 - **Register** on the login page (name, email, password) — open self-signup, or
 - an **admin creates the account** in User Management.
 
-Either way, new accounts start with **no roles and no hierarchy position**: they can
-sign in and send requests, but can't be tasked or see anyone else's work until the
-admin assigns roles, a department, and a manager. Deactivated accounts are blocked on
-every sign-in path.
+Either way, new accounts start as a **guest** (the ladder's bottom rung, no privileges)
+with no hierarchy position: they can sign in but see nothing until someone gives them an
+access level (or a seat that carries one) and a manager. Deactivated accounts are blocked
+on every sign-in path.
 
 **Google sign-in is a second open-signup path**, same as Register: a verified Google
-email with no existing portal account gets a fresh account on the spot — no roles, no
-hierarchy position, same starting state as registering with a password. `GOOGLE_ALLOWED_DOMAINS`
+email with no existing portal account gets a fresh guest account on the spot — same
+starting state as registering with a password. `GOOGLE_ALLOWED_DOMAINS`
 is the only gate on who that applies to (see below). An existing **password**
 account's first Google sign-in doesn't log you in, though: sign in with the password
 once, then choose **Link Google account** from the account menu — only after that
@@ -304,14 +318,15 @@ cd backend
 .venv\Scripts\python -m pytest tests -q
 ```
 
-155 tests cover the permission layer: assignment allowed/denied (down, up, across,
+156 tests cover the permission layer: the access ladder (effective level from seats +
+override, privilege gating, last-top-override protection), task assignment (down, up, across,
 self), subtree visibility and drill-down, request accept/decline/delegate, status
-workflow rights (assignee vs. reviewer), multi-role union, hierarchy moves and
+workflow rights (assignee vs. reviewer), hierarchy moves and
 cycle rejection; inventory scoping, allocation capacity math, over-allocation/shrink
 guards, the who-holds-what breakdown, and the stock-movement ledger with checkout
 requests (submit→approve/reject→issue→return, overdue); competition nesting with
-role-position-derived authority (occupying a `grants_management` role manages that
-competition/team — a team role touches only its own team); Google Sheet import
+seat-level authority (occupying a role seat whose level carries `competitions.manage_seated`
+manages that competition/team — a team role touches only its own team); Google Sheet import
 (mocked) with upsert; the **Positions** org tree (single root, no cycles,
 multi-occupant seats, occupant→manager derivation with vacant-seat skip and
 earliest-occupant-wins for shared seats, audit log); admin/CEO-wide user
@@ -330,9 +345,9 @@ participant-not-admin-only access, multi-assignee batch creation (atomic on a ba
 assignee, batch view limited to the assigner); and the generic role-chain engine —
 template CRUD/reordering/deletion (with live reparenting and splice-on-delete),
 the single ask-once-ever root, a full competition→team→member chain seating
-correctly with multi-occupant seats, `grants_management` actually gating
-authority, `auto_assign_creator` seating the creator, retitle/archive/delete
-cascading through every level, and never disturbing a real seat or manager_id.
+correctly with multi-occupant seats, a seat's access level actually gating
+scoped management, seats starting vacant, retitle/archive/delete cascading
+through every level, and never disturbing a real seat or manager_id.
 
 Every test runs with Google OAuth forced to "unconfigured" regardless of what's in
 your local `backend/.env` (an autouse fixture in `conftest.py`) — the suite never
@@ -400,13 +415,18 @@ frontend/
   (`occupant_ids: number[]` — a position can have zero, one, or many occupants)
   · `GET /org/audit`
 - `GET/POST /org/roles/templates` · `PATCH/DELETE /org/roles/templates/{id}` — the
-  admin-configurable role chain (title template, trigger event, order,
-  `grants_management`, `auto_assign_creator`) that auto-seats org-chart positions
-  when a competition/team/member is created; zero hardcoded role names anywhere
+  admin-configurable role chain (title template, trigger event, order, `access_level_id`)
+  that auto-seats org-chart positions when a competition/team/member is created; zero
+  hardcoded role names anywhere
   · `GET /org/roles/root` — whether the single ask-once-ever org-chart root is set
   · `PUT /org/roles/positions/{id}/occupants` — assign who fills a role-chain seat,
-  reachable by CEO/Admin or by whoever already manages the linked competition/team
-- `GET /audit` — admin-only general audit log (permissions / inventory quantity / competition roles)
+  reachable by `org.edit` or by whoever already manages the linked competition/team
+- `GET /access/privileges` — the fixed privilege vocabulary (keys + labels)
+  · `GET /access/levels` (any signed-in user) · `POST /access/levels` ·
+  `PATCH/DELETE /access/levels/{id}` (`users.manage`) — CRUD the access ladder
+- `GET/POST /users` · `PATCH /users/{id}` (`users.manage`) — accounts, personal level
+  override, manager; the row also reports the person's seats + computed effective level
+- `GET /audit` — general audit log (`audit.view`): access changes / inventory quantity / role occupants
 - `GET /sync/status` (any user) · `GET /sync/exports` · `POST /sync/export` · `GET /sync/rebuild/history`
   (org manager: admin or CEO) · `POST /sync/rebuild/dry-run` (org manager, read-only)
   · `POST /sync/rebuild/commit` (admin/CEO only, requires exact `confirm_phrase`) — see

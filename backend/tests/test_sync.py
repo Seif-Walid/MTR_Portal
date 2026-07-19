@@ -98,7 +98,7 @@ def test_export_writes_every_tab_and_updates_tracking(login, org, fake_sheets):
 # --- dry run ---------------------------------------------------------------
 def test_dry_run_never_touches_db(login, org, fake_sheets, db_session):
     data, _ = fake_sheets
-    data["people"] = [_row(id=999, email="new@t.local", full_name="New Person", roles="", is_active="true")]
+    data["people"] = [_row(id=999, email="new@t.local", full_name="New Person", access_level="", is_active="true")]
     before = db_session.scalar(select(func.count()).select_from(User))
 
     r = login("admin").post("/api/sync/rebuild/dry-run", json={"spreadsheet_id": SPREADSHEET})
@@ -114,7 +114,7 @@ def test_dry_run_never_touches_db(login, org, fake_sheets, db_session):
 
 def test_dry_run_flags_unresolved_reference(login, org, fake_sheets):
     data, _ = fake_sheets
-    data["people"] = [_row(id=1, email="a@t.local", full_name="A", roles="", is_active="true")]
+    data["people"] = [_row(id=1, email="a@t.local", full_name="A", access_level="", is_active="true")]
     data["positions"] = [_row(id=1, title="CEO", parent_id="", occupant_ids="999", is_technical="false")]
 
     r = login("admin").post("/api/sync/rebuild/dry-run", json={"spreadsheet_id": SPREADSHEET})
@@ -123,13 +123,13 @@ def test_dry_run_flags_unresolved_reference(login, org, fake_sheets):
     assert any("occupant_ids" in e and "999" in e for e in report["errors"])
 
 
-def test_dry_run_flags_unknown_role(login, org, fake_sheets):
+def test_dry_run_flags_unknown_access_level(login, org, fake_sheets):
     data, _ = fake_sheets
-    data["people"] = [_row(id=1, email="a@t.local", full_name="A", roles="wizard", is_active="true")]
+    data["people"] = [_row(id=1, email="a@t.local", full_name="A", access_level="Wizard", is_active="true")]
     r = login("admin").post("/api/sync/rebuild/dry-run", json={"spreadsheet_id": SPREADSHEET})
     report = r.json()
     assert report["ok"] is False
-    assert any("unknown role" in e.lower() for e in report["errors"])
+    assert any("unknown access level" in e.lower() for e in report["errors"])
 
 
 # --- commit (the destructive path) -----------------------------------------
@@ -139,7 +139,7 @@ def _minimal_valid_sheet(data: dict) -> None:
     + item + movement. Ids are deliberately disjoint from the org fixture's
     ids to prove the old data was actually replaced."""
     data["people"] = [_row(id=501, email="rebuilt@t.local", full_name="Rebuilt Person",
-                           department="", roles="ceo", manager_id="", is_active="true")]
+                           department="", access_level="Exec", manager_id="", is_active="true")]
     data["positions"] = [_row(id=601, title="CEO", parent_id="", occupant_ids="501", is_technical="false")]
     data["competitions"] = [_row(id=701, name="Rebuilt Cup", description="", start_date="", end_date="", status="active")]
     data["competition_categories"] = [_row(id=801, competition_id="701", name="Senior")]
@@ -203,7 +203,7 @@ def test_commit_replaces_the_database_and_snapshots_first(login, org, fake_sheet
 
 def test_failed_dry_run_blocks_commit(login, org, fake_sheets, db_session):
     data, written = fake_sheets
-    data["people"] = [_row(id=1, email="a@t.local", full_name="A", roles="not_a_role", is_active="true")]
+    data["people"] = [_row(id=1, email="a@t.local", full_name="A", access_level="not_a_level", is_active="true")]
 
     before = db_session.scalar(select(func.count()).select_from(User))
     r = login("admin").post(

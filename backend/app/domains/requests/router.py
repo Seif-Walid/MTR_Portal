@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import or_, select
 
+from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.hierarchy.service import can_assign_task, can_send_request
 from app.domains.inventory.models import InventoryItem
@@ -33,7 +34,7 @@ def _to_out(db: DB, req: WorkRequest) -> RequestOut:
 def _get_visible(db: DB, user: User, request_id: int) -> WorkRequest:
     req = db.get(WorkRequest, request_id)
     if req is None or (
-        user.id not in (req.requester_id, req.recipient_id) and not user.is_admin
+        user.id not in (req.requester_id, req.recipient_id) and not access.is_top(db, user)
     ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
     return req

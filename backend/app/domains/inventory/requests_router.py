@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
+from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.inventory import stock
 from app.domains.inventory.models import (
@@ -18,7 +19,7 @@ from app.domains.inventory.schemas import (
     RequestIssue,
     RequestReturn,
 )
-from app.domains.inventory.service import can_manage_inventory, get_item_or_404, require_manage
+from app.domains.inventory.service import get_item_or_404
 from app.domains.notifications.models import NotificationType
 from app.domains.notifications.service import notify
 from app.domains.users.models import User
@@ -30,8 +31,8 @@ def _get_request_or_404(db: DB, user, request_id: int) -> InventoryRequest:
     req = db.get(InventoryRequest, request_id)
     if req is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
-    # visible to the requester, or to anyone who manages the item
-    if req.requester_id != user.id and not can_manage_inventory(user):
+    # visible to the requester, or to anyone who approves stock movement
+    if req.requester_id != user.id and not access.has_privilege(db, user, "inventory.approve"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
     return req
 
@@ -44,9 +45,9 @@ def list_requests(
     a manager can act on (staff only). view=all: staff see every request."""
     query = select(InventoryRequest)
     if view == "to_review":
-        require_manage(user)
+        access.require_privilege(db, user, "inventory.approve")
         query = query.where(InventoryRequest.status == InventoryRequestStatus.SUBMITTED)
-    elif view == "all" and can_manage_inventory(user):
+    elif view == "all" and access.has_privilege(db, user, "inventory.approve"):
         pass  # no filter — staff see everything
     else:
         query = query.where(InventoryRequest.requester_id == user.id)
@@ -58,6 +59,7 @@ def list_requests(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_request(payload: InventoryRequestCreate, db: DB, user: CurrentUser) -> InventoryRequestOut:
+    access.require_privilege(db, user, "inventory.request")
     item = get_item_or_404(db, user, payload.item_id)  # must be visible to the requester
     req = InventoryRequest(
         item_id=item.id,
@@ -81,7 +83,7 @@ def create_request(payload: InventoryRequestCreate, db: DB, user: CurrentUser) -
 
 @router.post("/{request_id}/approve")
 def approve_request(request_id: int, db: DB, user: CurrentUser) -> InventoryRequestOut:
-    require_manage(user)
+    access.require_privilege(db, user, "inventory.approve")
     req = _get_request_or_404(db, user, request_id)
     if req.status != InventoryRequestStatus.SUBMITTED:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only a submitted request can be approved")
@@ -96,7 +98,7 @@ def approve_request(request_id: int, db: DB, user: CurrentUser) -> InventoryRequ
 
 @router.post("/{request_id}/reject")
 def reject_request(request_id: int, payload: RequestDecision, db: DB, user: CurrentUser) -> InventoryRequestOut:
-    require_manage(user)
+    access.require_privilege(db, user, "inventory.approve")
     req = _get_request_or_404(db, user, request_id)
     if req.status != InventoryRequestStatus.SUBMITTED:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only a submitted request can be rejected")
@@ -115,7 +117,7 @@ def reject_request(request_id: int, payload: RequestDecision, db: DB, user: Curr
 def issue_request(request_id: int, payload: RequestIssue, db: DB, user: CurrentUser) -> InventoryRequestOut:
     """Issuing is the ONLY way an approved request creates stock movement —
     moves `quantity` from the chosen location to the requester."""
-    require_manage(user)
+    access.require_privilege(db, user, "inventory.approve")
     req = _get_request_or_404(db, user, request_id)
     if req.status != InventoryRequestStatus.APPROVED:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only an approved request can be issued")
@@ -141,7 +143,7 @@ def issue_request(request_id: int, payload: RequestIssue, db: DB, user: CurrentU
 def return_request(request_id: int, payload: RequestReturn, db: DB, user: CurrentUser) -> InventoryRequestOut:
     """The requester or an inventory manager may check the units back in."""
     req = _get_request_or_404(db, user, request_id)
-    if req.requester_id != user.id and not can_manage_inventory(user):
+    if req.requester_id != user.id and not access.has_privilege(db, user, "inventory.approve"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the requester or an inventory manager can return this")
     if req.status != InventoryRequestStatus.ISSUED:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only an issued request can be returned")

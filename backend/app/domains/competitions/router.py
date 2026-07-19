@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
 
+from app.domains.access import service as access
 from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.competitions.models import (
@@ -33,9 +34,10 @@ from app.domains.competitions.schemas import (
 from app.domains.competitions.service import (
     can_manage_competition,
     can_manage_team,
-    require_high_staff,
+    require_can_create,
     require_manage_competition,
     require_manage_team,
+    require_view,
 )
 from app.domains.inventory.models import InventoryAllocation
 from app.domains.positions import role_engine
@@ -166,7 +168,7 @@ def add_team(category_id: int, payload: TeamCreate, db: DB, user: CurrentUser) -
     role_engine.apply_event(
         db, event="team_created", entity_type="team", entity_id=team.id,
         lineage=lineage_for_team(comp, team.id), names={"competition": comp.name, "team": team.name},
-        creator_id=user.id, root_position_id=payload.role_root_position_id,
+        root_position_id=payload.role_root_position_id,
     )
     resync_managers(db)
     db.commit()
@@ -205,9 +207,9 @@ def delete_team(team_id: int, db: DB, user: CurrentUser, permanent: bool = False
     require_manage_competition(db, user, comp.id)
     member_ids = [m.id for m in team.members]
     if permanent:
-        if not user.is_admin:
+        if not access.is_top(db, user):
             raise HTTPException(
-                status.HTTP_403_FORBIDDEN, "Only an admin can permanently delete a team"
+                status.HTTP_403_FORBIDDEN, "Only a top-level user can permanently delete a team"
             )
         audit_log(db, user.id, "competitions", "team_purged", "competition_team", team.id,
                   {"team": team.name})
@@ -279,6 +281,7 @@ def remove_member(team_id: int, user_id: int, db: DB, user: CurrentUser) -> None
 def list_competitions(
     db: DB, user: CurrentUser, include_archived: bool = False
 ) -> list[CompetitionOut]:
+    require_view(db, user)
     query = select(Competition)
     if not include_archived:
         query = query.where(Competition.status == CompetitionStatus.ACTIVE)
@@ -288,7 +291,7 @@ def list_competitions(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_competition(payload: CompetitionCreate, db: DB, user: CurrentUser) -> CompetitionDetailOut:
-    require_high_staff(user)
+    require_can_create(db, user)
     if db.scalar(select(Competition).where(Competition.name == payload.name)):
         raise HTTPException(status.HTTP_409_CONFLICT, "A competition with that name already exists")
     comp = Competition(
@@ -302,7 +305,7 @@ def create_competition(payload: CompetitionCreate, db: DB, user: CurrentUser) ->
     role_engine.apply_event(
         db, event="competition_created", entity_type="competition", entity_id=comp.id,
         lineage=lineage_for_competition(comp), names={"competition": comp.name},
-        creator_id=user.id, root_position_id=payload.role_root_position_id,
+        root_position_id=payload.role_root_position_id,
     )
     resync_managers(db)
     db.commit()
@@ -312,6 +315,7 @@ def create_competition(payload: CompetitionCreate, db: DB, user: CurrentUser) ->
 
 @router.get("/{competition_id}")
 def get_competition(competition_id: int, db: DB, user: CurrentUser) -> CompetitionDetailOut:
+    require_view(db, user)
     return _detail_out(db, user, _get_comp(db, competition_id))
 
 
