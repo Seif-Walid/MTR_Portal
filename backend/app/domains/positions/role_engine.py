@@ -37,6 +37,15 @@ _STRUCTURAL_LINEAGE = {
 }
 
 
+def _kind_ok(candidate_kind_id: int | None, target_kind_id: int | None) -> bool:
+    """Does a template scoped to `candidate_kind_id` apply to events of
+    `target_kind_id`? A kind-agnostic template (None) applies everywhere; a
+    kind-specific one only to its own kind. Used both at seating time (target
+    = the event's kind) and in the chain preview (target = the other
+    template's kind)."""
+    return candidate_kind_id is None or candidate_kind_id == target_kind_id
+
+
 def template_chain_parent_id(templates: list[RoleTemplate], template: RoleTemplate) -> int | None:
     """Which other template this one would chain under, assuming every
     ancestor entity that *could* exist by the time this template's event
@@ -44,10 +53,14 @@ def template_chain_parent_id(templates: list[RoleTemplate], template: RoleTempla
     real, lineage-gated version used at seating time). None means it would
     resolve straight to root. Purely structural — no DB/position lookups —
     so it's cheap enough to compute for every template on every list call,
-    for the org tree to preview the chain before anything real exists yet."""
+    for the org tree to preview the chain before anything real exists yet.
+
+    Kind-scoped: only chains under an earlier template that applies wherever
+    this one fires (kind-agnostic, or the same kind), so Training roles nest
+    under Training roles and never under Competition ones."""
     eligible_types = _STRUCTURAL_LINEAGE[template.event]
     for t in reversed([t for t in templates if t.sort_order < template.sort_order]):
-        if EVENT_ENTITY_TYPE[t.event] in eligible_types:
+        if EVENT_ENTITY_TYPE[t.event] in eligible_types and _kind_ok(t.event_kind_id, template.event_kind_id):
             return t.id
     return None
 
@@ -86,11 +99,12 @@ def _renumber(db: Session, ordered_ids: list[int]) -> None:
 
 def create_template(
     db: Session, *, title_template: str, event: str,
-    access_level_id: int | None = None,
+    access_level_id: int | None = None, event_kind_id: int | None = None,
     insert_after_id: int | None = None,
 ) -> RoleTemplate:
-    """insert_after_id places the new template immediately after that one in
-    the chain instead of at the end — used when the admin adds a role from an
+    """event_kind_id scopes the role to one event kind (None = every kind).
+    insert_after_id places the new template immediately after that one in the
+    chain instead of at the end — used when the admin adds a role from an
     existing role's "+" in the org tree, so the new role is guaranteed to
     resolve under the exact node they clicked (appending could land it under
     a later same-event sibling instead). Ignored if the referenced template
@@ -100,7 +114,7 @@ def create_template(
     next_order = (db.scalar(select(RoleTemplate.sort_order).order_by(RoleTemplate.sort_order.desc())) or 0) + 1
     template = RoleTemplate(
         title_template=title_template, event=event, sort_order=next_order,
-        access_level_id=access_level_id,
+        access_level_id=access_level_id, event_kind_id=event_kind_id,
     )
     db.add(template)
     db.flush()
@@ -188,10 +202,13 @@ def get_role_position(db: Session, template_id: int, entity_type: str, entity_id
     )
 
 
-def _find_chain_parent(db: Session, *, before_order: int, lineage: dict[str, int]) -> tuple[int | None, bool]:
+def _find_chain_parent(
+    db: Session, *, before_order: int, lineage: dict[str, int], kind_id: int | None
+) -> tuple[int | None, bool]:
     """Walks earlier-order templates looking for the nearest one that already
-    has a position for an ancestor entity present in `lineage`. Returns
-    (parent_id, blocked).
+    has a position for an ancestor entity present in `lineage`. Only
+    templates that apply to `kind_id` (the event's kind) are considered, so
+    the chain never crosses kinds. Returns (parent_id, blocked).
 
     blocked=True means at least one earlier template's event applies to this
     lineage (its entity type is present) but none of them have produced a
@@ -210,6 +227,8 @@ def _find_chain_parent(db: Session, *, before_order: int, lineage: dict[str, int
     templates = list_templates(db)
     saw_eligible = False
     for template in reversed([t for t in templates if t.sort_order < before_order]):
+        if not _kind_ok(template.event_kind_id, kind_id):
+            continue
         want_entity_type = EVENT_ENTITY_TYPE[template.event]
         ancestor_id = lineage.get(want_entity_type)
         if ancestor_id is None:
@@ -233,21 +252,23 @@ def _seed_occupants(db: Session, position: Position, user_ids: list[int]) -> Non
 
 def apply_event(
     db: Session, *, event: str, entity_type: str, entity_id: int,
-    lineage: dict[str, int], names: dict[str, str],
+    lineage: dict[str, int], names: dict[str, str], kind_id: int | None,
     member_id: int | None = None,
     root_position_id: int | None = None,
 ) -> None:
-    """Ensures a position exists for every template matching `event`, for
-    this (entity_type, entity_id). Idempotent — a template that already has a
-    position for this entity is left alone. A template whose chain has a
-    missing link for this lineage (see _find_chain_parent) is skipped, not
-    forced to root."""
+    """Ensures a position exists for every template matching `event` and the
+    event's kind (`kind_id`), for this (entity_type, entity_id). Idempotent —
+    a template that already has a position for this entity is left alone. A
+    template whose chain has a missing link for this lineage (see
+    _find_chain_parent) is skipped, not forced to root."""
     for template in list_templates(db):
-        if template.event != event:
+        if template.event != event or not _kind_ok(template.event_kind_id, kind_id):
             continue
         if get_role_position(db, template.id, entity_type, entity_id) is not None:
             continue
-        parent_id, blocked = _find_chain_parent(db, before_order=template.sort_order, lineage=lineage)
+        parent_id, blocked = _find_chain_parent(
+            db, before_order=template.sort_order, lineage=lineage, kind_id=kind_id
+        )
         if blocked:
             continue
         used_root = parent_id is None
@@ -290,7 +311,9 @@ def delete_positions_for_entity(db: Session, entity_type: str, entity_id: int) -
     db.flush()
 
 
-def resync_position_parent(db: Session, *, entity_type: str, entity_id: int, lineage: dict[str, int]) -> None:
+def resync_position_parent(
+    db: Session, *, entity_type: str, entity_id: int, lineage: dict[str, int], kind_id: int | None
+) -> None:
     """Re-derive parent_id for this entity's own role positions from the
     current template chain — call after a template's order changes or a
     template is deleted, once per (entity_type, entity_id) that has any role
@@ -307,7 +330,7 @@ def resync_position_parent(db: Session, *, entity_type: str, entity_id: int, lin
         if pos.role_template is None:
             continue
         new_parent_id, blocked = _find_chain_parent(
-            db, before_order=pos.role_template.sort_order, lineage=lineage
+            db, before_order=pos.role_template.sort_order, lineage=lineage, kind_id=kind_id
         )
         if blocked:
             continue
@@ -352,15 +375,17 @@ def set_position_occupants(db: Session, position: Position, user_ids: list[int])
 
 
 def entity_roles(
-    db: Session, event: str, entity_type: str, entity_id: int, names: dict[str, str]
+    db: Session, event: str, entity_type: str, entity_id: int, names: dict[str, str],
+    kind_id: int | None,
 ) -> list[dict]:
     """The {template, position, occupants} rows applicable to one entity —
-    what the frontend renders as that entity's "Roles" panel. A template
-    added after the entity already existed shows up with no position yet
-    (occupants empty, position_id None) rather than being hidden."""
+    what the frontend renders as that entity's "Roles" panel. Scoped to the
+    entity's kind. A template added after the entity already existed shows up
+    with no position yet (occupants empty, position_id None) rather than
+    being hidden."""
     out = []
     for template in list_templates(db):
-        if template.event != event:
+        if template.event != event or not _kind_ok(template.event_kind_id, kind_id):
             continue
         pos = get_role_position(db, template.id, entity_type, entity_id)
         out.append({

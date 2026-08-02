@@ -12,6 +12,7 @@ from app.domains.competitions.models import (
     CompetitionStatus,
     CompetitionTeam,
     CompetitionTeamMember,
+    EventKind,
 )
 from app.domains.competitions.role_sync import (
     lineage_for_competition,
@@ -25,6 +26,9 @@ from app.domains.competitions.schemas import (
     CompetitionDetailOut,
     CompetitionEdit,
     CompetitionOut,
+    EventKindCreate,
+    EventKindEdit,
+    EventKindOut,
     MemberAdd,
     MemberOut,
     TeamCreate,
@@ -55,22 +59,124 @@ def _resolve_user(db: DB, user_id: int, what: str) -> int:
     return user_id
 
 
-def _entity_roles_out(db: DB, event: str, entity_type: str, entity_id: int, names: dict[str, str]) -> list[EntityRoleOut]:
+def _default_kind(db: DB) -> EventKind | None:
+    return db.scalar(select(EventKind).order_by(EventKind.sort_order))
+
+
+def _resolve_kind(db: DB, kind_id: int | None) -> int:
+    """Validate the kind, or fall back to the first one when none is given.
+    An event must have a kind — if none exist yet, the org hasn't defined any
+    event types, so creation is refused with a pointer to do that first."""
+    if kind_id is not None:
+        if db.get(EventKind, kind_id) is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown event kind")
+        return kind_id
+    default = _default_kind(db)
+    if default is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "No event types exist yet — create one first (Events → Event types).",
+        )
+    return default.id
+
+
+def _slugify(db: DB, name: str) -> str:
+    base = "".join(c if c.isalnum() else "-" for c in name.lower()).strip("-") or "kind"
+    slug, n = base, 1
+    while db.scalar(select(EventKind).where(EventKind.slug == slug)):
+        n += 1
+        slug = f"{base}-{n}"
+    return slug
+
+
+# --- event kinds (Competition / Training / R&D / admin-defined) -----------
+@router.get("/kinds")
+def list_kinds(db: DB, user: CurrentUser) -> list[EventKindOut]:
+    """The event kinds — one tab each under Events. Any viewer can read them."""
+    access.require_privilege(db, user, "competitions.view")
+    return [EventKindOut.model_validate(k) for k in db.scalars(select(EventKind).order_by(EventKind.sort_order))]
+
+
+@router.post("/kinds", status_code=status.HTTP_201_CREATED)
+def create_kind(payload: EventKindCreate, db: DB, user: CurrentUser) -> EventKindOut:
+    access.require_privilege(db, user, "org.edit")
+    next_order = (db.scalar(select(func.max(EventKind.sort_order))) or 0) + 1
+    kind = EventKind(
+        slug=_slugify(db, payload.name), name=payload.name,
+        event_label=payload.event_label, category_label=payload.category_label,
+        team_label=payload.team_label, member_label=payload.member_label,
+        sort_order=next_order,
+    )
+    db.add(kind)
+    db.commit()
+    db.refresh(kind)
+    return EventKindOut.model_validate(kind)
+
+
+@router.patch("/kinds/{kind_id}")
+def edit_kind(kind_id: int, payload: EventKindEdit, db: DB, user: CurrentUser) -> EventKindOut:
+    access.require_privilege(db, user, "org.edit")
+    kind = db.get(EventKind, kind_id)
+    if kind is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event kind not found")
+    for field in ("name", "event_label", "category_label", "team_label", "member_label"):
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(kind, field, value)
+    db.commit()
+    db.refresh(kind)
+    return EventKindOut.model_validate(kind)
+
+
+@router.delete("/kinds/{kind_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_kind(kind_id: int, db: DB, user: CurrentUser) -> None:
+    access.require_privilege(db, user, "org.edit")
+    kind = db.get(EventKind, kind_id)
+    if kind is None:
+        return
+    if db.scalar(select(func.count()).select_from(Competition).where(Competition.kind_id == kind_id)):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "This kind still has events — remove or reassign them first.",
+        )
+    from app.domains.positions.models import RoleTemplate
+    if db.scalar(select(func.count()).select_from(RoleTemplate).where(RoleTemplate.event_kind_id == kind_id)):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "This kind still has automatic roles targeting it — remove them first.",
+        )
+    db.delete(kind)
+    db.commit()
+
+
+def _names(comp: Competition, **extra: str) -> dict[str, str]:
+    """Title-template placeholders. `{event}` is the generic name; `{competition}`
+    is kept as an alias so templates written before event kinds keep working."""
+    return {"competition": comp.name, "event": comp.name, **extra}
+
+
+def _entity_roles_out(
+    db: DB, event: str, entity_type: str, entity_id: int, names: dict[str, str], kind_id: int | None
+) -> list[EntityRoleOut]:
     return [
         EntityRoleOut(
             template_id=r["template_id"], title=r["title"], position_id=r["position_id"],
             occupants=[UserBrief.model_validate(u) for u in r["occupants"]],
         )
-        for r in role_engine.entity_roles(db, event, entity_type, entity_id, names)
+        for r in role_engine.entity_roles(db, event, entity_type, entity_id, names, kind_id)
     ]
 
 
+def _kind_out(comp: Competition) -> "EventKindOut | None":
+    return EventKindOut.model_validate(comp.kind) if comp.kind else None
+
+
 def _team_out(db: DB, comp: Competition, team: CompetitionTeam, can_manage: bool, user: User) -> TeamOut:
-    names = {"competition": comp.name, "team": team.name}
+    names = _names(comp, team=team.name)
     return TeamOut(
         id=team.id,
         name=team.name,
-        roles=_entity_roles_out(db, "team_created", "team", team.id, names),
+        roles=_entity_roles_out(db, "team_created", "team", team.id, names, comp.kind_id),
         members=[MemberOut(id=m.id, user=UserBrief.model_validate(m.user)) for m in team.members],
         can_manage_members=can_manage or can_manage_team(db, user, team),
     )
@@ -98,7 +204,8 @@ def _base_out(db: DB, comp: Competition, manage: bool) -> dict:
     return dict(
         id=comp.id, name=comp.name, status=comp.status, description=comp.description,
         start_date=comp.start_date, end_date=comp.end_date, created_at=comp.created_at,
-        roles=_entity_roles_out(db, "competition_created", "competition", comp.id, {"competition": comp.name}),
+        kind=_kind_out(comp),
+        roles=_entity_roles_out(db, "competition_created", "competition", comp.id, _names(comp), comp.kind_id),
         category_count=cats, team_count=teams, member_count=members, allocation_count=alloc,
         can_manage=manage,
     )
@@ -167,8 +274,8 @@ def add_team(category_id: int, payload: TeamCreate, db: DB, user: CurrentUser) -
     db.flush()
     role_engine.apply_event(
         db, event="team_created", entity_type="team", entity_id=team.id,
-        lineage=lineage_for_team(comp, team.id), names={"competition": comp.name, "team": team.name},
-        root_position_id=payload.role_root_position_id,
+        lineage=lineage_for_team(comp, team.id), names=_names(comp, team=team.name),
+        kind_id=comp.kind_id, root_position_id=payload.role_root_position_id,
     )
     resync_managers(db)
     db.commit()
@@ -246,7 +353,8 @@ def add_member(team_id: int, payload: MemberAdd, db: DB, user: CurrentUser) -> T
         role_engine.apply_event(
             db, event="team_member_added", entity_type="membership", entity_id=member.id,
             lineage=lineage_for_membership(comp, team.id, member.id),
-            names={"competition": comp.name, "team": team.name, "member": member_user.full_name},
+            names=_names(comp, team=team.name, member=member_user.full_name),
+            kind_id=comp.kind_id,
             member_id=payload.user_id, root_position_id=payload.role_root_position_id,
         )
         resync_managers(db)
@@ -279,10 +387,12 @@ def remove_member(team_id: int, user_id: int, db: DB, user: CurrentUser) -> None
 # --- competitions ---------------------------------------------------------
 @router.get("")
 def list_competitions(
-    db: DB, user: CurrentUser, include_archived: bool = False
+    db: DB, user: CurrentUser, include_archived: bool = False, kind_id: int | None = None
 ) -> list[CompetitionOut]:
     require_view(db, user)
     query = select(Competition)
+    if kind_id is not None:
+        query = query.where(Competition.kind_id == kind_id)
     if not include_archived:
         query = query.where(Competition.status == CompetitionStatus.ACTIVE)
     comps = db.scalars(query.order_by(Competition.name)).all()
@@ -293,9 +403,11 @@ def list_competitions(
 def create_competition(payload: CompetitionCreate, db: DB, user: CurrentUser) -> CompetitionDetailOut:
     require_can_create(db, user)
     if db.scalar(select(Competition).where(Competition.name == payload.name)):
-        raise HTTPException(status.HTTP_409_CONFLICT, "A competition with that name already exists")
+        raise HTTPException(status.HTTP_409_CONFLICT, "An event with that name already exists")
+    kind_id = _resolve_kind(db, payload.kind_id)
     comp = Competition(
         name=payload.name,
+        kind_id=kind_id,
         description=payload.description,
         start_date=payload.start_date,
         end_date=payload.end_date,
@@ -304,7 +416,7 @@ def create_competition(payload: CompetitionCreate, db: DB, user: CurrentUser) ->
     db.flush()
     role_engine.apply_event(
         db, event="competition_created", entity_type="competition", entity_id=comp.id,
-        lineage=lineage_for_competition(comp), names={"competition": comp.name},
+        lineage=lineage_for_competition(comp), names=_names(comp), kind_id=comp.kind_id,
         root_position_id=payload.role_root_position_id,
     )
     resync_managers(db)
@@ -329,12 +441,10 @@ def edit_competition(
         if db.scalar(select(Competition).where(Competition.name == payload.name)):
             raise HTTPException(status.HTTP_409_CONFLICT, "A competition with that name already exists")
         comp.name = payload.name
-        role_engine.retitle_positions_for_entity(
-            db, "competition", comp.id, {"competition": comp.name}
-        )
+        role_engine.retitle_positions_for_entity(db, "competition", comp.id, _names(comp))
         for cat in comp.categories:
             for team in cat.teams:
-                names = {"competition": comp.name, "team": team.name}
+                names = _names(comp, team=team.name)
                 role_engine.retitle_positions_for_entity(db, "team", team.id, names)
                 for member in team.members:
                     role_engine.retitle_positions_for_entity(
@@ -363,16 +473,16 @@ def edit_competition(
     elif status_changed and comp.status == CompetitionStatus.ACTIVE:
         role_engine.apply_event(
             db, event="competition_created", entity_type="competition", entity_id=comp.id,
-            lineage=lineage_for_competition(comp), names={"competition": comp.name},
+            lineage=lineage_for_competition(comp), names=_names(comp), kind_id=comp.kind_id,
         )
         for cat in comp.categories:
             for team in cat.teams:
                 if team.deleted_at is not None:
                     continue
-                names = {"competition": comp.name, "team": team.name}
+                names = _names(comp, team=team.name)
                 role_engine.apply_event(
                     db, event="team_created", entity_type="team", entity_id=team.id,
-                    lineage=lineage_for_team(comp, team.id), names=names,
+                    lineage=lineage_for_team(comp, team.id), names=names, kind_id=comp.kind_id,
                 )
                 for member in team.members:
                     role_engine.apply_event(
@@ -380,7 +490,7 @@ def edit_competition(
                         entity_id=member.id,
                         lineage=lineage_for_membership(comp, team.id, member.id),
                         names={**names, "member": member.user.full_name},
-                        member_id=member.user_id,
+                        kind_id=comp.kind_id, member_id=member.user_id,
                     )
         resync_managers(db)
     db.commit()

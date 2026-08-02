@@ -7,6 +7,35 @@ from app.domains.positions.schemas import EntityRoleOut
 from app.domains.users.schemas import UserBrief
 
 
+class EventKindOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    slug: str
+    name: str
+    event_label: str
+    category_label: str
+    team_label: str
+    member_label: str
+    sort_order: int
+
+
+class EventKindCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    event_label: str = Field(min_length=1, max_length=100)
+    category_label: str = Field(default="Category", min_length=1, max_length=100)
+    team_label: str = Field(default="Team", min_length=1, max_length=100)
+    member_label: str = Field(default="Member", min_length=1, max_length=100)
+
+
+class EventKindEdit(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    event_label: str | None = Field(default=None, min_length=1, max_length=100)
+    category_label: str | None = Field(default=None, min_length=1, max_length=100)
+    team_label: str | None = Field(default=None, min_length=1, max_length=100)
+    member_label: str | None = Field(default=None, min_length=1, max_length=100)
+
+
 class MemberOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -45,6 +74,7 @@ class CompetitionOut(CompetitionBrief):
     start_date: date | None
     end_date: date | None
     created_at: datetime
+    kind: EventKindOut | None = None
     roles: list[EntityRoleOut] = []
     category_count: int = 0
     team_count: int = 0
@@ -59,6 +89,7 @@ class CompetitionDetailOut(CompetitionOut):
 
 class CompetitionCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
+    kind_id: int | None = None  # which event kind; defaults to Competition
     description: str = ""
     start_date: date | None = None
     end_date: date | None = None

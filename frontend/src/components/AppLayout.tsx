@@ -1,6 +1,7 @@
 import {
   ApartmentOutlined,
   AuditOutlined,
+  CalendarOutlined,
   CheckSquareOutlined,
   CloudSyncOutlined,
   GoogleOutlined,
@@ -33,11 +34,30 @@ export default function AppLayout() {
   const { token } = theme.useToken();
   const [collapsed, setCollapsed] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [eventKinds, setEventKinds] = useState<{ slug: string; name: string }[]>([]);
+  const [openKeys, setOpenKeys] = useState<string[]>(['/events']);
   const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     api.get<{ google_enabled: boolean }>('/api/auth/config').then((c) => setGoogleEnabled(c.google_enabled)).catch(() => {});
   }, []);
+
+  const canViewEvents = can(me, 'competitions.view');
+  useEffect(() => {
+    if (canViewEvents) {
+      api.get<{ slug: string; name: string }[]>('/api/competitions/kinds').then(setEventKinds).catch(() => {});
+    }
+  }, [canViewEvents]);
+
+  // Keep the Events submenu expanded whenever we're inside it (and once its
+  // children have loaded), so the active kind stays visible. onOpenChange
+  // still lets the user collapse it while browsing elsewhere.
+  const onEventsRoute = location.pathname.startsWith('/events');
+  useEffect(() => {
+    if (onEventsRoute && eventKinds.length) {
+      setOpenKeys((k) => (k.includes('/events') ? k : [...k, '/events']));
+    }
+  }, [onEventsRoute, eventKinds.length]);
 
   useEffect(() => {
     if (searchParams.get('linked') === 'true') {
@@ -56,11 +76,23 @@ export default function AppLayout() {
     ...(can(me, 'tasks.use')
       ? [{ key: '/tasks', icon: <CheckSquareOutlined />, label: 'My Tasks' }]
       : []),
+    ...(can(me, 'tasks.use') || can(me, 'competitions.view') || can(me, 'inventory.view')
+      ? [{ key: '/calendar', icon: <CalendarOutlined />, label: 'Calendar' }]
+      : []),
     ...(can(me, 'inventory.view')
       ? [{ key: '/inventory', icon: <InboxOutlined />, label: 'Inventory' }]
       : []),
-    ...(can(me, 'competitions.view')
-      ? [{ key: '/competitions', icon: <TrophyOutlined />, label: 'Competitions' }]
+    ...(canViewEvents
+      ? [{
+          key: '/events',
+          icon: <TrophyOutlined />,
+          label: 'Events',
+          // a plain link until kinds exist, so a fresh admin can reach the
+          // page to define event types; a submenu of kinds once they do
+          ...(eventKinds.length
+            ? { children: eventKinds.map((k) => ({ key: `/events/${k.slug}`, label: k.name })) }
+            : {}),
+        }]
       : []),
     ...(can(me, 'tasks.use')
       ? [{ key: '/requests', icon: <SendOutlined />, label: 'Requests' }]
@@ -82,7 +114,14 @@ export default function AppLayout() {
       : []),
   ];
 
-  const selected = items.find((i) => location.pathname.startsWith(i.key))?.key;
+  // longest matching key wins, so /events/training highlights the sub-item,
+  // not just the /events parent.
+  const allKeys = items.flatMap((i) =>
+    'children' in i && i.children ? i.children.map((c) => c.key) : [i.key],
+  );
+  const selected = allKeys
+    .filter((k) => location.pathname === k || location.pathname.startsWith(k + '/') || location.pathname.startsWith(k))
+    .sort((a, b) => b.length - a.length)[0];
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -119,6 +158,8 @@ export default function AppLayout() {
           theme="dark"
           mode="inline"
           selectedKeys={selected ? [selected] : []}
+          openKeys={openKeys}
+          onOpenChange={setOpenKeys}
           items={items}
           onClick={(e) => navigate(e.key)}
         />

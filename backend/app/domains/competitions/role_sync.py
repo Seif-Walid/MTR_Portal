@@ -25,20 +25,22 @@ def lineage_for_membership(comp: Competition, team_id: int, membership_id: int) 
 def resync_all(db: Session) -> None:
     """Walk every competition -> team -> membership and re-derive each
     existing role position's parent — call after any role-template CRUD that
-    could change the chain topology (reorder, delete)."""
+    could change the chain topology (reorder, delete). Each event's kind
+    scopes which templates its positions chain against."""
     for comp in db.scalars(select(Competition)):
-        comp_lineage = lineage_for_competition(comp)
+        kind_id = comp.kind_id
         role_engine.resync_position_parent(
-            db, entity_type="competition", entity_id=comp.id, lineage=comp_lineage
+            db, entity_type="competition", entity_id=comp.id,
+            lineage=lineage_for_competition(comp), kind_id=kind_id,
         )
         for cat in comp.categories:
             for team in cat.teams:
-                team_lineage = lineage_for_team(comp, team.id)
                 role_engine.resync_position_parent(
-                    db, entity_type="team", entity_id=team.id, lineage=team_lineage
+                    db, entity_type="team", entity_id=team.id,
+                    lineage=lineage_for_team(comp, team.id), kind_id=kind_id,
                 )
                 for member in team.members:
                     role_engine.resync_position_parent(
                         db, entity_type="membership", entity_id=member.id,
-                        lineage=lineage_for_membership(comp, team.id, member.id),
+                        lineage=lineage_for_membership(comp, team.id, member.id), kind_id=kind_id,
                     )

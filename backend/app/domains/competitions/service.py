@@ -15,13 +15,38 @@ competitions.
 """
 
 from fastapi import HTTPException, status as http_status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domains.access import service as access
 from app.domains.access.models import AccessLevel
-from app.domains.competitions.models import CompetitionTeam, CompetitionTeamMember
+from app.domains.competitions.models import CompetitionTeam, CompetitionTeamMember, EventKind
 from app.domains.positions.role_engine import occupied_seat_level_ids
 from app.domains.users.models import User
+
+# Sample event kinds — used ONLY by the demo seed (`app.seed --demo`) and the
+# test fixtures. A clean install ships with NO event kinds: Events is empty
+# until the org defines its own on the site, so Competition/Training/R&D are
+# the admin's data, never built-in. (slug, name, event_label, category_label,
+# team_label, member_label.)
+PRESET_KINDS: list[tuple[str, str, str, str, str, str]] = [
+    ("competition", "Competition", "Competition", "Category", "Team", "Member"),
+    ("training", "Training", "Training Season", "Category", "Group", "Member"),
+    ("rnd", "R&D", "Topic", "Category", "Team", "Member"),
+]
+
+
+def ensure_preset_kinds(db: Session) -> None:
+    """Creates the sample event kinds if none exist yet — demo/tests only.
+    NOT called on a clean install (see app/seed.run)."""
+    if db.scalar(select(EventKind.id).limit(1)) is not None:
+        return
+    for order, (slug, name, ev, cat, team, mem) in enumerate(PRESET_KINDS, start=1):
+        db.add(EventKind(
+            slug=slug, name=name, event_label=ev, category_label=cat,
+            team_label=team, member_label=mem, sort_order=order,
+        ))
+    db.flush()
 
 
 def _manages_via_seat(db: Session, user: User, entity_type: str, entity_id: int) -> bool:

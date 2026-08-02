@@ -32,6 +32,7 @@ from app.domains.competitions.models import (
     CompetitionStatus,
     CompetitionTeam,
     CompetitionTeamMember,
+    EventKind,
 )
 from app.domains.inventory.models import (
     Condition,
@@ -60,6 +61,7 @@ MIRROR_BANNER = (
 TAB_ORDER = [
     "people",
     "positions",
+    "event_kinds",
     "competitions",
     "competition_categories",
     "competition_teams",
@@ -115,10 +117,19 @@ def _export_positions(db: Session) -> tuple[list[str], list[list[str]]]:
     return header, rows
 
 
-def _export_competitions(db: Session) -> tuple[list[str], list[list[str]]]:
-    header = ["id", "name", "description", "start_date", "end_date", "status"]
+def _export_event_kinds(db: Session) -> tuple[list[str], list[list[str]]]:
+    header = ["id", "slug", "name", "event_label", "category_label", "team_label", "member_label", "sort_order"]
     rows = [
-        [_s(c.id), c.name, c.description, _s(c.start_date), _s(c.end_date), c.status]
+        [_s(k.id), k.slug, k.name, k.event_label, k.category_label, k.team_label, k.member_label, _s(k.sort_order)]
+        for k in db.scalars(select(EventKind).order_by(EventKind.sort_order))
+    ]
+    return header, rows
+
+
+def _export_competitions(db: Session) -> tuple[list[str], list[list[str]]]:
+    header = ["id", "name", "kind", "description", "start_date", "end_date", "status"]
+    rows = [
+        [_s(c.id), c.name, c.kind.slug if c.kind else "", c.description, _s(c.start_date), _s(c.end_date), c.status]
         for c in db.scalars(select(Competition).order_by(Competition.id))
     ]
     return header, rows
@@ -189,6 +200,7 @@ def _export_movements(db: Session) -> tuple[list[str], list[list[str]]]:
 _EXPORTERS = {
     "people": _export_people,
     "positions": _export_positions,
+    "event_kinds": _export_event_kinds,
     "competitions": _export_competitions,
     "competition_categories": _export_categories,
     "competition_teams": _export_teams,
@@ -286,6 +298,7 @@ def _validate(db: Session, sheet_data: dict[str, list[dict[str, str]]]) -> tuple
     parsed: dict[str, list[dict]] = {}
     known_ids: dict[str, set[int]] = {t: set() for t in TAB_ORDER}
     valid_levels = {lvl.name for lvl in db.scalars(select(AccessLevel))}
+    kind_slugs: set[str] = set()
 
     # people
     people = []
@@ -333,6 +346,25 @@ def _validate(db: Session, sheet_data: dict[str, list[dict[str, str]]]) -> tuple
     parsed["positions"] = positions
     counts["positions"] = len(positions)
 
+    # event_kinds (Competition/Training/R&D/...) — referenced by competitions
+    event_kinds = []
+    for row in sheet_data.get("event_kinds", []):
+        if not _require(row, "id", "slug", "name", tab="event_kinds", errors=errors):
+            continue
+        rid = int(row["id"])
+        known_ids["event_kinds"].add(rid)
+        kind_slugs.add(row["slug"].strip())
+        event_kinds.append({
+            "id": rid, "slug": row["slug"].strip(), "name": row["name"],
+            "event_label": row.get("event_label") or "Event",
+            "category_label": row.get("category_label") or "Category",
+            "team_label": row.get("team_label") or "Team",
+            "member_label": row.get("member_label") or "Member",
+            "sort_order": _parse_int(row.get("sort_order", "")) or rid,
+        })
+    parsed["event_kinds"] = event_kinds
+    counts["event_kinds"] = len(event_kinds)
+
     # competitions
     competitions = []
     for row in sheet_data.get("competitions", []):
@@ -343,9 +375,14 @@ def _validate(db: Session, sheet_data: dict[str, list[dict[str, str]]]) -> tuple
         if status not in (CompetitionStatus.ACTIVE, CompetitionStatus.ARCHIVED):
             errors.append(f"competitions row {rid}: invalid status '{status}'")
             continue
+        kind_slug = (row.get("kind") or "").strip()
+        if kind_slug and kind_slug not in kind_slugs:
+            errors.append(f"competitions row {rid}: unknown event kind '{kind_slug}'")
+            continue
         known_ids["competitions"].add(rid)
         competitions.append({
-            "id": rid, "name": row["name"], "description": row.get("description", ""),
+            "id": rid, "name": row["name"], "kind_slug": kind_slug,
+            "description": row.get("description", ""),
             "start_date": row.get("start_date", ""), "end_date": row.get("end_date", ""), "status": status,
         })
     parsed["competitions"] = competitions
@@ -479,7 +516,9 @@ def _write_snapshot(db: Session) -> str:
         "people": dump(User, ["id", "email", "full_name", "department", "manager_id", "is_active", "access_level_id"]),
         "positions": dump(Position, ["id", "title", "parent_id", "is_technical", "access_level_id"]),
         "position_occupants": dump(PositionOccupant, ["id", "position_id", "user_id"]),
-        "competitions": dump(Competition, ["id", "name", "description", "start_date", "end_date", "status"]),
+        "event_kinds": dump(EventKind, ["id", "slug", "name", "event_label", "category_label",
+                                          "team_label", "member_label", "sort_order"]),
+        "competitions": dump(Competition, ["id", "name", "kind_id", "description", "start_date", "end_date", "status"]),
         "competition_categories": dump(CompetitionCategory, ["id", "competition_id", "name"]),
         "competition_teams": dump(CompetitionTeam, ["id", "category_id", "name", "deleted_at"]),
         "competition_team_members": dump(CompetitionTeamMember, ["id", "team_id", "user_id"]),
@@ -517,6 +556,7 @@ def _truncate_managed_tables(db: Session) -> None:
     db.execute(delete(CompetitionTeam))
     db.execute(delete(CompetitionCategory))
     db.execute(delete(Competition))
+    db.execute(delete(EventKind))
     db.execute(delete(PositionOccupant))
     db.execute(update(Position).values(parent_id=None))
     db.execute(delete(Position))
@@ -551,9 +591,19 @@ def _import_all(db: Session, parsed: dict[str, list[dict]]) -> None:
         for uid in pos["occupant_ids"]:
             db.add(PositionOccupant(position_id=pos["id"], user_id=uid))
 
+    for k in parsed.get("event_kinds", []):
+        db.add(EventKind(
+            id=k["id"], slug=k["slug"], name=k["name"], event_label=k["event_label"],
+            category_label=k["category_label"], team_label=k["team_label"],
+            member_label=k["member_label"], sort_order=k["sort_order"],
+        ))
+    db.flush()
+    kind_id_by_slug = {k["slug"]: k["id"] for k in parsed.get("event_kinds", [])}
+
     for c in parsed["competitions"]:
         db.add(Competition(
-            id=c["id"], name=c["name"], description=c["description"],
+            id=c["id"], name=c["name"], kind_id=kind_id_by_slug.get(c.get("kind_slug")),
+            description=c["description"],
             start_date=_parse_date(c["start_date"]), end_date=_parse_date(c["end_date"]), status=c["status"],
         ))
     for cat in parsed["competition_categories"]:

@@ -108,9 +108,12 @@ def seed_inventory(db: Session, team_lead: User, student: User, borrower: User) 
 
     # competitions the allocations link to — RoboCup has the full nesting:
     # PM → category (Senior) → team (Robotics A, led by the team lead) → members
+    from app.domains.competitions.models import EventKind
+    comp_kind = db.scalar(select(EventKind).where(EventKind.slug == "competition"))
+    comp_kind_id = comp_kind.id if comp_kind else None
     robocup = Competition(name="RoboCup 2026", status=CompetitionStatus.ACTIVE,
-                          description="Annual robotics championship.")
-    vex = Competition(name="VEX Worlds 2026", status=CompetitionStatus.ACTIVE)
+                          kind_id=comp_kind_id, description="Annual robotics championship.")
+    vex = Competition(name="VEX Worlds 2026", status=CompetitionStatus.ACTIVE, kind_id=comp_kind_id)
     db.add_all([robocup, vex])
     db.flush()
     # who manages RoboCup 2026 / leads Robotics A is now a matter of
@@ -270,6 +273,8 @@ def seed_admin(db: Session, levels: dict[str, AccessLevel]) -> User:
 def seed_demo(db: Session, levels: dict[str, AccessLevel]) -> None:
     """Optional sample org, tasks, requests and inventory — only for exploring
     the app. Run with `--demo`. Idempotent."""
+    from app.domains.competitions.service import ensure_preset_kinds
+    ensure_preset_kinds(db)  # sample event kinds for the demo (Competition/Training/R&D)
     ceo = ensure_user(db, levels, "ceo@org.local", "Sara Chief", "Board")
     cto = ensure_user(db, levels, "cto@org.local", "Tarek Tech", "Lead",
                       manager=ceo, department=Department.SOFTWARE)
@@ -345,6 +350,10 @@ def run(demo: bool = False) -> None:
     try:
         levels = seed_levels(db)
         admin = seed_admin(db, levels)
+        # A clean install starts with NO event kinds — Events is empty until
+        # the org defines its own (Competition/Training/… are the admin's
+        # data, created on the site, not shipped in the repo). The sample
+        # kinds live in the demo seed only.
         if demo:
             seed_demo(db, levels)
         db.commit()

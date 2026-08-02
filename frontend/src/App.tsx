@@ -11,6 +11,7 @@ import LoginPage from './pages/LoginPage';
 import OrganizationPage from './pages/OrganizationPage';
 import RequestsPage from './pages/RequestsPage';
 import SheetsSyncPage from './pages/SheetsSyncPage';
+import CalendarPage from './pages/CalendarPage';
 import TasksPage from './pages/TasksPage';
 import TeamPage from './pages/TeamPage';
 
@@ -31,8 +32,10 @@ export default function App() {
       {me ? (
         <Route element={<AppLayout />}>
           <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/inventory" element={<InventoryPage />} />
-          <Route path="/competitions" element={<CompetitionsPage />} />
+          <Route path="/events" element={<CompetitionsPage />} />
+          <Route path="/events/:slug" element={<CompetitionsPage />} />
           <Route path="/requests" element={<RequestsPage />} />
           <Route path="/team" element={<TeamPage />} />
           <Route path="/organization" element={<OrganizationPage />} />

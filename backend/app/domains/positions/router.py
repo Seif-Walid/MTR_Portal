@@ -43,6 +43,12 @@ def _resolve_level(db: DB, level_id: int | None) -> None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown access level")
 
 
+def _resolve_kind(db: DB, kind_id: int | None) -> None:
+    from app.domains.competitions.models import EventKind
+    if kind_id is not None and db.get(EventKind, kind_id) is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown event kind")
+
+
 def _resolve_occupants(db: DB, user_ids: list[int]) -> list[int]:
     for uid in user_ids:
         if db.get(User, uid) is None:
@@ -200,11 +206,18 @@ def list_role_templates(db: DB, user: CurrentUser) -> list[RoleTemplateOut]:
 def create_role_template(payload: RoleTemplateCreate, db: DB, user: CurrentUser) -> RoleTemplateOut:
     _require_org_manager(db, user)
     _resolve_level(db, payload.access_level_id)
+    _resolve_kind(db, payload.event_kind_id)
     template = role_engine.create_template(
         db, title_template=payload.title_template, event=payload.event,
-        access_level_id=payload.access_level_id,
+        access_level_id=payload.access_level_id, event_kind_id=payload.event_kind_id,
         insert_after_id=payload.insert_after_id,
     )
+    # adding a role (especially inserted mid-chain via insert_after_id, which
+    # renumbers sort_order) changes where existing seats should sit — re-derive
+    # every already-instantiated position's parent so the tree matches the
+    # templates, same as edit/delete do.
+    resync_all_role_positions(db)
+    resync_managers(db)
     db.commit()
     db.refresh(template)
     return _template_out(template, role_engine.list_templates(db))

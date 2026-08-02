@@ -22,7 +22,7 @@ import type { DataNode } from 'antd/es/tree';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
-import type { AccessLevel as AccessLevelT, PositionNode, RoleEvent, RoleTemplate, UserBrief } from '../api/types';
+import type { AccessLevel as AccessLevelT, EventKind as EventKindT, PositionNode, RoleEvent, RoleTemplate, UserBrief } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
 
 interface EditTarget {
@@ -56,6 +56,7 @@ function PositionModal({
   target,
   holders,
   levels,
+  kinds,
   open,
   onClose,
   onSaved,
@@ -63,6 +64,7 @@ function PositionModal({
   target: EditTarget | null;
   holders: UserBrief[];
   levels: AccessLevelT[];
+  kinds: EventKindT[];
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -74,6 +76,7 @@ function PositionModal({
     title_template: string;
     event: RoleEvent;
     access_level_id: number | null;
+    event_kind_id: number | null;
   }>();
   const [busy, setBusy] = useState(false);
   const [automatic, setAutomatic] = useState(false);
@@ -103,6 +106,7 @@ function PositionModal({
       form.setFieldsValue({
         title_template: target.template.title_template,
         access_level_id: target.template.access_level_id,
+        event_kind_id: target.template.event_kind_id,
       });
     } else if (target?.mode === 'create-template-child') {
       form.setFieldsValue({
@@ -114,6 +118,7 @@ function PositionModal({
         is_technical: false,
         event: 'competition_created',
         access_level_id: null,
+        event_kind_id: null,
       });
     }
   }, [open, target, form]);
@@ -125,6 +130,7 @@ function PositionModal({
     title_template: string;
     event: RoleEvent;
     access_level_id?: number | null;
+    event_kind_id?: number | null;
   }) => {
     setBusy(true);
     try {
@@ -154,6 +160,7 @@ function PositionModal({
           title_template: values.title_template,
           event: values.event,
           access_level_id: values.access_level_id ?? null,
+          event_kind_id: values.event_kind_id ?? null,
         });
       } else {
         await api.post('/api/org/positions', {
@@ -249,6 +256,19 @@ function PositionModal({
                 <Select options={Object.entries(EVENT_LABELS).map(([value, label]) => ({ value, label }))} />
               </Form.Item>
             )}
+            {showWhenField && (
+              <Form.Item
+                name="event_kind_id"
+                label="Fires for"
+                extra="Which kind of event triggers this role — or every kind"
+              >
+                <Select
+                  allowClear
+                  placeholder="Every event kind"
+                  options={kinds.map((k) => ({ value: k.id, label: k.name }))}
+                />
+              </Form.Item>
+            )}
             <Form.Item
               name="access_level_id"
               label="Access level"
@@ -305,6 +325,7 @@ export default function OrganizationPage() {
   const [roots, setRoots] = useState<PositionNode[]>([]);
   const [templates, setTemplates] = useState<RoleTemplate[]>([]);
   const [levels, setLevels] = useState<AccessLevelT[]>([]);
+  const [kinds, setKinds] = useState<EventKindT[]>([]);
   const [holders, setHolders] = useState<UserBrief[]>([]);
   const [loading, setLoading] = useState(true);
   const [target, setTarget] = useState<EditTarget | null>(null);
@@ -319,11 +340,13 @@ export default function OrganizationPage() {
       api.get<PositionNode[]>('/api/org/tree'),
       api.get<RoleTemplate[]>('/api/org/roles/templates'),
       api.get<AccessLevelT[]>('/api/access/levels'),
+      api.get<EventKindT[]>('/api/competitions/kinds'),
     ])
-      .then(([positions, roleTemplates, ladder]) => {
+      .then(([positions, roleTemplates, ladder, eventKinds]) => {
         setRoots(positions);
         setTemplates(roleTemplates);
         setLevels(ladder);
+        setKinds(eventKinds);
       })
       .catch((e) => message.error(e.message))
       .finally(() => setLoading(false));
@@ -362,6 +385,10 @@ export default function OrganizationPage() {
   const levelName = useCallback(
     (id: number) => levels.find((l) => l.id === id)?.name ?? '?',
     [levels],
+  );
+  const kindName = useCallback(
+    (id: number) => kinds.find((k) => k.id === id)?.name ?? '?',
+    [kinds],
   );
 
   const openModal = (t: EditTarget) => {
@@ -422,6 +449,9 @@ export default function OrganizationPage() {
             <Typography.Text strong italic>{t.title_template}</Typography.Text>
             <Tag color="purple">automatic</Tag>
             <Tag>{EVENT_LABELS[t.event]}</Tag>
+            <Tag color={t.event_kind_id != null ? 'geekblue' : 'default'}>
+              {t.event_kind_id != null ? kindName(t.event_kind_id) : 'all kinds'}
+            </Tag>
             {t.access_level_id != null && (
               <Tag color="gold">{levelName(t.access_level_id)}</Tag>
             )}
@@ -431,7 +461,7 @@ export default function OrganizationPage() {
         children: toTemplateTreeData(t.id),
       }));
     },
-    [templatesByParent, templateActions, levelName],
+    [templatesByParent, templateActions, levelName, kindName],
   );
 
   const toTreeData = useCallback(
@@ -583,6 +613,7 @@ export default function OrganizationPage() {
         target={target}
         holders={holders}
         levels={levels}
+        kinds={kinds}
         open={open}
         onClose={() => setOpen(false)}
         onSaved={load}
