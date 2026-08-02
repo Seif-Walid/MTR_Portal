@@ -131,6 +131,17 @@ export type AllocationPurpose =
 
 export type CompetitionStatus = 'active' | 'archived';
 
+export interface EventKind {
+  id: number;
+  slug: string;
+  name: string; // the tab / kind name, e.g. "Training"
+  event_label: string; // one instance, e.g. "Training Season"
+  category_label: string;
+  team_label: string; // e.g. "Group"
+  member_label: string;
+  sort_order: number;
+}
+
 export interface CompetitionBrief {
   id: number;
   name: string;
@@ -168,6 +179,7 @@ export interface Competition extends CompetitionBrief {
   start_date: string | null;
   end_date: string | null;
   created_at: string;
+  kind: EventKind | null;
   roles: EntityRole[];
   category_count: number;
   team_count: number;
@@ -330,6 +342,7 @@ export interface RoleTemplate {
   event: RoleEvent;
   sort_order: number;
   access_level_id: number | null; // power the produced seats confer
+  event_kind_id: number | null; // which event kind fires it; null = all kinds
   parent_template_id: number | null;
 }
 
@@ -385,4 +398,17 @@ export interface AppNotification {
   request_id: number | null;
   is_read: boolean;
   created_at: string;
+}
+
+export type CalendarSource = 'task' | 'event' | 'inventory' | 'request';
+
+export interface CalendarItem {
+  source: CalendarSource;
+  id: number;
+  title: string;
+  start: string; // ISO date
+  end: string | null; // ISO date; set only for multi-day event spans
+  kind: string | null;
+  detail: string | null;
+  overdue: boolean;
 }

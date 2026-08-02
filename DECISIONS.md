@@ -781,3 +781,52 @@ their already-produced positions; then drops `roles`, `user_roles`, and the
 two template flags. `downgrade` recreates the role catalog, re-grants the
 admin slug to top-override holders, and restores `grants_management` from
 whichever level carries `manage_seated`.
+
+## Events: kinds + per-kind automatic roles
+
+"Competitions" became **Events** — a nav group with a tab per *event kind*
+(Competition, Training, R&D, and any the admin adds), where creating an event
+of any kind runs the same automatic-role seating a competition always did.
+Per the user: "they are the same only with different names."
+
+**One entity, a kind discriminator — no parallel tables.** Training and R&D
+reuse the entire competition structure (top → category → team → member,
+stored in the `competitions*` tables). A new `EventKind` (admin-configurable
+data: `slug`, `name`, and per-level labels `event_label`/`category_label`/
+`team_label`/`member_label`) and a `Competition.kind_id` FK are all it took.
+"Competition" is now the internal name of the generic event entity; its
+display identity (Competition vs Training's "Training Season" with "Group"
+teams vs R&D's "Topic") comes from its kind's labels. Renaming the tables to
+`Event*` would have been a huge, pointless migration — the labels are what the
+user actually sees. Kinds ship as three preset rows (migration on real DBs,
+`competitions.service.ensure_preset_kinds` on fresh/test ones) and are fully
+CRUD-able on the site (`/competitions/kinds`, `org.edit`-gated) — no kind is
+hardcoded in Python, same principle as roles and access levels.
+
+**Per-kind automatic roles.** `RoleTemplate` gained `event_kind_id` (NULL =
+fires for every kind). The role engine is kind-scoped throughout: `apply_event`
+takes the event's `kind_id` and only fires templates that apply to it
+(`_kind_ok` = agnostic or same kind); `_find_chain_parent` only chains within
+compatible kinds, so a Training's "Season Lead" nests under the Training top
+role and never under a Competition's PM even though both react to
+`event="competition_created"`; `template_chain_parent_id` (the org-tree
+preview) and `entity_roles` (the roles panel) apply the same filter. So an
+admin can make a "PM" that fires for every kind, or a "Season Lead" only for
+Trainings. The old placeholder `{competition}` still works (kept as an alias
+for the generic `{event}`), so pre-existing templates keep firing — now for
+every kind, since they migrated with `event_kind_id` NULL.
+
+**Migration `f3c1b8e07a24`** (additive, verified both directions on SQLite +
+Postgres): creates `event_kinds` + the three presets, adds `kind_id` to
+competitions (backfilled to the Competition kind), adds `event_kind_id` to
+role_templates (left NULL = every kind). Sync mirrors kinds too (an
+`event_kinds` tab + a `kind` slug column on competitions), so a rebuild
+preserves them.
+
+**Frontend.** The Events page is a `Tabs`, one per kind, each a
+kind-filtered event list whose columns and "Add …" buttons use that kind's
+labels (a Training tab shows a "Groups" column and an "Add training season"
+button); the detail panel labels categories/teams from `detail.kind`. An
+"Event types" manager (org.edit) adds/renames/deletes kinds inline. The
+role-template form got a "Fires for" picker (a kind, or every kind), and each
+automatic-role node in the org tree shows a kind tag.

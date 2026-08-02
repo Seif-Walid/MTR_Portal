@@ -105,15 +105,19 @@ class RoleTemplate(Base):
     event="team_member_added", where the added member *is* the seat's
     meaning and always occupies it.
 
+    event_kind_id: which event kind (competition/training/R&D/...) this role
+    fires for. NULL means "every kind" (a shared role). A template with a
+    kind only ever fires — and only ever chains — within that kind, so a
+    Training's "Season Lead" and a Competition's "PM" never collide even
+    though both react to the same event="competition_created" trigger. See
+    role_engine._templates_for_kind / _find_chain_parent.
+
     Chaining: this template's positions parent under whichever earlier
-    (lower sort_order) template already has a position for an ancestor
-    entity, or under RoleChainRoot if no earlier template applies at all. If
-    an earlier template *does* apply (its event's entity type is part of
-    this entity's lineage) but hasn't produced a position for it yet, this
-    template is skipped entirely rather than falling back to root — see
-    role_engine._find_chain_parent. That's what makes a role "non-chaining"
-    in practice: give it a sort_order with nothing eligible before it in its
-    own lineage, and it always resolves straight to root."""
+    (lower sort_order) *kind-compatible* template already has a position for
+    an ancestor entity, or under RoleChainRoot if no earlier one applies at
+    all. If an earlier compatible template *does* apply but hasn't produced a
+    position for it yet, this template is skipped rather than falling back to
+    root — see role_engine._find_chain_parent."""
 
     __tablename__ = "role_templates"
 
@@ -123,6 +127,9 @@ class RoleTemplate(Base):
     sort_order: Mapped[int] = mapped_column(Integer, unique=True)
     access_level_id: Mapped[int | None] = mapped_column(
         ForeignKey("access_levels.id", ondelete="SET NULL"), nullable=True
+    )
+    event_kind_id: Mapped[int | None] = mapped_column(
+        ForeignKey("event_kinds.id", ondelete="CASCADE"), nullable=True, index=True
     )
 
     access_level = relationship("AccessLevel", lazy="joined")

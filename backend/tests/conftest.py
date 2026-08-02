@@ -121,6 +121,8 @@ def org(db_session):
     admin (outside the tree)
     """
     db = db_session
+    from app.domains.competitions.service import ensure_preset_kinds
+    ensure_preset_kinds(db)  # Competition / Training / R&D
     levels: dict[str, AccessLevel] = {}
     for rank, (name, keys) in enumerate(TEST_LEVELS, start=1):
         level = AccessLevel(rank=rank, name=name, privileges=json.dumps(keys))

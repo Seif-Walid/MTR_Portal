@@ -187,6 +187,8 @@ export default function CompetitionDetailPanel({ competitionId, onChanged }: {
 
   if (!detail) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Loading…" />;
   const canManage = detail.can_manage;
+  const teamLabel = detail.kind?.team_label ?? 'Team';
+  const categoryLabel = detail.kind?.category_label ?? 'Category';
 
   return (
     <div style={{ padding: '4px 8px' }}>
@@ -197,7 +199,7 @@ export default function CompetitionDetailPanel({ competitionId, onChanged }: {
       <Divider style={{ margin: '12px 0' }} />
 
       {detail.categories.length === 0 && (
-        <Typography.Text type="secondary">No categories yet.</Typography.Text>
+        <Typography.Text type="secondary">No {categoryLabel.toLowerCase()} yet.</Typography.Text>
       )}
       {detail.categories.map((cat) => (
         <Card key={cat.id} size="small" style={{ marginBottom: 10 }}
@@ -224,12 +226,12 @@ export default function CompetitionDetailPanel({ competitionId, onChanged }: {
                 </div>
               )}
               <Space.Compact style={{ width: '100%' }}>
-                <Input placeholder="New team name" value={teamNames[cat.id] ?? ''}
+                <Input placeholder={`New ${teamLabel.toLowerCase()} name`} value={teamNames[cat.id] ?? ''}
                   onChange={(e) => setTeamNames((s) => ({ ...s, [cat.id]: e.target.value }))} />
                 <Button type="primary" icon={<PlusOutlined />}
                   disabled={!teamNames[cat.id]?.trim() || (needsRoot && !roleRootParent[cat.id])}
                   onClick={() => addTeam(cat.id)}>
-                  Add team
+                  Add {teamLabel.toLowerCase()}
                 </Button>
               </Space.Compact>
             </Space>
@@ -239,12 +241,12 @@ export default function CompetitionDetailPanel({ competitionId, onChanged }: {
 
       {canManage && (
         <Space.Compact style={{ marginTop: 4, width: '100%', maxWidth: 460 }}>
-          <Input placeholder="New category (division)" value={newCat}
+          <Input placeholder={`New ${categoryLabel.toLowerCase()}`} value={newCat}
             onChange={(e) => setNewCat(e.target.value)}
             onPressEnter={() => newCat.trim() && run(api.post(`/api/competitions/${competitionId}/categories`, { name: newCat.trim() }), 'Category added', () => { setNewCat(''); refresh(); })} />
           <Button type="primary" icon={<PlusOutlined />} disabled={!newCat.trim()}
             onClick={() => run(api.post(`/api/competitions/${competitionId}/categories`, { name: newCat.trim() }), 'Category added', () => { setNewCat(''); refresh(); })}>
-            Add category
+            Add {categoryLabel.toLowerCase()}
           </Button>
         </Space.Compact>
       )}

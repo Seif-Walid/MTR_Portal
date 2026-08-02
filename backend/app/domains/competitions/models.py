@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from enum import StrEnum
 
-from sqlalchemy import Date, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -12,17 +12,44 @@ class CompetitionStatus(StrEnum):
     ARCHIVED = "archived"
 
 
+class EventKind(Base):
+    """A kind of event — Competition, Training, R&D, or any the admin adds.
+    Every kind shares the exact same structure (a top entity -> categories ->
+    teams -> members, all stored in the competitions tables); a kind only
+    changes the *labels* shown for each level and namespaces automatic roles.
+    So a "Training" is a Competition row whose kind labels its top level
+    "Training Season", its teams "Group", etc. Fully data-driven — no event
+    kind is hardcoded in Python (Competition/Training/R&D just ship as the
+    starting rows)."""
+
+    __tablename__ = "event_kinds"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str] = mapped_column(String(50), unique=True)  # stable id for routing
+    name: Mapped[str] = mapped_column(String(100))  # the tab / kind name, e.g. "Training"
+    # what one level is called for this kind — the "different names" per kind
+    event_label: Mapped[str] = mapped_column(String(100), default="Event")  # e.g. "Training Season"
+    category_label: Mapped[str] = mapped_column(String(100), default="Category")
+    team_label: Mapped[str] = mapped_column(String(100), default="Team")  # e.g. "Group"
+    member_label: Mapped[str] = mapped_column(String(100), default="Member")
+    sort_order: Mapped[int] = mapped_column(Integer, unique=True)
+
+
 class Competition(Base):
-    """A competition: name, dates, and a tree of categories -> teams ->
-    members. Who manages it (PM or equivalent) is entirely a matter of who
-    occupies whatever role-template positions the admin has configured for
-    it (see app/domains/positions/role_engine.py) — there is no dedicated
-    "PM" concept in this model."""
+    """An event: name, dates, a kind (see EventKind), and a tree of categories
+    -> teams -> members. Historically called "Competition" — it is now the
+    generic event entity, its display identity (Competition vs Training vs
+    R&D vs …) coming from `kind`. Who manages it is entirely a matter of who
+    occupies the role-template positions the admin configured for its kind
+    (see app/domains/positions/role_engine.py)."""
 
     __tablename__ = "competitions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    kind_id: Mapped[int | None] = mapped_column(
+        ForeignKey("event_kinds.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     description: Mapped[str] = mapped_column(Text, default="")
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -31,6 +58,7 @@ class Competition(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
+    kind: Mapped["EventKind | None"] = relationship(lazy="joined")
     categories: Mapped[list["CompetitionCategory"]] = relationship(
         back_populates="competition", cascade="all, delete-orphan", lazy="selectin"
     )

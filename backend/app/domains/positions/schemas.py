@@ -44,6 +44,7 @@ class RoleTemplateOut(BaseModel):
     event: str
     sort_order: int
     access_level_id: int | None = None
+    event_kind_id: int | None = None  # None = fires for every event kind
     parent_template_id: int | None = None
 
 
@@ -51,6 +52,7 @@ class RoleTemplateCreate(BaseModel):
     title_template: str = Field(min_length=1, max_length=255)
     event: str
     access_level_id: int | None = None  # power the produced seats confer
+    event_kind_id: int | None = None  # which event kind fires it; None = all kinds
     insert_after_id: int | None = None  # chain right after this template, not at the end
 
 

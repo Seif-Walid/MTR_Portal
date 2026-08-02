@@ -318,15 +318,17 @@ cd backend
 .venv\Scripts\python -m pytest tests -q
 ```
 
-156 tests cover the permission layer: the access ladder (effective level from seats +
+160 tests cover the permission layer: the access ladder (effective level from seats +
 override, privilege gating, last-top-override protection), task assignment (down, up, across,
 self), subtree visibility and drill-down, request accept/decline/delegate, status
 workflow rights (assignee vs. reviewer), hierarchy moves and
 cycle rejection; inventory scoping, allocation capacity math, over-allocation/shrink
 guards, the who-holds-what breakdown, and the stock-movement ledger with checkout
-requests (submit→approve/reject→issue→return, overdue); competition nesting with
+requests (submit→approve/reject→issue→return, overdue); **event kinds** (Competition/
+Training/R&D, admin-addable) with per-kind automatic roles (a role fires and chains
+only within its kind, or across all) and per-kind labels; event nesting with
 seat-level authority (occupying a role seat whose level carries `competitions.manage_seated`
-manages that competition/team — a team role touches only its own team); Google Sheet import
+manages that event/team — a team role touches only its own team); Google Sheet import
 (mocked) with upsert; the **Positions** org tree (single root, no cycles,
 multi-occupant seats, occupant→manager derivation with vacant-seat skip and
 earliest-occupant-wins for shared seats, audit log); admin/CEO-wide user
