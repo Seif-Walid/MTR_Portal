@@ -5,6 +5,27 @@ export interface UserBrief {
   department: string | null;
 }
 
+export interface MemberProfile {
+  mtr_id: string | null;
+  national_id: string | null;
+  birthday: string | null; // ISO date
+  university: string | null;
+  college: string | null;
+  major: string | null;
+  graduating_year: number | null;
+  phone: string | null;
+  father_phone: string | null;
+  mother_phone: string | null;
+  uni_id: string | null;
+  location: string | null;
+}
+
+export interface Member extends UserBrief {
+  is_active: boolean;
+  level: string | null; // effective access level name
+  profile: MemberProfile | null;
+}
+
 export interface LevelBrief {
   id: number;
   rank: number;
@@ -398,6 +419,43 @@ export interface AppNotification {
   request_id: number | null;
   is_read: boolean;
   created_at: string;
+}
+
+export interface DashboardItem {
+  source: 'task' | 'request' | 'inventory' | 'event';
+  id: number;
+  title: string;
+  detail: string | null;
+  due: string | null; // ISO date
+  overdue: boolean;
+  blocked: boolean;
+  status: string | null;
+  priority: string | null;
+  action: string;
+}
+
+export interface DashboardSection {
+  key: string; // overdue | review | waiting | today | week
+  label: string;
+  tone: 'danger' | 'normal';
+  count: number; // full bucket size (may exceed items.length)
+  items: DashboardItem[];
+}
+
+export interface DashboardStat {
+  key: string;
+  label: string;
+  count: number;
+  tone: 'danger' | 'normal';
+}
+
+export interface Dashboard {
+  as_of: string; // ISO date
+  greeting_name: string;
+  is_reviewer: boolean;
+  all_clear: boolean;
+  stats: DashboardStat[];
+  sections: DashboardSection[];
 }
 
 export type CalendarSource = 'task' | 'event' | 'inventory' | 'request';

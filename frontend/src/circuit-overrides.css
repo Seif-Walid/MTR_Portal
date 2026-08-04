@@ -1,0 +1,285 @@
+/* ==========================================================================
+   CIRCUIT — global Ant Design v5 overrides.
+   Import ONCE in main.tsx, AFTER './circuit.css':
+       import './circuit.css';
+       import './circuit-overrides.css';
+
+   Why this file exists: the AntD ConfigProvider theme (circuitTheme.ts) sets
+   colours, but it does NOT restyle button fills, table-header typography,
+   panel chrome, or focus rings to the CIRCUIT prototype. Everything the theme
+   can't express lives here so NO surface falls back to an AntD default
+   (AntD's primary button is a solid fill with white text = wrong + low
+   contrast against our palette). Applies app-wide; no per-page CSS needed.
+   ========================================================================== */
+
+:root {
+  --c-void: #06080c;
+  --c-panel: rgba(15, 20, 29, .55);
+  --c-inset: rgba(8, 11, 17, .7);
+  --c-elev: #0f141d;
+  --c-accent: #5cc6ff;
+  --c-accent-2: #4eb4f5;
+  --c-teal: #4fd6c4;
+  --c-danger: #ff5a6e;
+  --c-text: #eaf2ff;
+  --c-muted: rgba(224, 236, 252, .55);
+  --c-faint: rgba(224, 236, 252, .4);
+  --c-hairline: rgba(120, 170, 230, .12);
+  --c-hairline-row: rgba(120, 170, 230, .07);
+  --c-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace;
+  --c-display: 'Space Grotesk Variable', 'Space Grotesk', sans-serif;
+}
+
+/* ---- Buttons -------------------------------------------------------------
+   Primary = accent gradient, void text, glow. Overrides AntD's solid fill. */
+.ant-btn-primary {
+  background: linear-gradient(180deg, #7cd2ff, var(--c-accent-2)) !important;
+  border: none !important;
+  color: var(--c-void) !important;
+  font-weight: 600;
+  box-shadow: 0 0 20px rgba(92, 198, 255, .35);
+  transition: box-shadow .18s ease, filter .18s ease;
+}
+.ant-btn-primary:not(:disabled):hover {
+  box-shadow: 0 0 32px rgba(92, 198, 255, .65) !important;
+  color: var(--c-void) !important;
+  filter: brightness(1.03);
+}
+.ant-btn-primary:disabled,
+.ant-btn-primary.ant-btn-disabled {
+  background: rgba(92, 198, 255, .18) !important;
+  color: rgba(6, 8, 12, .5) !important;
+  box-shadow: none;
+}
+
+/* Default = ghost panel button */
+.ant-btn-default {
+  background: rgba(255, 255, 255, .03) !important;
+  border: 1px solid rgba(120, 170, 230, .2) !important;
+  color: var(--c-text) !important;
+}
+.ant-btn-default:not(:disabled):hover {
+  border-color: rgba(92, 198, 255, .4) !important;
+  color: var(--c-text) !important;
+  background: rgba(92, 198, 255, .06) !important;
+}
+
+/* Text/link buttons keep accent */
+.ant-btn-link { color: var(--c-accent) !important; }
+
+/* Danger (decline / delete) */
+.ant-btn-dangerous.ant-btn-default {
+  color: #ff8090 !important;
+  border-color: rgba(255, 90, 110, .32) !important;
+  background: rgba(255, 59, 78, .06) !important;
+}
+.ant-btn-dangerous.ant-btn-primary {
+  background: linear-gradient(180deg, #ff7183, #ec4459) !important;
+  color: #fff !important;
+  box-shadow: 0 0 20px rgba(255, 90, 110, .3);
+}
+
+/* ---- Tables → panels -----------------------------------------------------
+   Wrap page tables in <Table className="circuit-table" ...> for the chrome. */
+.circuit-table .ant-table {
+  background: var(--c-panel);
+  border: 1px solid var(--c-hairline);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.circuit-table .ant-table-thead > tr > th {
+  background: rgba(8, 11, 17, .4) !important;
+  font-family: var(--c-mono);
+  font-size: 9.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--c-faint) !important;
+  border-bottom: 1px solid var(--c-hairline) !important;
+}
+.circuit-table .ant-table-thead > tr > th::before { display: none !important; } /* kill AntD column divider */
+.circuit-table .ant-table-tbody > tr > td { border-bottom: 1px solid var(--c-hairline-row); }
+.circuit-table .ant-table-tbody > tr { cursor: pointer; }
+.circuit-table .ant-table-tbody > tr:hover > td { background: rgba(255, 255, 255, .02) !important; }
+.circuit-table .ant-table-tbody > tr .row-chevron { opacity: 0; transition: opacity .15s; color: var(--c-accent); }
+.circuit-table .ant-table-tbody > tr:hover .row-chevron { opacity: .7; }
+.circuit-table .ant-table-placeholder:hover > td { background: transparent !important; }
+
+/* ---- Cards / panels ------------------------------------------------------ */
+.ant-card {
+  background: var(--c-panel);
+  border: 1px solid var(--c-hairline);
+  border-radius: 12px;
+}
+.ant-card > .ant-card-head { border-bottom: 1px solid var(--c-hairline); min-height: 44px; }
+.ant-card .ant-statistic-title { font-family: var(--c-mono); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--c-faint); }
+.ant-card .ant-statistic-content { font-family: var(--c-display); color: var(--c-text); }
+
+/* ---- Tabs ---------------------------------------------------------------- */
+.ant-tabs-top > .ant-tabs-nav::before { border-bottom: 1px solid var(--c-hairline); }
+.ant-tabs-tab { color: var(--c-muted); }
+.ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn { color: var(--c-text) !important; }
+.ant-tabs-ink-bar { background: var(--c-accent); }
+
+/* ---- Inputs / Select / DatePicker --------------------------------------- */
+.ant-input, .ant-input-affix-wrapper,
+.ant-input-number, .ant-input-number-input,
+.ant-picker,
+.ant-select .ant-select-selector {
+  background: var(--c-inset) !important;
+  border-color: var(--c-hairline) !important;
+  color: var(--c-text);
+}
+.ant-input-affix-wrapper:focus-within,
+.ant-picker-focused,
+.ant-select-focused .ant-select-selector,
+.ant-input:focus {
+  border-color: var(--c-accent) !important;
+  box-shadow: 0 0 0 2px rgba(92, 198, 255, .16) !important;
+}
+.ant-input::placeholder { color: var(--c-faint); }
+.ant-select-dropdown, .ant-picker-panel-container { background: var(--c-elev); border: 1px solid var(--c-hairline); }
+.ant-select-item-option-selected:not(.ant-select-item-option-disabled) { background: rgba(92, 198, 255, .12); }
+
+/* ---- Segmented (Month/Week, Received/Sent, etc.) ------------------------- */
+.ant-segmented { background: rgba(8, 11, 17, .6); border: 1px solid var(--c-hairline); border-radius: 10px; padding: 3px; }
+.ant-segmented .ant-segmented-item-selected {
+  background: linear-gradient(90deg, rgba(92, 198, 255, .2), rgba(92, 198, 255, .05));
+  border: 1px solid rgba(92, 198, 255, .3);
+  color: var(--c-text);
+}
+.ant-segmented .ant-segmented-item { color: var(--c-muted); }
+
+/* ---- Switch (Active toggle, org "Show automatic roles") ------------------ */
+.ant-switch.ant-switch-checked { background: var(--c-teal) !important; }
+.ant-switch { background: rgba(255, 255, 255, .12); }
+
+/* ---- Tag (seats, item qty, misc) ----------------------------------------- */
+.ant-tag {
+  background: rgba(255, 255, 255, .03);
+  border: 1px solid var(--c-hairline);
+  color: var(--c-text);
+  border-radius: 5px;
+}
+
+/* ---- Modal (New request, User, Position modals) -------------------------- */
+.ant-modal .ant-modal-content { background: var(--c-elev); border: 1px solid var(--c-hairline); border-radius: 14px; }
+.ant-modal .ant-modal-header { background: var(--c-elev); border-bottom: 1px solid var(--c-hairline); }
+.ant-modal .ant-modal-title { font-family: var(--c-display); color: var(--c-text); }
+
+/* ---- Collapse (Admin › Access levels) ------------------------------------ */
+.ant-collapse { background: transparent; border: 1px solid var(--c-hairline); border-radius: 10px; }
+.ant-collapse > .ant-collapse-item { border-bottom: 1px solid var(--c-hairline-row); }
+.ant-collapse .ant-collapse-header { color: var(--c-text) !important; }
+.ant-collapse-content { background: rgba(8, 11, 17, .3); border-top: 1px solid var(--c-hairline-row); }
+
+/* ---- Tree (Organization — keep AntD drag-to-reparent) -------------------- */
+.ant-tree { background: transparent; color: var(--c-text); }
+.ant-tree .ant-tree-node-content-wrapper:hover { background: rgba(92, 198, 255, .06); }
+.ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected { background: rgba(92, 198, 255, .1); }
+.ant-tree .ant-tree-treenode { padding-bottom: 6px; }
+.ant-tree-title { font-size: 14px; }
+
+/* ---- List (privilege lists, etc.) ---------------------------------------- */
+.ant-list .ant-list-item { border-color: var(--c-hairline-row); }
+
+/* ---- Badge (Team open-count) --------------------------------------------- */
+.ant-badge-count { box-shadow: none; font-family: var(--c-mono); }
+
+/* ---- Empty state --------------------------------------------------------- */
+.ant-empty-description { color: var(--c-muted); }
+
+/* ==========================================================================
+   CIRCUIT app shell — classes used by the bespoke AppLayout rail + header.
+   (The rail/header themselves are inline-styled in AppLayout.tsx; only the
+   hover/active/keyframe bits that inline styles can't express live here.)
+   ========================================================================== */
+@keyframes mtr-pulse { 0%,100% { opacity:.5 } 50% { opacity:1 } }
+
+.mtr-scroll::-webkit-scrollbar { width:9px; height:9px; }
+.mtr-scroll::-webkit-scrollbar-thumb { background:rgba(120,170,230,.18); border-radius:6px; }
+.mtr-scroll::-webkit-scrollbar-thumb:hover { background:rgba(120,170,230,.3); }
+
+/* rail nav item */
+.mtr-nav {
+  display:flex; align-items:center; gap:12px;
+  padding:9px 13px; margin:1px 10px; border-radius:9px;
+  color:rgba(224,236,252,.55);
+  font:500 13.5px var(--c-display, 'Space Grotesk Variable'), sans-serif;
+  font-family:'Geist Variable','Geist',system-ui,sans-serif;
+  cursor:pointer; position:relative; transition:.18s; border:1px solid transparent;
+  white-space:nowrap;
+}
+.mtr-nav:hover { color:var(--c-text); background:rgba(92,198,255,.06); }
+.mtr-nav svg { opacity:.75; flex-shrink:0; }
+.mtr-nav.active {
+  color:var(--c-text);
+  background:linear-gradient(90deg,rgba(92,198,255,.16),rgba(92,198,255,.01));
+  border-color:rgba(92,198,255,.32);
+  box-shadow:inset 0 0 22px rgba(92,198,255,.07);
+}
+.mtr-nav.active::before {
+  content:''; position:absolute; left:-11px; top:50%; transform:translateY(-50%);
+  width:3px; height:58%; background:var(--c-accent); border-radius:2px; box-shadow:0 0 10px var(--c-accent);
+}
+.mtr-nav.active svg { opacity:1; color:var(--c-accent); }
+
+/* rail sub-item (event kinds) */
+.mtr-sub {
+  display:flex; align-items:center; gap:10px;
+  padding:7px 13px 7px 42px; margin:1px 10px; border-radius:8px;
+  color:rgba(224,236,252,.5);
+  font:400 12.5px 'Geist Variable','Geist',system-ui,sans-serif;
+  cursor:pointer; transition:.15s; white-space:nowrap;
+}
+.mtr-sub:hover { color:var(--c-text); background:rgba(92,198,255,.05); }
+.mtr-sub.active { color:var(--c-accent); }
+
+/* "SYSTEM ONLINE" pulse dot */
+.mtr-online-dot {
+  width:6px; height:6px; border-radius:50%;
+  background:var(--c-accent); box-shadow:0 0 8px var(--c-accent);
+  animation:mtr-pulse 2.6s ease-in-out infinite;
+}
+
+/* header square icon button */
+.mtr-icon-btn {
+  width:34px; height:34px; border-radius:9px;
+  border:1px solid rgba(120,170,230,.16); background:transparent;
+  display:flex; align-items:center; justify-content:center;
+  color:rgba(224,236,252,.7); cursor:pointer; transition:.15s; flex-shrink:0;
+}
+.mtr-icon-btn:hover { border-color:rgba(92,198,255,.4); color:var(--c-text); background:rgba(92,198,255,.06); }
+
+@media (max-width:640px) {
+  .mtr-clock, .mtr-userchip { display:none; }
+}
+@media (prefers-reduced-motion:reduce) { .mtr-online-dot { animation:none; } }
+
+/* ---- Login screen (bespoke, outside the app shell) ----------------------- */
+@keyframes mtr-dash { to { stroke-dashoffset:-40 } }
+.mtr-trace { stroke-dasharray:5 7; animation:mtr-dash 3.4s linear infinite; }
+.mtr-pcb-node { animation:mtr-pulse 2.6s ease-in-out infinite; }
+.mtr-field {
+  width:100%; background:var(--c-inset); border:1px solid rgba(120,170,230,.16);
+  border-radius:9px; padding:11px 13px; color:var(--c-text);
+  font:400 14px 'Geist Variable','Geist',system-ui,sans-serif; outline:none; transition:.18s;
+}
+.mtr-field::placeholder { color:rgba(224,236,252,.35); }
+.mtr-field:focus { border-color:var(--c-accent); box-shadow:0 0 0 3px rgba(92,198,255,.15),0 0 20px rgba(92,198,255,.12); }
+.mtr-seg-tab {
+  flex:1; text-align:center; padding:8px; border-radius:7px; font-size:13px; cursor:pointer;
+  color:rgba(224,236,252,.5); border:1px solid transparent; transition:.15s;
+}
+.mtr-seg-tab.active {
+  background:linear-gradient(90deg,rgba(92,198,255,.18),rgba(92,198,255,.05));
+  border-color:rgba(92,198,255,.3); color:var(--c-text); font-weight:500;
+}
+.mtr-oauth-btn {
+  width:100%; display:flex; align-items:center; justify-content:center; gap:9px;
+  font:500 13.5px 'Geist Variable','Geist',system-ui,sans-serif; color:var(--c-text);
+  background:rgba(255,255,255,.03); border:1px solid rgba(120,170,230,.18);
+  padding:11px; border-radius:9px; cursor:pointer; transition:.18s;
+}
+.mtr-oauth-btn:hover:not(:disabled) { border-color:rgba(92,198,255,.4); background:rgba(92,198,255,.06); }
+.mtr-oauth-btn:disabled { opacity:.5; cursor:not-allowed; }
+@media (prefers-reduced-motion:reduce) { .mtr-trace, .mtr-pcb-node { animation:none; } }

@@ -27,4 +27,6 @@ else
 fi
 
 echo "Starting server..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Render/most PaaS inject the port to bind on via $PORT; fall back to 8000 for
+# local Docker/compose where the port is fixed.
+exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"

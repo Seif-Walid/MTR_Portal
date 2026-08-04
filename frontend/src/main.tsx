@@ -1,45 +1,27 @@
-import { App as AntApp, ConfigProvider, theme as antdTheme } from 'antd';
+import { App as AntApp, ConfigProvider } from 'antd';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
+// Self-hosted type — the CIRCUIT system: Space Grotesk (display), Geist (body),
+// Geist Mono (data/labels). Bundled by Vite, so no network/CSP dependency.
+import '@fontsource-variable/space-grotesk/wght.css';
+import '@fontsource-variable/geist/wght.css';
+import '@fontsource-variable/geist-mono/wght.css';
+
 import App from './App';
 import { AuthProvider } from './auth/AuthContext';
-import { brand } from './theme/brand';
-import { ThemeModeProvider, useThemeMode } from './theme/ThemeContext';
+import { circuitTheme } from './theme/circuitTheme';
+import { ThemeModeProvider } from './theme/ThemeContext';
 import './index.css';
+import './circuit.css';
+import './circuit-overrides.css';
 
+// The CIRCUIT world is authored dark-only, so the app commits to this theme
+// regardless of OS/toggle preference.
 function ThemedApp() {
-  const { mode } = useThemeMode();
-  const dark = mode === 'dark';
-
   return (
-    <ConfigProvider
-      theme={{
-        algorithm: dark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-        token: {
-          // black & white dominant; red reserved for accents and danger
-          colorPrimary: dark ? brand.cream : brand.ink,
-          colorInfo: dark ? brand.cream : brand.ink,
-          colorLink: dark ? brand.cream : brand.ink,
-          colorError: brand.red,
-          borderRadius: 6,
-          colorBgLayout: dark ? brand.black : brand.cream,
-          colorBgContainer: dark ? '#17171a' : '#ffffff',
-        },
-        components: {
-          Layout: {
-            siderBg: brand.siderBg,
-            headerBg: dark ? '#17171a' : '#ffffff',
-          },
-          Menu: {
-            darkItemBg: brand.siderBg,
-            darkItemSelectedBg: brand.red,
-            darkItemSelectedColor: '#ffffff',
-          },
-        },
-      }}
-    >
+    <ConfigProvider theme={circuitTheme}>
       <AntApp>
         <BrowserRouter>
           <AuthProvider>

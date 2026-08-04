@@ -1,16 +1,19 @@
 import { DeleteOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import {
-  Button, DatePicker, Empty, Form, Input, List, Modal, Popconfirm, Space, Table, Tag, Typography, message,
+  Button, DatePicker, Empty, Form, Input, List, Modal, Popconfirm, Space, Tag, Typography, message,
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useCallback, useEffect, useState } from 'react';
-import { Navigate, useParams } from 'react-router-dom';
+import { Navigate, useNavigate, useParams } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
 import type { Competition, EventKind, RoleRoot } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
 import CompetitionDetailPanel from '../components/CompetitionDetailPanel';
 import PositionPicker from '../components/PositionPicker';
+
+const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
+const DISPLAY = "'Space Grotesk Variable', 'Space Grotesk', sans-serif";
 
 interface FormValues {
   name: string;
@@ -19,6 +22,7 @@ interface FormValues {
   role_root_position_id?: number;
 }
 
+/* ---- EventModal — unchanged auth/data flow -------------------------------- */
 function EventModal({ kind, event, open, onClose, onSaved }: {
   kind: EventKind;
   event: Competition | null;
@@ -93,7 +97,7 @@ function EventModal({ kind, event, open, onClose, onSaved }: {
           </Form.Item>
         )}
         <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-          Add {kind.category_label.toLowerCase()}, {kind.team_label.toLowerCase()}s, and members after creating — expand the row.
+          Add {kind.category_label.toLowerCase()}, {kind.team_label.toLowerCase()}s, and members after creating — open the event.
         </Typography.Paragraph>
         <Button type="primary" htmlType="submit" block loading={busy}>
           {event ? 'Save changes' : `Add ${label.toLowerCase()}`}
@@ -103,11 +107,97 @@ function EventModal({ kind, event, open, onClose, onSaved }: {
   );
 }
 
+/* ---- EventsList — prototype card grid ------------------------------------- */
+function EventCard({ kind, c, onEdit, onStatus, onRemove, expanded, onToggle, onChanged }: {
+  kind: EventKind;
+  c: Competition;
+  onEdit: () => void;
+  onStatus: (status: 'active' | 'archived') => void;
+  onRemove: () => void;
+  expanded: boolean;
+  onToggle: () => void;
+  onChanged: () => void;
+}) {
+  const active = c.status === 'active';
+  const dates = c.start_date && c.end_date
+    ? `${dayjs(c.start_date).format('DD MMM')}–${dayjs(c.end_date).format('DD MMM YY')}`.toUpperCase()
+    : '—';
+  const lead = c.roles.flatMap((r) => r.occupants.map((u) => u.full_name)).join(', ') || 'Unassigned';
+  const trace = active ? '#5cc6ff' : 'rgba(120,170,230,.4)';
+  const stat = (value: number, label: string, accent?: boolean) => (
+    <div style={{ flex: 1, background: '#0f141d', padding: '10px 12px' }}>
+      <div style={{ fontFamily: MONO, fontWeight: 600, fontSize: 18, color: accent ? '#5cc6ff' : '#eaf2ff' }}>{value || '—'}</div>
+      <div style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(224,236,252,.4)', marginTop: 3 }}>{label}</div>
+    </div>
+  );
+  return (
+    <div
+      style={{
+        position: 'relative',
+        border: `1px solid ${active ? 'rgba(92,198,255,.22)' : 'rgba(120,170,230,.1)'}`,
+        borderRadius: 14,
+        overflow: 'hidden',
+        background: 'rgba(15,20,29,.6)',
+        padding: 20,
+        boxShadow: active ? '0 20px 50px -30px rgba(92,198,255,.4)' : 'none',
+        gridColumn: expanded ? '1 / -1' : 'auto',
+      }}
+    >
+      <svg viewBox="0 0 300 90" style={{ position: 'absolute', top: 0, right: 0, width: '60%', opacity: 0.25, pointerEvents: 'none' }}>
+        <g fill="none" stroke={trace} strokeWidth="1"><path d="M300 20 H200 L170 50 H90" /><path d="M300 60 H240 L215 30 H150" /></g>
+        <circle cx="170" cy="50" r="2.5" fill={trace} />
+      </svg>
+      <div style={{ position: 'relative' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: active ? '#5cc6ff' : 'rgba(224,236,252,.45)', border: `1px solid ${active ? 'rgba(92,198,255,.35)' : 'rgba(120,170,230,.18)'}`, background: active ? 'rgba(92,198,255,.08)' : 'transparent', padding: '3px 8px', borderRadius: 5 }}>{c.status.toUpperCase()}</span>
+          <span style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(224,236,252,.45)' }}>{dates}</span>
+        </div>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={onToggle}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
+          style={{ cursor: 'pointer', outline: 'none' }}
+        >
+          <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 18, color: '#eaf2ff', marginTop: 14 }}>{c.name}</div>
+          <div style={{ fontSize: 12, color: 'rgba(224,236,252,.5)', marginTop: 4 }}>Lead: {lead}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 1, marginTop: 18, background: 'rgba(120,170,230,.1)', borderRadius: 9, overflow: 'hidden', border: '1px solid rgba(120,170,230,.1)' }}>
+          {stat(c.category_count, kind.category_label, true)}
+          {stat(c.team_count, `${kind.team_label}s`)}
+          {stat(c.member_count, kind.member_label ? `${kind.member_label}s` : 'Members')}
+        </div>
+        {c.can_manage && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+            <Button size="small" onClick={onEdit}>Edit</Button>
+            {active
+              ? <Button size="small" onClick={() => onStatus('archived')}>Archive</Button>
+              : <Button size="small" onClick={() => onStatus('active')}>Reactivate</Button>}
+            <Popconfirm
+              title={c.allocation_count ? 'In use — archive it instead.' : 'Delete this?'}
+              onConfirm={onRemove} disabled={!!c.allocation_count}>
+              <Button size="small" danger disabled={!!c.allocation_count}>Delete</Button>
+            </Popconfirm>
+            <span style={{ flex: 1 }} />
+            <Button size="small" type="text" onClick={onToggle} style={{ color: '#5cc6ff' }}>{expanded ? 'Close' : 'Open'}</Button>
+          </div>
+        )}
+        {expanded && (
+          <div style={{ marginTop: 18, borderTop: '1px solid rgba(120,170,230,.12)', paddingTop: 16 }}>
+            <CompetitionDetailPanel competitionId={c.id} onChanged={onChanged} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function EventsList({ kind, canCreate }: { kind: EventKind; canCreate: boolean }) {
   const [events, setEvents] = useState<Competition[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Competition | null>(null);
   const [open, setOpen] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -130,60 +220,40 @@ function EventsList({ kind, canCreate }: { kind: EventKind; canCreate: boolean }
 
   return (
     <>
-      <Space style={{ marginBottom: 12, width: '100%', justifyContent: 'flex-end' }}>
-        {canCreate && (
+      {canCreate && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setOpen(true); }}>
             Add {kind.event_label.toLowerCase()}
           </Button>
-        )}
-      </Space>
-      <Table
-        rowKey="id"
-        loading={loading}
-        dataSource={events}
-        pagination={{ pageSize: 20, hideOnSinglePage: true }}
-        expandable={{ expandedRowRender: (c) => <CompetitionDetailPanel competitionId={c.id} onChanged={load} /> }}
-        columns={[
-          { title: 'Name', dataIndex: 'name', render: (v) => <Typography.Text strong>{v}</Typography.Text> },
-          {
-            title: 'Dates', width: 170,
-            render: (_, c) => c.start_date && c.end_date
-              ? `${dayjs(c.start_date).format('DD MMM')} – ${dayjs(c.end_date).format('DD MMM YY')}` : '—',
-          },
-          {
-            title: 'Roles', width: 180,
-            render: (_, c) => c.roles.flatMap((r) => r.occupants.map((u) => u.full_name)).join(', ') || '—',
-          },
-          { title: kind.category_label, dataIndex: 'category_count', width: 110, render: (n: number) => n || '—' },
-          { title: `${kind.team_label}s`, dataIndex: 'team_count', width: 90, render: (n: number) => n || '—' },
-          { title: 'Members', dataIndex: 'member_count', width: 90, render: (n: number) => n || '—' },
-          {
-            title: 'Status', dataIndex: 'status', width: 100,
-            render: (s: string) => <Tag color={s === 'active' ? 'green' : 'default'}>{s.toUpperCase()}</Tag>,
-          },
-          {
-            title: '', width: 240,
-            render: (_, c) => c.can_manage ? (
-              <Space>
-                <Button size="small" onClick={() => { setEditing(c); setOpen(true); }}>Edit</Button>
-                {c.status === 'active'
-                  ? <Button size="small" onClick={() => setStatus(c, 'archived')}>Archive</Button>
-                  : <Button size="small" onClick={() => setStatus(c, 'active')}>Reactivate</Button>}
-                <Popconfirm
-                  title={c.allocation_count ? 'In use — archive it instead.' : 'Delete this?'}
-                  onConfirm={() => remove(c)} disabled={!!c.allocation_count}>
-                  <Button size="small" danger disabled={!!c.allocation_count}>Delete</Button>
-                </Popconfirm>
-              </Space>
-            ) : null,
-          },
-        ]}
-      />
+        </div>
+      )}
+      {loading && !events.length ? (
+        <div style={{ fontFamily: MONO, fontSize: 12, color: 'rgba(224,236,252,.4)', padding: 24 }}>LOADING…</div>
+      ) : events.length === 0 ? (
+        <Empty description={`No ${kind.event_label.toLowerCase()}s yet.`} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: 16 }}>
+          {events.map((c) => (
+            <EventCard
+              key={c.id}
+              kind={kind}
+              c={c}
+              expanded={expandedId === c.id}
+              onToggle={() => setExpandedId((id) => (id === c.id ? null : c.id))}
+              onEdit={() => { setEditing(c); setOpen(true); }}
+              onStatus={(s) => setStatus(c, s)}
+              onRemove={() => remove(c)}
+              onChanged={load}
+            />
+          ))}
+        </div>
+      )}
       <EventModal kind={kind} event={editing} open={open} onClose={() => setOpen(false)} onSaved={load} />
     </>
   );
 }
 
+/* ---- KindsManagerModal — unchanged --------------------------------------- */
 function KindsManagerModal({ kinds, open, onClose, onChanged }: {
   kinds: EventKind[];
   open: boolean;
@@ -263,9 +333,11 @@ function KindsManagerModal({ kinds, open, onClose, onChanged }: {
   );
 }
 
+/* ---- Page ----------------------------------------------------------------- */
 export default function EventsPage() {
   const { me } = useAuth();
   const { slug } = useParams<{ slug: string }>();
+  const navigate = useNavigate();
   const [kinds, setKinds] = useState<EventKind[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [managing, setManaging] = useState(false);
@@ -280,21 +352,42 @@ export default function EventsPage() {
   }, []);
   useEffect(loadKinds, [loadKinds]);
 
-  // no slug in the URL → land on the first kind (the nav sub-items link here)
   if (loaded && !slug && kinds.length) return <Navigate to={`/events/${kinds[0].slug}`} replace />;
 
   const kind = kinds.find((k) => k.slug === slug);
 
   return (
     <>
-      <Space style={{ marginBottom: 12, width: '100%', justifyContent: 'space-between' }} align="start" wrap>
-        <Typography.Title level={4} style={{ margin: 0 }}>
-          {kind ? kind.name : 'Events'}
-        </Typography.Title>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
+        <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: '#eaf2ff' }}>{kind ? kind.name : 'Events'}</h2>
         {canManageKinds && (
           <Button icon={<SettingOutlined />} onClick={() => setManaging(true)}>Event types</Button>
         )}
-      </Space>
+      </div>
+
+      {/* segmented kind switch (mirrors the nav sub-items) */}
+      {kinds.length > 1 && (
+        <div style={{ display: 'inline-flex', gap: 4, background: 'rgba(8,11,17,.6)', border: '1px solid rgba(120,170,230,.12)', borderRadius: 10, padding: 4, marginBottom: 20 }}>
+          {kinds.map((k) => {
+            const on = k.slug === slug;
+            return (
+              <div
+                key={k.id}
+                onClick={() => navigate(`/events/${k.slug}`)}
+                style={{
+                  padding: '7px 16px', borderRadius: 7, fontSize: 13, cursor: 'pointer',
+                  color: on ? '#eaf2ff' : 'rgba(224,236,252,.5)',
+                  background: on ? 'linear-gradient(90deg,rgba(92,198,255,.2),rgba(92,198,255,.05))' : 'transparent',
+                  border: `1px solid ${on ? 'rgba(92,198,255,.3)' : 'transparent'}`,
+                }}
+              >
+                {k.name}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {kind ? (
         <EventsList key={kind.id} kind={kind} canCreate={canCreate} />
       ) : loaded && kinds.length === 0 ? (

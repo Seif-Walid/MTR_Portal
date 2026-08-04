@@ -220,7 +220,7 @@ export default function InventoryRequestsDrawer({ open, onClose }: { open: boole
             New request
           </Button>
         </Space>
-        <Table rowKey="id" loading={loading} dataSource={requests} columns={columns} pagination={{ pageSize: 10, hideOnSinglePage: true }} />
+        <Table className="circuit-table" rowKey="id" loading={loading} dataSource={requests} columns={columns} pagination={{ defaultPageSize: 10, hideOnSinglePage: true }} />
       </Drawer>
 
       <IssueModal req={issuing} open={!!issuing} onClose={() => setIssuing(null)} onDone={load} />

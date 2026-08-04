@@ -1,7 +1,7 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from enum import StrEnum
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -51,7 +51,39 @@ class User(Base):
 
     manager: Mapped["User | None"] = relationship(remote_side=[id])
     access_level = relationship("AccessLevel", lazy="joined")
+    profile: Mapped["MemberProfile | None"] = relationship(
+        back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
 
     @property
     def google_linked(self) -> bool:
         return self.google_linked_at is not None
+
+
+class MemberProfile(Base):
+    """The roster record behind an account — the biographical/contact fields
+    from the org's member database (imported from the student sheet). Kept in
+    its own table so `User` stays the lean identity/access record and the
+    profile can be absent (e.g. an admin bootstrap account has no roster row).
+    Every field is optional: the source data is patchy."""
+
+    __tablename__ = "member_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    mtr_id: Mapped[str | None] = mapped_column(String(20), unique=True, index=True, nullable=True)
+    national_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    birthday: Mapped[date | None] = mapped_column(Date, nullable=True)
+    university: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    college: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    major: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    graduating_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    father_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    mother_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    uni_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    user: Mapped["User"] = relationship(back_populates="profile")

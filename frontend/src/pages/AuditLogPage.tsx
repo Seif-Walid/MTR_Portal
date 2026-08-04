@@ -66,11 +66,11 @@ export default function AuditLogPage() {
         </Space>
       </Space>
 
-      <Table
+      <Table className="circuit-table"
         rowKey="id"
         loading={loading}
         dataSource={entries}
-        pagination={{ pageSize: 20, hideOnSinglePage: true }}
+        pagination={{ defaultPageSize: 20, hideOnSinglePage: true }}
         columns={[
           {
             title: 'When',
