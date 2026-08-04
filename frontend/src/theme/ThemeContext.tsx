@@ -1,31 +1,23 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, type ReactNode } from 'react';
 
-import { brand } from './brand';
+type Mode = 'dark';
 
-type Mode = 'light' | 'dark';
-
+// The CIRCUIT world is authored dark-only. The provider stays so existing
+// consumers keep working; body background + palette come from circuit.css and
+// the AntD dark theme.
 const ThemeModeContext = createContext<{ mode: Mode; toggle: () => void }>({
-  mode: 'light',
+  mode: 'dark',
   toggle: () => {},
 });
 
 export function ThemeModeProvider({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<Mode>(() => {
-    const saved = localStorage.getItem('mtr-theme');
-    if (saved === 'light' || saved === 'dark') return saved;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
-
   useEffect(() => {
-    localStorage.setItem('mtr-theme', mode);
-    document.body.style.background = mode === 'dark' ? brand.black : brand.cream;
-    document.body.style.colorScheme = mode;
-  }, [mode]);
+    localStorage.setItem('mtr-theme', 'dark');
+    document.body.style.colorScheme = 'dark';
+  }, []);
 
   return (
-    <ThemeModeContext.Provider
-      value={{ mode, toggle: () => setMode((m) => (m === 'dark' ? 'light' : 'dark')) }}
-    >
+    <ThemeModeContext.Provider value={{ mode: 'dark', toggle: () => {} }}>
       {children}
     </ThemeModeContext.Provider>
   );

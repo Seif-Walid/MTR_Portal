@@ -2,8 +2,70 @@
   box-sizing: border-box;
 }
 
-body {
-  margin: 0;
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+/* Body/fonts/PCB grid/headings/panels live in circuit.css; all AntD component
+   overrides (buttons, tables, inputs, segmented, switch, modal, …) live in
+   circuit-overrides.css. This file carries only what neither covers. */
+
+/* Type-role utilities used by bespoke widgets. */
+.u-mono {
+  font-family: 'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.u-label {
+  font-family: 'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 9.5px;
+  font-weight: 500;
+  color: rgba(224, 236, 252, 0.4);
+}
+
+::selection {
+  background: rgba(92, 198, 255, 0.25);
+  color: #eaf2ff;
+}
+
+/* Dark scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 170, 230, 0.25) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(120, 170, 230, 0.2);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* Home dashboard: interaction + the one authored entrance moment. */
+.home-row:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+.home-row:focus-visible {
+  outline: 2px solid rgba(92, 198, 255, 0.6);
+  outline-offset: -2px;
+}
+.home-row .home-row__chev {
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 0.18s, transform 0.18s;
+}
+.home-row:hover .home-row__chev,
+.home-row:focus-visible .home-row__chev {
+  opacity: 1;
+  transform: translateX(0);
+}
+@keyframes home-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.home-rise {
+  animation: home-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-rise { animation: none; }
 }

@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-02T14:30:00Z",
+  "title": "Design System: Mind·Tech Robotics Portal",
+  "extensions": {
+    "colorMeta": {
+      "ink": {
+        "role": "primary",
+        "displayName": "Ink",
+        "canonical": "#141416",
+        "tonalRamp": ["#0d0d0e", "#141416", "#232326", "#3a3a3e", "#5a5a5f", "#86868c", "#b6b6bb", "#e4e4e7"]
+      },
+      "cream": {
+        "role": "primary",
+        "displayName": "Cream",
+        "canonical": "#f5f2ea",
+        "tonalRamp": ["#4a463c", "#6b6555", "#8f8874", "#b3ab95", "#d2cbb8", "#e6e0d2", "#f5f2ea", "#fbf9f4"]
+      },
+      "red": {
+        "role": "secondary",
+        "displayName": "Signal Red",
+        "canonical": "#d92d2d",
+        "tonalRamp": ["#3d0d0d", "#5e1414", "#8a1d1d", "#b32525", "#d92d2d", "#e35a5a", "#ef8f8f", "#f9cccc"]
+      },
+      "sider": {
+        "role": "neutral",
+        "displayName": "Rail",
+        "canonical": "#0c0c0d",
+        "tonalRamp": ["#0c0c0d", "#141416", "#1d1d20", "#2a2a2e", "#3c3c41", "#565659", "#7c7c80", "#a8a8ac"]
+      },
+      "surface-dark": {
+        "role": "neutral",
+        "displayName": "Surface Dark",
+        "canonical": "#17171a",
+        "tonalRamp": ["#0d0d0e", "#17171a", "#212125", "#2e2e33", "#414147", "#5b5b61", "#83838a", "#b0b0b7"]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "#faf8f3",
+        "tonalRamp": ["#5a574e", "#7d796d", "#a19c8c", "#c4bfae", "#ded9c9", "#eeeae0", "#faf8f3", "#fffefb"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display — Instrument Serif", "purpose": "High-contrast editorial serif, large & sparing: greetings, marquee headings, the 'All clear.' state. Display-only." },
+      "headline": { "displayName": "Headline — Instrument Sans", "purpose": "Grotesk page/section titles (Typography.Title level 4)." },
+      "body": { "displayName": "Body — Instrument Sans", "purpose": "The grotesk workhorse: all UI text, table cells, form values." },
+      "label": { "displayName": "Readout — Geist Mono", "purpose": "Technical mono with tabular figures: metrics, counts, timestamps, uppercase tracked micro-labels. Never running prose." }
+    },
+    "shadows": [
+      { "name": "whisper-lift", "value": "0 1px 2px 0 rgba(0,0,0,0.03), 0 8px 24px -12px rgba(0,0,0,0.12)", "purpose": "Soft, low depth (theme-aware via Ant boxShadowTertiary) on data-bearing panels only — the Home readout and queue cards. A whisper, not a drop shadow; in dark it yields to the hairline border." },
+      { "name": "overlay", "value": "0 6px 16px 0 rgba(0,0,0,0.08), 0 3px 6px -4px rgba(0,0,0,0.12), 0 9px 28px 8px rgba(0,0,0,0.05)", "purpose": "Ant Design's heavier default on genuinely floating overlays (dropdowns, popovers, modals, notifications)." }
+    ],
+    "motion": [
+      { "name": "ease-standard", "value": "cubic-bezier(0.645, 0.045, 0.355, 1)", "purpose": "Default easing for hover/focus/state transitions." },
+      { "name": "duration-fast", "value": "0.2s", "purpose": "Standard transition duration for interactive state changes." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "576px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "992px" },
+      { "name": "xl", "value": "1200px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The default confirming action — monochrome ink fill, never red.",
+      "html": "<button class=\"ds-btn-primary\">Save changes</button>",
+      "css": ".ds-btn-primary { background: #141416; color: #ffffff; font-size: 14px; font-weight: 400; padding: 4px 15px; height: 32px; border: none; border-radius: 6px; cursor: pointer; transition: background 0.2s cubic-bezier(0.645,0.045,0.355,1); } .ds-btn-primary:hover { background: #2a2a2e; } .ds-btn-primary:focus-visible { outline: 2px solid #141416; outline-offset: 2px; } .ds-btn-primary:active { background: #0d0d0e; }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Destructive or irreversible actions only — the rare place red fills a control.",
+      "html": "<button class=\"ds-btn-danger\">Delete</button>",
+      "css": ".ds-btn-danger { background: #d92d2d; color: #ffffff; font-size: 14px; font-weight: 400; padding: 4px 15px; height: 32px; border: none; border-radius: 6px; cursor: pointer; transition: background 0.2s cubic-bezier(0.645,0.045,0.355,1); } .ds-btn-danger:hover { background: #e35a5a; } .ds-btn-danger:focus-visible { outline: 2px solid #d92d2d; outline-offset: 2px; }"
+    },
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Secondary action — hairline-bordered, transparent fill.",
+      "html": "<button class=\"ds-btn-default\">Cancel</button>",
+      "css": ".ds-btn-default { background: transparent; color: #141416; font-size: 14px; font-weight: 400; padding: 4px 15px; height: 32px; border: 1px solid rgba(5,5,5,0.15); border-radius: 6px; cursor: pointer; transition: color 0.2s, border-color 0.2s; } .ds-btn-default:hover { color: #d92d2d; border-color: #d92d2d; } .ds-btn-default:focus-visible { outline: 2px solid #141416; outline-offset: 2px; }"
+    },
+    {
+      "name": "Nav Item (selected)",
+      "kind": "nav",
+      "refersTo": "nav-item-selected",
+      "description": "The selected rail item — a Signal Red block with white text on the dark rail. The single most prominent use of red.",
+      "html": "<div class=\"ds-rail\"><a class=\"ds-nav-item\">Inventory</a><a class=\"ds-nav-item ds-nav-item--selected\">Members</a><a class=\"ds-nav-item\">Calendar</a></div>",
+      "css": ".ds-rail { background: #0c0c0d; padding: 8px; display: flex; flex-direction: column; gap: 4px; width: 200px; } .ds-nav-item { display: block; padding: 8px 12px; border-radius: 6px; color: rgba(245,242,234,0.72); font-size: 14px; text-decoration: none; cursor: pointer; transition: color 0.2s, background 0.2s; } .ds-nav-item:hover { color: #f5f2ea; background: rgba(245,242,234,0.06); } .ds-nav-item--selected { background: #d92d2d; color: #ffffff; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Flat surface separated by a hairline border — no shadow at rest.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card__title\">Team A</div><div class=\"ds-card__body\">6 members · 3 open tasks</div></div>",
+      "css": ".ds-card { background: #ffffff; color: #141416; border: 1px solid rgba(5,5,5,0.1); border-radius: 6px; padding: 16px; } .ds-card__title { font-size: 14px; font-weight: 600; margin-bottom: 4px; } .ds-card__body { font-size: 12px; color: rgba(20,20,22,0.55); }"
+    },
+    {
+      "name": "Search Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "The standard filter control — hairline border, leading magnifier, no colored focus glow.",
+      "html": "<div class=\"ds-search\"><svg viewBox=\"0 0 16 16\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><circle cx=\"7\" cy=\"7\" r=\"5\"></circle><line x1=\"11\" y1=\"11\" x2=\"14.5\" y2=\"14.5\"></line></svg><input placeholder=\"Search name, email, MTR ID…\" /></div>",
+      "css": ".ds-search { display: inline-flex; align-items: center; gap: 8px; background: #ffffff; border: 1px solid rgba(5,5,5,0.15); border-radius: 6px; padding: 4px 11px; height: 32px; color: rgba(20,20,22,0.45); transition: border-color 0.2s; } .ds-search:focus-within { border-color: #141416; color: #141416; } .ds-search input { border: none; outline: none; background: transparent; font-size: 14px; color: #141416; width: 240px; }"
+    },
+    {
+      "name": "Status Tag",
+      "kind": "chip",
+      "refersTo": "card",
+      "description": "Small squared status pill — access levels and states. Neutral by default; red only for danger/overdue.",
+      "html": "<span class=\"ds-tag\">Member</span> <span class=\"ds-tag ds-tag--danger\">Overdue</span>",
+      "css": ".ds-tag { display: inline-block; font-size: 12px; line-height: 20px; padding: 0 8px; border-radius: 4px; background: rgba(5,5,5,0.04); color: #141416; border: 1px solid rgba(5,5,5,0.12); } .ds-tag--danger { background: rgba(217,45,45,0.08); color: #d92d2d; border-color: rgba(217,45,45,0.3); }"
+    },
+    {
+      "name": "Segmented Toggle",
+      "kind": "custom",
+      "refersTo": "nav-item-selected",
+      "description": "Mutually-exclusive view switch (e.g. Calendar General/Me, rows-per-page) — bordered track, sliding thumb, monochrome.",
+      "html": "<div class=\"ds-seg\"><button class=\"ds-seg__item ds-seg__item--active\">General</button><button class=\"ds-seg__item\">Me</button></div>",
+      "css": ".ds-seg { display: inline-flex; background: rgba(5,5,5,0.05); border-radius: 6px; padding: 2px; gap: 2px; } .ds-seg__item { border: none; background: transparent; font-size: 14px; color: rgba(20,20,22,0.65); padding: 3px 12px; border-radius: 4px; cursor: pointer; transition: background 0.2s, color 0.2s; } .ds-seg__item--active { background: #ffffff; color: #141416; box-shadow: 0 1px 2px rgba(0,0,0,0.06); } .ds-seg__item:hover:not(.ds-seg__item--active) { color: #141416; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Control Room",
+    "overview": "This is the calm command surface a student robotics team runs its whole operation from — tasks, inventory, events, people, and the org itself, all readable at a glance. It is built on Ant Design v5, but its identity is a deliberate restraint layered on top: an almost entirely black-and-white world, precise and dense, where a single signal red appears only when something is active or needs attention. Nothing decorates; everything informs. The feeling is a well-lit console at rest — quiet until a light turns on. The system is Operate-first: scanability, consistency, and native form-control behavior outrank expression, and the brand lives in precise details rather than flourish. It ships light and dark as equal citizens — the left navigation rail stays dark in both themes, an anchoring constant like the bezel around a screen — and both are held to full contrast legibility.",
+    "keyCharacteristics": [
+      "Monochrome-dominant: black/white/ink/cream carry ~90% of every screen.",
+      "One reserved red for state and danger only.",
+      "Three self-hosted voices: editorial serif display, grotesk UI, technical-mono readout.",
+      "Flat base, with a soft whisper-lift on data-bearing panels.",
+      "Dual-theme by default; the dark rail is a fixed anchor."
+    ],
+    "rules": [
+      { "name": "The One Red Rule", "body": "Signal Red covers ≤10% of any screen and only ever means active or danger. If red is doing decoration, brand color, or a primary CTA fill, it is wrong. Its rarity is the entire point — when a light turns red, it matters.", "section": "colors" },
+      { "name": "The No-Role-Color Rule", "body": "Never color-code by job title or org rank. Authority in this product is data (seats + the access ladder), not a fixed identity, so color must not imply a hierarchy the system doesn't hardcode.", "section": "colors" },
+      { "name": "The Readout Rule", "body": "Numbers, counts, timestamps, and uppercase micro-labels are set in Geist Mono with tabular figures — the data reads like an instrument. Running prose and headings never use the mono; the mono never sets a paragraph.", "section": "typography" },
+      { "name": "The One Serif Rule", "body": "Instrument Serif appears once or twice per surface, at large size, for a human beat (a greeting, a state). It is display-only — never a body, label, or control face. Its scarcity is what makes it feel considered.", "section": "typography" },
+      { "name": "The Whisper-Lift Rule", "body": "Depth is soft and purposeful: only data-bearing panels lift, and only just enough to read as a surface. If a shadow announces itself, it's too strong. Hairline borders still do most of the separating.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep Signal Red (#d92d2d) for active/selected state and danger only — ≤10% of any screen (The One Red Rule).",
+      "Do use the three voices in their lanes: serif for large display beats, grotesk for UI/body, mono for metrics/labels/timestamps.",
+      "Do set counts, timestamps, and tabular data in Geist Mono with tabular figures (The Readout Rule).",
+      "Do treat light and dark as equal first-class themes, and keep the navigation rail dark in both.",
+      "Do give data-bearing panels a soft whisper-lift; separate everything else with hairline borders.",
+      "Do keep data dense and scannable, and use logical properties (marginInlineStart) for future RTL/Arabic."
+    ],
+    "donts": [
+      "Don't introduce a second accent hue or use red as a primary-button fill or brand wash — the world is monochrome + one red.",
+      "Don't set the serif below display size, or use the mono for running prose — each voice stays in its lane.",
+      "Don't let a shadow announce itself; depth is a whisper on data surfaces, never a heavy drop shadow on at-rest cards.",
+      "Don't color-code roles, titles, or org rank — authority is data, not a fixed identity (The No-Role-Color Rule).",
+      "Don't hardcode pageSize on tables; use defaultPageSize so the size changer works."
+    ]
+  }
+}

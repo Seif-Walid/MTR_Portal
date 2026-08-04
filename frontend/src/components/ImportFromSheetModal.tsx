@@ -304,7 +304,7 @@ export default function ImportFromSheetModal({
               </Form>
 
               <Typography.Text type="secondary">Preview (first rows)</Typography.Text>
-              <Table
+              <Table className="circuit-table"
                 size="small"
                 style={{ marginTop: 8 }}
                 rowKey={(_, i) => String(i)}

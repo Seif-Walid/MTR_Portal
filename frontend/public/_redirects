@@ -1,0 +1,4 @@
+# SPA fallback: serve index.html for client-side routes (e.g. /tasks, /members)
+# on hard refresh / deep link. The /api/* Pages Function runs before this, so
+# API calls are proxied to the backend, not rewritten to index.html.
+/*    /index.html   200

@@ -1,12 +1,5 @@
-import {
-  CloudUploadOutlined,
-  EnvironmentOutlined,
-  ImportOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-  SendOutlined,
-} from '@ant-design/icons';
-import { Button, Popover, Space, Table, Tag, Tooltip, Typography, message } from 'antd';
+import { CloudUploadOutlined, EnvironmentOutlined, ImportOutlined, PlusOutlined, ReloadOutlined, SendOutlined } from '@ant-design/icons';
+import { Button, Popover, Space, Table, Tooltip, Typography, message } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -20,6 +13,16 @@ import LocationsModal from '../components/LocationsModal';
 import NewInventoryItemModal from '../components/NewInventoryItemModal';
 import { ConditionTag } from '../components/tags';
 import UsageBreakdown from '../components/UsageBreakdown';
+
+const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
+const DISPLAY = "'Space Grotesk Variable', 'Space Grotesk', sans-serif";
+const DANGER = '#ff5a6e';
+const TEAL = '#4fd1b0';
+
+function Chip({ text, tone = 'muted' }: { text: string; tone?: 'accent' | 'danger' | 'muted' }) {
+  const c = tone === 'accent' ? '#5cc6ff' : tone === 'danger' ? DANGER : 'rgba(224,236,252,.5)';
+  return <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.06em', textTransform: 'uppercase', color: c, border: `1px solid ${c}55`, background: `${c}14`, padding: '2px 8px', borderRadius: 5, whiteSpace: 'nowrap' }}>{text}</span>;
+}
 
 export default function InventoryPage() {
   const { me } = useAuth();
@@ -38,19 +41,13 @@ export default function InventoryPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    api
-      .get<InventoryItem[]>('/api/inventory')
-      .then(setItems)
-      .catch((e) => message.error(e.message))
-      .finally(() => setLoading(false));
+    api.get<InventoryItem[]>('/api/inventory').then(setItems).catch((e) => message.error(e.message)).finally(() => setLoading(false));
   }, []);
 
   useEffect(load, [load]);
 
   useEffect(() => {
-    if (canManage) {
-      api.get<SheetsStatus>('/api/inventory/sheets/status').then(setSheets).catch(() => {});
-    }
+    if (canManage) api.get<SheetsStatus>('/api/inventory/sheets/status').then(setSheets).catch(() => {});
   }, [canManage]);
 
   const sync = async () => {
@@ -67,154 +64,72 @@ export default function InventoryPage() {
 
   return (
     <>
-      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }} wrap>
-        <Space wrap align="center">
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            Inventory
-          </Typography.Title>
-          {!canManage && <Tag color="geekblue">Your team's equipment</Tag>}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
+        <Space wrap align="center" size={12}>
+          <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: '#eaf2ff' }}>Components</h2>
+          <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '.08em', color: 'rgba(224,236,252,.45)' }}>{items.length} SKU{items.length === 1 ? '' : 'S'}</span>
+          {!canManage && <Chip text="Your team's equipment" tone="accent" />}
           <Button icon={<ReloadOutlined />} onClick={load} />
         </Space>
         <Space wrap>
-          <Button icon={<SendOutlined />} onClick={() => setRequestsOpen(true)}>
-            Requests
-          </Button>
+          <Button icon={<SendOutlined />} onClick={() => setRequestsOpen(true)}>Requests</Button>
+          {canManage && <Button icon={<EnvironmentOutlined />} onClick={() => setLocationsOpen(true)}>Locations</Button>}
+          {canManage && <Button icon={<ImportOutlined />} onClick={() => setImporting(true)}>Import components</Button>}
           {canManage && (
-            <Button icon={<EnvironmentOutlined />} onClick={() => setLocationsOpen(true)}>
-              Locations
-            </Button>
-          )}
-          {canManage && (
-            <Button icon={<ImportOutlined />} onClick={() => setImporting(true)}>
-              Import components
-            </Button>
-          )}
-          {canManage && (
-            <Tooltip
-              title={
-                sheets && !sheets.configured
-                  ? 'Google Sheets sync is not configured on the server'
-                  : 'Push the whole inventory into the linked Google Sheet (overwrites it)'
-              }
-            >
-              <Button
-                icon={<CloudUploadOutlined />}
-                loading={syncing}
-                disabled={!sheets?.configured}
-                onClick={sync}
-              >
-                Sync to Sheets
-              </Button>
+            <Tooltip title={sheets && !sheets.configured ? 'Google Sheets sync is not configured on the server' : 'Push the whole inventory into the linked Google Sheet (overwrites it)'}>
+              <Button icon={<CloudUploadOutlined />} loading={syncing} disabled={!sheets?.configured} onClick={sync}>Sync to Sheets</Button>
             </Tooltip>
           )}
-          {canManage && (
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>
-              Add item
-            </Button>
-          )}
+          {canManage && <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>Add item</Button>}
         </Space>
-      </Space>
+      </div>
 
-      <Table
-        rowKey="id"
-        loading={loading}
-        dataSource={items}
-        onRow={(i) => ({
-          onClick: () => setSearchParams({ item: String(i.id) }),
-          style: { cursor: 'pointer' },
-        })}
-        pagination={{ pageSize: 15, hideOnSinglePage: true }}
+      <Table className="circuit-table" rowKey="id" loading={loading} dataSource={items}
+        onRow={(i) => ({ onClick: () => setSearchParams({ item: String(i.id) }), style: { cursor: 'pointer' } })}
+        pagination={{ defaultPageSize: 15, hideOnSinglePage: true }}
         columns={[
           {
-            title: 'Item',
-            dataIndex: 'name',
+            title: 'Item', dataIndex: 'name',
             render: (_, i) => (
               <div>
                 <Space size={6}>
-                  <Typography.Text strong>{i.name}</Typography.Text>
-                  {i.quantity <= i.low_stock_threshold && <Tag color="red">LOW</Tag>}
+                  <Typography.Text strong style={{ color: '#eaf2ff' }}>{i.name}</Typography.Text>
+                  {i.quantity <= i.low_stock_threshold && <Chip text="Low" tone="danger" />}
                 </Space>
                 {i.category && (
                   <div>
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      {i.category}
-                      {i.asset_tag ? ` · ${i.asset_tag}` : ''}
-                    </Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>{i.category}{i.asset_tag ? ` · ${i.asset_tag}` : ''}</Typography.Text>
                   </div>
                 )}
               </div>
             ),
           },
+          { title: 'Total', width: 110, render: (_, i) => <span style={{ fontFamily: MONO, fontSize: 12.5 }}>{i.quantity} {i.unit}</span> },
           {
-            title: 'Total',
-            width: 110,
-            render: (_, i) => `${i.quantity} ${i.unit}`,
-          },
-          {
-            title: 'In use',
-            width: 110,
+            title: 'In use', width: 110,
             render: (_, i) => (
-              <Popover
-                title="Usage breakdown"
-                content={<UsageBreakdown item={i} unit />}
-                trigger="hover"
-              >
-                <Typography.Text
-                  strong
-                  onClick={(e) => e.stopPropagation()}
-                  style={{ cursor: 'help', borderBottom: '1px dashed currentColor' }}
-                >
-                  {i.in_use}
-                </Typography.Text>
+              <Popover title="Usage breakdown" content={<UsageBreakdown item={i} unit />} trigger="hover">
+                <Typography.Text strong onClick={(e) => e.stopPropagation()} style={{ cursor: 'help', borderBottom: '1px dashed currentColor', fontFamily: MONO }}>{i.in_use}</Typography.Text>
               </Popover>
             ),
           },
           {
-            title: 'Free',
-            width: 90,
-            render: (_, i) => (
-              <Typography.Text strong style={{ color: i.free > 0 ? '#3f8600' : '#cf1322' }}>
-                {i.free}
-              </Typography.Text>
-            ),
+            title: 'Free', width: 90,
+            render: (_, i) => <span style={{ fontFamily: MONO, fontWeight: 600, fontSize: 13, color: i.free > 0 ? TEAL : DANGER }}>{i.free}</span>,
           },
           {
-            title: 'Team',
-            width: 160,
-            render: (_, i) =>
-              i.team_lead ? (
-                <Tag color="geekblue">{i.team_lead.full_name}</Tag>
-              ) : (
-                <Typography.Text type="secondary">General</Typography.Text>
-              ),
+            title: 'Team', width: 160,
+            render: (_, i) => i.team_lead ? <Chip text={i.team_lead.full_name} tone="accent" /> : <Typography.Text type="secondary">General</Typography.Text>,
           },
-          {
-            title: 'Condition',
-            width: 120,
-            render: (_, i) => <ConditionTag condition={i.condition} />,
-          },
-          {
-            title: 'Location',
-            dataIndex: 'location',
-            ellipsis: true,
-            render: (l: string | null) => l || '—',
-          },
-        ]}
-      />
+          { title: 'Condition', width: 120, render: (_, i) => <ConditionTag condition={i.condition} /> },
+          { title: 'Location', dataIndex: 'location', ellipsis: true, render: (l: string | null) => l || '—' },
+        ]} />
 
       <NewInventoryItemModal open={creating} onClose={() => setCreating(false)} onCreated={load} />
       <InventoryRequestsDrawer open={requestsOpen} onClose={() => setRequestsOpen(false)} />
-      <ImportFromSheetModal
-        open={importing}
-        onClose={() => setImporting(false)}
-        onImported={load}
-      />
+      <ImportFromSheetModal open={importing} onClose={() => setImporting(false)} onImported={load} />
       <LocationsModal open={locationsOpen} onClose={() => setLocationsOpen(false)} />
-      <InventoryItemDrawer
-        itemId={openItemId}
-        onClose={() => setSearchParams({})}
-        onChanged={load}
-      />
+      <InventoryItemDrawer itemId={openItemId} onClose={() => setSearchParams({})} onChanged={load} />
     </>
   );
 }

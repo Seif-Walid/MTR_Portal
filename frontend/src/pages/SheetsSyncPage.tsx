@@ -264,7 +264,7 @@ export default function SheetsSyncPage() {
         </Typography.Title>
         <Button size="small" icon={<ReloadOutlined />} onClick={load} />
       </Space>
-      <Table
+      <Table className="circuit-table"
         size="small"
         rowKey="tab"
         loading={loading}
@@ -303,11 +303,11 @@ export default function SheetsSyncPage() {
       <Typography.Title level={5} style={{ margin: '0 0 8px' }}>
         Rebuild history
       </Typography.Title>
-      <Table
+      <Table className="circuit-table"
         size="small"
         rowKey="id"
         dataSource={history}
-        pagination={{ pageSize: 10, hideOnSinglePage: true }}
+        pagination={{ defaultPageSize: 10, hideOnSinglePage: true }}
         columns={[
           {
             title: 'Status',

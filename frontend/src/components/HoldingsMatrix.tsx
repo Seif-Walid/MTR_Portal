@@ -105,7 +105,7 @@ export default function HoldingsMatrix({ item }: { item: InventoryItem }) {
   ];
 
   return (
-    <Table<Row>
+    <Table<Row> className="circuit-table"
       size="small"
       bordered
       pagination={false}

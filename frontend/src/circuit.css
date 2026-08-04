@@ -1,0 +1,73 @@
+/* CIRCUIT global styles. Import once in main.tsx after Ant Design's reset.
+   Fonts are self-hosted via @fontsource-variable/* (imported in main.tsx). */
+
+:root {
+  --c-void: #06080c;
+  --c-panel: rgba(15, 20, 29, .55);
+  --c-accent: #5cc6ff;
+  --c-hairline: rgba(120, 170, 230, .12);
+  --c-hairline-row: rgba(120, 170, 230, .07);
+  --c-text: #eaf2ff;
+  --c-muted: rgba(224, 236, 252, .55);
+}
+
+body {
+  background: var(--c-void);
+  color: var(--c-text);
+  font-family: 'Geist Variable', 'Geist', system-ui, sans-serif;
+}
+
+/* faint PCB grid behind the app shell */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(92, 198, 255, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(92, 198, 255, .035) 1px, transparent 1px);
+  background-size: 48px 48px;
+  z-index: 0;
+}
+
+a { color: var(--c-accent); text-decoration: none; }
+a:hover { color: #7cd2ff; }
+
+h1, h2, h3, h4, .circuit-display { font-family: 'Space Grotesk Variable', 'Space Grotesk', sans-serif; }
+.circuit-mono {
+  font-family: 'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace;
+  letter-spacing: .06em;
+}
+
+/* monospace uppercase column labels */
+.circuit-colhead {
+  font-family: 'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: rgba(224, 236, 252, .4);
+}
+
+/* primary glow button (or rely on AntD primary + this shadow) */
+.circuit-btn-primary {
+  background: linear-gradient(180deg, #7cd2ff, #4eb4f5);
+  color: #06080c;
+  font-weight: 600;
+  border: none;
+  box-shadow: 0 0 20px rgba(92, 198, 255, .35);
+  transition: box-shadow .18s ease;
+}
+.circuit-btn-primary:hover { box-shadow: 0 0 32px rgba(92, 198, 255, .65); }
+
+/* table row chevron reveal (wrap AntD table in .circuit-table) */
+.circuit-table .ant-table-tbody > tr { cursor: pointer; }
+.circuit-table .ant-table-tbody > tr .row-chevron { opacity: 0; transition: opacity .15s; }
+.circuit-table .ant-table-tbody > tr:hover .row-chevron { opacity: .7; }
+
+/* panels */
+.circuit-panel {
+  background: var(--c-panel);
+  border: 1px solid var(--c-hairline);
+  border-radius: 12px;
+  overflow: hidden;
+}

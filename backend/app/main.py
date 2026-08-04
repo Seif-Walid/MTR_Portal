@@ -5,6 +5,7 @@ from app.core.config import settings
 from app.domains.access.router import router as access_router
 from app.domains.audit.router import router as audit_router
 from app.domains.calendar.router import router as calendar_router
+from app.domains.dashboard.router import router as dashboard_router
 from app.domains.auth.router import router as auth_router
 from app.domains.competitions.router import router as competitions_router
 from app.domains.hierarchy.router import router as team_router
@@ -48,6 +49,7 @@ for domain_router in (
     audit_router,
     sync_router,
     calendar_router,
+    dashboard_router,
 ):
     app.include_router(domain_router, prefix="/api")
 

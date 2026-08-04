@@ -9,7 +9,14 @@ from app.domains.auth.deps import DB, CurrentUser
 from app.domains.hierarchy.service import subtree_ids
 from app.domains.positions.models import Position, PositionOccupant
 from app.domains.users.models import User
-from app.domains.users.schemas import UserAdminOut, UserBrief, UserCreate, UserUpdate
+from app.domains.users.schemas import (
+    MemberOut,
+    MemberProfileOut,
+    UserAdminOut,
+    UserBrief,
+    UserCreate,
+    UserUpdate,
+)
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -34,6 +41,23 @@ def directory(db: DB, user: CurrentUser) -> list[UserBrief]:
     access.require_privilege(db, user, "people.view")
     users = db.scalars(select(User).where(User.is_active).order_by(User.full_name))
     return [UserBrief.model_validate(u) for u in users]
+
+
+@router.get("/members")
+def members(db: DB, user: CurrentUser) -> list[MemberOut]:
+    """The member directory: active accounts with their roster profile (the
+    imported biographical/contact record) and effective access level."""
+    access.require_privilege(db, user, "people.view")
+    users = list(db.scalars(select(User).where(User.is_active).order_by(User.full_name)))
+    levels = access.effective_levels_bulk(db, [u.id for u in users])
+    out: list[MemberOut] = []
+    for u in users:
+        m = MemberOut.model_validate(u)
+        level = levels.get(u.id)
+        m.level = level.name if level else None
+        m.profile = MemberProfileOut.model_validate(u.profile) if u.profile else None
+        out.append(m)
+    return out
 
 
 @router.get("/staff")

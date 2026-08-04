@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,6 +39,29 @@ class UserAdminOut(UserBrief):
     effective_level: str | None = None  # computed: strongest of seats + override
     effective_rank: int | None = None
     seats: list[str] = []  # titles of org positions occupied — the org's reflection
+
+
+class MemberProfileOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    mtr_id: str | None = None
+    national_id: str | None = None
+    birthday: date | None = None
+    university: str | None = None
+    college: str | None = None
+    major: str | None = None
+    graduating_year: int | None = None
+    phone: str | None = None
+    father_phone: str | None = None
+    mother_phone: str | None = None
+    uni_id: str | None = None
+    location: str | None = None
+
+
+class MemberOut(UserBrief):
+    is_active: bool
+    level: str | None = None  # effective level name
+    profile: MemberProfileOut | None = None
 
 
 class UserCreate(BaseModel):
