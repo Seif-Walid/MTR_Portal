@@ -7,7 +7,8 @@ export class ApiError extends Error {
   }
 }
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+// We now rely on the Cloudflare Pages /api proxy to avoid third-party cookie issues.
+const BASE_URL = '';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const url = path.startsWith('/') ? `${BASE_URL}${path}` : `${BASE_URL}/${path}`;
