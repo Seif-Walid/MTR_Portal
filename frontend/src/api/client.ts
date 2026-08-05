@@ -7,8 +7,11 @@ export class ApiError extends Error {
   }
 }
 
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const url = path.startsWith('/') ? `${BASE_URL}${path}` : `${BASE_URL}/${path}`;
+  const res = await fetch(url, {
     credentials: 'include',
     headers:
       init?.body && !(init.body instanceof FormData)
