@@ -62,8 +62,9 @@ def _issue_session(db: Session, response: Response, user_id: int) -> None:
         token,
         max_age=settings.session_ttl_hours * 3600,
         httponly=True,
-        samesite="none",
-        secure=True,
+        samesite="lax",
+        secure=settings.cookie_secure,
+        path="/",
     )
 
 
@@ -108,8 +109,9 @@ def logout(response: Response, db: DB, user: CurrentUser) -> None:
     db.commit()
     response.delete_cookie(
         settings.session_cookie_name,
-        samesite="none",
-        secure=True,
+        samesite="lax",
+        secure=settings.cookie_secure,
+        path="/",
     )
 
 
@@ -177,8 +179,8 @@ def google_login() -> RedirectResponse:
         state,
         max_age=600,
         httponly=True,
-        samesite="none",
-        secure=True,
+        samesite="lax",
+        secure=settings.cookie_secure,
     )
     return response
 
@@ -246,8 +248,8 @@ def google_callback(
         response = RedirectResponse(f"{settings.frontend_url}/tasks?linked=true")
         response.delete_cookie(
             STATE_COOKIE,
-            samesite="none",
-            secure=True,
+            samesite="lax",
+            secure=settings.cookie_secure,
         )
         return response
 
@@ -269,8 +271,8 @@ def google_callback(
         response = RedirectResponse(f"{settings.frontend_url}/tasks")
         response.delete_cookie(
             STATE_COOKIE,
-            samesite="none",
-            secure=True,
+            samesite="lax",
+            secure=settings.cookie_secure,
         )
         _issue_session(db, response, user.id)
         return response
@@ -285,8 +287,8 @@ def google_callback(
     response = RedirectResponse(f"{settings.frontend_url}/tasks")
     response.delete_cookie(
         STATE_COOKIE,
-        samesite="none",
-        secure=True,
+        samesite="lax",
+        secure=settings.cookie_secure,
     )
     _issue_session(db, response, user.id)
     return response
