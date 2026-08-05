@@ -62,8 +62,8 @@ def _issue_session(db: Session, response: Response, user_id: int) -> None:
         token,
         max_age=settings.session_ttl_hours * 3600,
         httponly=True,
-        samesite="lax",
-        secure=settings.cookie_secure,
+        samesite="none",
+        secure=True,
     )
 
 
@@ -106,7 +106,11 @@ def logout(response: Response, db: DB, user: CurrentUser) -> None:
     for session in db.scalars(select(AuthSession).where(AuthSession.user_id == user.id)):
         db.delete(session)
     db.commit()
-    response.delete_cookie(settings.session_cookie_name)
+    response.delete_cookie(
+        settings.session_cookie_name,
+        samesite="none",
+        secure=True,
+    )
 
 
 @router.get("/me")
@@ -173,8 +177,8 @@ def google_login() -> RedirectResponse:
         state,
         max_age=600,
         httponly=True,
-        samesite="lax",
-        secure=settings.cookie_secure,
+        samesite="none",
+        secure=True,
     )
     return response
 
@@ -240,7 +244,11 @@ def google_callback(
         linking_user.google_linked_at = datetime.now(timezone.utc)
         db.commit()
         response = RedirectResponse(f"{settings.frontend_url}/tasks?linked=true")
-        response.delete_cookie(STATE_COOKIE)
+        response.delete_cookie(
+            STATE_COOKIE,
+            samesite="none",
+            secure=True,
+        )
         return response
 
     user = db.scalar(select(User).where(User.email == email))
@@ -259,7 +267,11 @@ def google_callback(
         db.commit()
         db.refresh(user)
         response = RedirectResponse(f"{settings.frontend_url}/tasks")
-        response.delete_cookie(STATE_COOKIE)
+        response.delete_cookie(
+            STATE_COOKIE,
+            samesite="none",
+            secure=True,
+        )
         _issue_session(db, response, user.id)
         return response
     if not user.is_active:
@@ -271,6 +283,10 @@ def google_callback(
         return _login_error("link_required")
 
     response = RedirectResponse(f"{settings.frontend_url}/tasks")
-    response.delete_cookie(STATE_COOKIE)
+    response.delete_cookie(
+        STATE_COOKIE,
+        samesite="none",
+        secure=True,
+    )
     _issue_session(db, response, user.id)
     return response
