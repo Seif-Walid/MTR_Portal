@@ -1,0 +1,41 @@
+# Production overlay: puts the whole stack behind Caddy (automatic HTTPS)
+# on the VM's own public hostname, so the browser talks DIRECTLY to the VM
+# in a single hop. Replaces the Cloudflare Pages + Tailscale Funnel path.
+#
+# Usage on the VM:
+#   export SITE_ADDRESS=mtrportal.duckdns.org
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: portal-caddy
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+    # Host uses systemd-resolved (127.0.0.53), which is unreachable from inside
+    # containers — give Caddy real upstream resolvers so ACME/Let's Encrypt
+    # lookups work.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?Set SITE_ADDRESS to your public host, e.g. mtrportal.duckdns.org}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # Same origin over real HTTPS now, so mark the session cookie Secure and
+  # point the backend at its real public URL.
+  backend:
+    environment:
+      COOKIE_SECURE: "true"
+      FRONTEND_URL: "https://${SITE_ADDRESS}"
+
+volumes:
+  caddy_data:
+  caddy_config:
