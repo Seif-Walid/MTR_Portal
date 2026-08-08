@@ -20,12 +20,6 @@ export interface MemberProfile {
   location: string | null;
 }
 
-export interface Member extends UserBrief {
-  is_active: boolean;
-  level: string | null; // effective access level name
-  profile: MemberProfile | null;
-}
-
 export interface LevelBrief {
   id: number;
   rank: number;
@@ -59,6 +53,7 @@ export interface AdminUser extends UserBrief {
   effective_level: string | null; // computed from seats + override
   effective_rank: number | null;
   seats: string[]; // org positions occupied — the org's reflection
+  profile: MemberProfile | null; // imported roster record (directory fields), if any
 }
 
 export type TaskStatus =

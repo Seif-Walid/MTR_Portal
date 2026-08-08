@@ -32,7 +32,6 @@ const ICONS: Record<string, React.ReactNode> = {
   '/events': <Ic><path d="M6 4h8v3.5a4 4 0 01-8 0z" /><path d="M6 5H4v1.5a2 2 0 002 2M14 5h2v1.5a2 2 0 01-2 2M10 11.5V14M7 16.5h6" /></Ic>,
   '/requests': <Ic><path d="M3.5 10h11" /><path d="M11 6l4.5 4-4.5 4" /></Ic>,
   '/team': <Ic><circle cx="7" cy="7.5" r="2.4" /><circle cx="13" cy="7.5" r="2.4" /><path d="M3 16c0-2.2 1.9-3.4 4-3.4M11 16c0-2.2 1.9-3.4 4-3.4" /></Ic>,
-  '/members': <Ic><circle cx="10" cy="7" r="3" /><path d="M4 17c0-3.2 2.8-5 6-5s6 1.8 6 5" /></Ic>,
   '/organization': <Ic><rect x="8" y="3" width="4" height="4" rx=".5" /><rect x="3" y="13" width="4" height="4" rx=".5" /><rect x="13" y="13" width="4" height="4" rx=".5" /><path d="M10 7v3M5 13v-1.5h10V13M10 10.5V11.5" /></Ic>,
   '/admin/users': <Ic><circle cx="10" cy="10" r="2.5" /><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.4 1.4M13.6 13.6L15 15M15 5l-1.4 1.4M6.4 13.6L5 15" /></Ic>,
   '/admin/audit': <Ic><rect x="4.5" y="3" width="11" height="14" rx="1.5" /><path d="M7.5 7.5h5M7.5 10.5h5M7.5 13.5h3" /></Ic>,
@@ -48,7 +47,6 @@ const TITLES: Record<string, [string, string]> = {
   '/events': ['Events', 'Events'],
   '/requests': ['Requests', 'Work Requests'],
   '/team': ['People', 'My Team'],
-  '/members': ['Directory', 'Members'],
   '/organization': ['Structure', 'Organization'],
   '/admin/users': ['Admin', 'User Management'],
   '/admin/audit': ['Admin', 'Audit Log'],
@@ -135,7 +133,6 @@ export default function AppLayout() {
     ...(can(me, 'tasks.use') ? [{ key: '/requests', label: 'Requests' }] : []),
     // group break rendered before My Team
     ...(can(me, 'people.view') && (me.has_team || can(me, 'users.manage')) ? [{ key: '/team', label: 'My Team' }] : []),
-    ...(can(me, 'people.view') ? [{ key: '/members', label: 'Members' }] : []),
     ...(can(me, 'org.view') ? [{ key: '/organization', label: 'Organization' }] : []),
     ...(can(me, 'users.manage') ? [{ key: '/admin/users', label: 'User Management' }] : []),
     ...(can(me, 'audit.view') ? [{ key: '/admin/audit', label: 'Audit Log' }] : []),

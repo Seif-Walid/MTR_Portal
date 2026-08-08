@@ -1,5 +1,5 @@
 import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Card, Checkbox, Collapse, Form, Input, List, Modal, Popconfirm, Select, Space, Switch, Table, Typography, message } from 'antd';
+import { Button, Card, Checkbox, Collapse, Descriptions, Form, Input, List, Modal, Popconfirm, Select, Space, Switch, Table, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
@@ -12,6 +12,9 @@ function Chip({ text, tone = 'muted' }: { text: string; tone?: 'accent' | 'gold'
   const c = tone === 'accent' ? '#5cc6ff' : tone === 'gold' ? '#f5c451' : 'rgba(224,236,252,.5)';
   return <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.06em', textTransform: 'uppercase', color: c, border: `1px solid ${c}55`, background: `${c}14`, padding: '2px 8px', borderRadius: 5, whiteSpace: 'nowrap' }}>{text}</span>;
 }
+
+const dash = (v: string | number | null | undefined) =>
+  v === null || v === undefined || v === '' ? <Typography.Text type="secondary">—</Typography.Text> : v;
 
 interface UserFormValues { email: string; full_name: string; password?: string; access_level_id?: number | null }
 
@@ -154,6 +157,7 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<AdminUser | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [query, setQuery] = useState('');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -168,6 +172,22 @@ export default function AdminUsersPage() {
 
   const levelById = useMemo(() => new Map(levels.map((l) => [l.id, l])), [levels]);
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((u) => {
+      const p = u.profile;
+      return [u.full_name, u.email, ...u.seats, u.effective_level,
+        p?.mtr_id, p?.university, p?.college, p?.major, p?.location, p?.phone]
+        .filter(Boolean).some((f) => String(f).toLowerCase().includes(q));
+    });
+  }, [users, query]);
+
+  const universityFilters = useMemo(
+    () => Array.from(new Set(users.map((u) => u.profile?.university).filter(Boolean) as string[])).sort(),
+    [users],
+  );
+
   const toggleActive = async (user: AdminUser, active: boolean) => {
     try { await api.patch(`/api/users/${user.id}`, { is_active: active }); load(); }
     catch (e) { message.error(e instanceof ApiError ? e.message : 'Failed'); }
@@ -179,24 +199,62 @@ export default function AdminUsersPage() {
         <div style={{ maxWidth: 640 }}>
           <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: '#eaf2ff' }}>People &amp; Access</h2>
           <div style={{ fontSize: 13, color: 'rgba(224,236,252,.5)', marginTop: 6, lineHeight: 1.5 }}>
-            A reflection of the org: each person's seats come from the Organization chart, their power from the access ladder. The only thing granted here directly is the override.
+            The full directory and the management view in one: each person's seats come from the Organization chart, their power from the access ladder, their roster details from the member import. The only thing granted here directly is the override.
+          </div>
+          <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '.08em', color: 'rgba(224,236,252,.45)', marginTop: 8 }}>
+            {users.length} ACCOUNT{users.length === 1 ? '' : 'S'}{query.trim() ? ` · ${filtered.length} SHOWN` : ''}
           </div>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setModalOpen(true); }}>Create user</Button>
+        <Space wrap>
+          <Input.Search allowClear placeholder="Search name, email, MTR ID, major, university, seat…"
+            onChange={(e) => setQuery(e.target.value)} style={{ width: 320, maxWidth: '100%' }} />
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setModalOpen(true); }}>Create user</Button>
+        </Space>
       </div>
-      <Table className="circuit-table" rowKey="id" loading={loading} dataSource={users}
-        pagination={{ defaultPageSize: 20, showSizeChanger: true, hideOnSinglePage: true }}
+      <Table className="circuit-table" rowKey="id" loading={loading} dataSource={filtered}
+        scroll={{ x: 'max-content' }}
+        pagination={{ defaultPageSize: 20, showSizeChanger: true, hideOnSinglePage: true, showTotal: (t) => `${t} shown` }}
+        expandable={{
+          expandedRowRender: (u) => (
+            <Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }} bordered>
+              <Descriptions.Item label="College">{dash(u.profile?.college)}</Descriptions.Item>
+              <Descriptions.Item label="Major">{dash(u.profile?.major)}</Descriptions.Item>
+              <Descriptions.Item label="Grad year">{dash(u.profile?.graduating_year)}</Descriptions.Item>
+              <Descriptions.Item label="Phone">{dash(u.profile?.phone)}</Descriptions.Item>
+              <Descriptions.Item label="Location">{dash(u.profile?.location)}</Descriptions.Item>
+              <Descriptions.Item label="National ID">{dash(u.profile?.national_id)}</Descriptions.Item>
+              <Descriptions.Item label="Birthday">{dash(u.profile?.birthday)}</Descriptions.Item>
+              <Descriptions.Item label="UNI ID">{dash(u.profile?.uni_id)}</Descriptions.Item>
+              <Descriptions.Item label="Dad's number">{dash(u.profile?.father_phone)}</Descriptions.Item>
+              <Descriptions.Item label="Mom's number">{dash(u.profile?.mother_phone)}</Descriptions.Item>
+              <Descriptions.Item label="Google-linked">{u.google_linked ? 'Yes' : 'No'}</Descriptions.Item>
+            </Descriptions>
+          ),
+          rowExpandable: (u) => u.profile !== null,
+        }}
         columns={[
           {
-            title: 'Name',
+            title: 'MTR ID', dataIndex: ['profile', 'mtr_id'], width: 110,
+            sorter: (a, b) => (a.profile?.mtr_id ?? '').localeCompare(b.profile?.mtr_id ?? ''),
+            render: (v) => (v ? <span style={{ fontFamily: MONO, fontSize: 12, color: '#5cc6ff', letterSpacing: '.04em' }}>{v}</span> : dash(v)),
+          },
+          {
+            title: 'Name', sorter: (a, b) => a.full_name.localeCompare(b.full_name),
             render: (_, u) => (
-              <Space>
-                <span style={{ color: '#eaf2ff' }}>{u.full_name}</span>
-                {!u.is_active && <Chip text="deactivated" />}
-              </Space>
+              <div style={{ lineHeight: 1.3 }}>
+                <Space size={6}>
+                  <span style={{ color: '#eaf2ff' }}>{u.full_name}</span>
+                  {!u.is_active && <Chip text="deactivated" />}
+                </Space>
+                <div><Typography.Text type="secondary" style={{ fontSize: 12 }}>{u.email}</Typography.Text></div>
+              </div>
             ),
           },
-          { title: 'Email', dataIndex: 'email', width: 220 },
+          {
+            title: 'University', dataIndex: ['profile', 'university'], width: 120, render: (v) => dash(v),
+            filters: universityFilters.map((u) => ({ text: u, value: u })),
+            onFilter: (value, u) => u.profile?.university === value,
+          },
           {
             title: 'Seats (from the org chart)',
             render: (_, u) => u.seats.length ? (

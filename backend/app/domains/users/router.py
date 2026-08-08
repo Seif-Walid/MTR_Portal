@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.core.security import hash_password
 from app.domains.access import service as access
@@ -10,7 +11,6 @@ from app.domains.hierarchy.service import subtree_ids
 from app.domains.positions.models import Position, PositionOccupant
 from app.domains.users.models import User
 from app.domains.users.schemas import (
-    MemberOut,
     MemberProfileOut,
     UserAdminOut,
     UserBrief,
@@ -43,23 +43,6 @@ def directory(db: DB, user: CurrentUser) -> list[UserBrief]:
     return [UserBrief.model_validate(u) for u in users]
 
 
-@router.get("/members")
-def members(db: DB, user: CurrentUser) -> list[MemberOut]:
-    """The member directory: active accounts with their roster profile (the
-    imported biographical/contact record) and effective access level."""
-    access.require_privilege(db, user, "people.view")
-    users = list(db.scalars(select(User).where(User.is_active).order_by(User.full_name)))
-    levels = access.effective_levels_bulk(db, [u.id for u in users])
-    out: list[MemberOut] = []
-    for u in users:
-        m = MemberOut.model_validate(u)
-        level = levels.get(u.id)
-        m.level = level.name if level else None
-        m.profile = MemberProfileOut.model_validate(u.profile) if u.profile else None
-        out.append(m)
-    return out
-
-
 @router.get("/staff")
 def staff_users(db: DB, user: CurrentUser) -> list[UserBrief]:
     """Valid request recipients: active users who work with tasks and whom the
@@ -80,6 +63,7 @@ def _admin_out(db: DB, u: User, level_by_user: dict[int, AccessLevel | None],
     out.effective_level = effective.name if effective else None
     out.effective_rank = effective.rank if effective else None
     out.seats = seats_by_user.get(u.id, [])
+    out.profile = MemberProfileOut.model_validate(u.profile) if u.profile else None
     return out
 
 
@@ -101,7 +85,11 @@ def list_users(db: DB, user: CurrentUser) -> list[UserAdminOut]:
     """The management view: every account with its seats (straight from the
     org chart), computed effective level, and personal override."""
     access.require_privilege(db, user, "users.manage")
-    users = list(db.scalars(select(User).order_by(User.full_name)))
+    users = list(
+        db.scalars(
+            select(User).options(selectinload(User.profile)).order_by(User.full_name)
+        )
+    )
     ids = [u.id for u in users]
     levels = access.effective_levels_bulk(db, ids)
     seats = _seats_by_user(db, ids)
