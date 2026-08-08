@@ -35,6 +35,17 @@ services:
     environment:
       COOKIE_SECURE: "true"
       FRONTEND_URL: "https://${SITE_ADDRESS}"
+      # Must exactly match an Authorized redirect URI in Google Cloud Console.
+      # Without this, the backend falls back to the localhost default and Google
+      # bounces the browser to the user's own machine instead of the VM.
+      GOOGLE_REDIRECT_URI: "https://${SITE_ADDRESS}/api/auth/google/callback"
+      # Google SSO credentials. Set here in the compose `environment:` block so
+      # they always win over any stale backend/.env on the VM. The Client ID is
+      # public (it travels in the OAuth redirect URL); the secret must NEVER be
+      # committed, so it is read from the deploying shell's environment:
+      #   export GOOGLE_CLIENT_SECRET=... before `docker compose ... up`.
+      GOOGLE_CLIENT_ID: "446030339213-jfn9k6rr3r3mqrkfjojbd4753694f2oi.apps.googleusercontent.com"
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?Set GOOGLE_CLIENT_SECRET in your shell before deploying (see deploy runbook)}
 
 volumes:
   caddy_data:
