@@ -45,6 +45,13 @@ cd ~/MTR_Portal          # wherever the repo lives on the VM
 git pull                 # picks up deploy/Caddyfile + docker-compose.prod.yml
 
 export SITE_ADDRESS=mtrportal.duckdns.org
+
+# Google SSO: the Client ID is baked into docker-compose.prod.yml, but the
+# secret is never committed. Generate/copy it in Google Cloud Console
+# (APIs & Services > Credentials > your OAuth client > "Add secret") and
+# export it here. Compose refuses to start if this is unset.
+export GOOGLE_CLIENT_SECRET=paste-the-secret-here
+
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
