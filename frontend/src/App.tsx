@@ -9,7 +9,6 @@ import CompetitionsPage from './pages/CompetitionsPage';
 import HomePage from './pages/HomePage';
 import InventoryPage from './pages/InventoryPage';
 import LoginPage from './pages/LoginPage';
-import MembersPage from './pages/MembersPage';
 import OrganizationPage from './pages/OrganizationPage';
 import RequestsPage from './pages/RequestsPage';
 import SheetsSyncPage from './pages/SheetsSyncPage';
@@ -41,7 +40,6 @@ export default function App() {
           <Route path="/events/:slug" element={<CompetitionsPage />} />
           <Route path="/requests" element={<RequestsPage />} />
           <Route path="/team" element={<TeamPage />} />
-          <Route path="/members" element={<MembersPage />} />
           <Route path="/organization" element={<OrganizationPage />} />
           <Route path="/admin/users" element={<AdminUsersPage />} />
           <Route path="/admin/audit" element={<AuditLogPage />} />

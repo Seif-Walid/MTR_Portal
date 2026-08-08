@@ -30,17 +30,6 @@ class MeOut(UserBrief):
     google_linked: bool
 
 
-class UserAdminOut(UserBrief):
-    manager_id: int | None
-    is_active: bool
-    google_linked: bool
-    created_at: datetime
-    access_level_id: int | None = None  # the personal override (may be None)
-    effective_level: str | None = None  # computed: strongest of seats + override
-    effective_rank: int | None = None
-    seats: list[str] = []  # titles of org positions occupied — the org's reflection
-
-
 class MemberProfileOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -58,9 +47,17 @@ class MemberProfileOut(BaseModel):
     location: str | None = None
 
 
-class MemberOut(UserBrief):
+class UserAdminOut(UserBrief):
+    manager_id: int | None
     is_active: bool
-    level: str | None = None  # effective level name
+    google_linked: bool
+    created_at: datetime
+    access_level_id: int | None = None  # the personal override (may be None)
+    effective_level: str | None = None  # computed: strongest of seats + override
+    effective_rank: int | None = None
+    seats: list[str] = []  # titles of org positions occupied — the org's reflection
+    # the roster record (imported biographical/contact fields), if any — the
+    # management view doubles as the member directory
     profile: MemberProfileOut | None = None
 
 
