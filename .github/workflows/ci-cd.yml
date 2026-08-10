@@ -117,6 +117,12 @@ jobs:
           base="${IMAGE_BASE,,}"
           echo "BACKEND_IMAGE=${base}-backend:${GITHUB_SHA}"   >> "$GITHUB_ENV"
           echo "FRONTEND_IMAGE=${base}-frontend:${GITHUB_SHA}" >> "$GITHUB_ENV"
+      - name: Write SSH key
+        # VM_SSH_KEY is stored base64-encoded so no trailing-newline / whitespace
+        # mangling can corrupt it (`base64 -w0 ~/.ssh/your_key`). Decode to a file.
+        run: |
+          umask 077
+          echo "${{ secrets.VM_SSH_KEY }}" | base64 -d > "${{ runner.temp }}/vm_key"
       - name: Deploy over SSH (pull prebuilt images, restart stack)
         uses: appleboy/ssh-action@v1
         env:
@@ -128,11 +134,10 @@ jobs:
         with:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
-          key: ${{ secrets.VM_SSH_KEY }}
+          key_path: ${{ runner.temp }}/vm_key
           port: ${{ secrets.VM_SSH_PORT || 22 }}
           # Forward these env vars into the remote shell.
           envs: BACKEND_IMAGE,FRONTEND_IMAGE,GHCR_USER,GHCR_TOKEN,SITE_ADDRESS,GOOGLE_CLIENT_SECRET,APP_DIR
-          script_stop: true
           script: |
             set -euo pipefail
             cd "${APP_DIR/#\~/$HOME}"
