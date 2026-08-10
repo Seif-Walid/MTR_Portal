@@ -28,7 +28,7 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 |---|---|---|
 | `VM_HOST` | ✅ | `130.110.17.255` or `mindtechrobotics.duckdns.org` |
 | `VM_USER` | ✅ | SSH user on the VM, e.g. `ubuntu` |
-| `VM_SSH_KEY` | ✅ | **Private** key (PEM) for a key whose public half is in the VM's `~/.ssh/authorized_keys` |
+| `VM_SSH_KEY` | ✅ | **base64** of the private key whose public half is in the VM's `~/.ssh/authorized_keys` — `base64 -w0 ~/.ssh/your_key` (base64 avoids the trailing-newline mangling that breaks a raw paste) |
 | `GOOGLE_CLIENT_SECRET` | ✅ | Google OAuth secret — the prod overlay refuses to start without it |
 | `VM_SSH_PORT` | optional | Defaults to `22` |
 | `SITE_ADDRESS` | optional | Defaults to `mindtechrobotics.duckdns.org` |
@@ -39,7 +39,8 @@ Generate a deploy key (run locally, add the public half on the VM):
 ```bash
 ssh-keygen -t ed25519 -C "gha-deploy" -f gha_deploy -N ""
 # paste gha_deploy.pub into the VM's ~/.ssh/authorized_keys
-# paste the contents of gha_deploy (private) into the VM_SSH_KEY secret
+# put the base64 of the private key into the VM_SSH_KEY secret:
+base64 -w0 gha_deploy
 ```
 
 ## One-time VM prep
