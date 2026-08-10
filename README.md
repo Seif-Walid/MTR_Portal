@@ -16,7 +16,7 @@ browser, defaults to the OS preference). The logo lives at
 ## How permissions work
 
 Power comes from a **Discord-style access ladder** — data, not code. The *privileges* are
-a fixed vocabulary the app can actually gate (`inventory.edit`, `competitions.create`,
+a fixed vocabulary the app can actually gate (`inventory.edit`, `events.create`,
 `org.edit`, `users.manage`, …); the *levels* are admin-editable tiers on the site, each a
 bundle of privileges. A person's **effective level** is the strongest of the org seats they
 occupy plus an optional personal override; with neither, they get the ladder's bottom rung.
@@ -60,29 +60,29 @@ Beyond the org-structure log above, a general **Audit Log** (`audit.view`, `/adm
 records every **access change** (level override, manager, active/inactive), **inventory
 quantity change**, and **role-occupant change** — actor, before/after, when.
 
-**Delete defaults to soft delete**: inventory items and competition teams carry a
+**Delete defaults to soft delete**: inventory items and event teams carry a
 `deleted_at` — removing one hides it everywhere (it's invisible via the normal API) but
 keeps its allocation / stock-movement / checkout-request / membership history intact,
 since those rows reference it. A **permanent** hard delete (`?permanent=true`, or the
 "Permanently delete (admin)" button) is available for genuine mistakes and is **admin-only**.
-Users are already soft-deleted via `is_active`; competitions have their own `archived`
+Users are already soft-deleted via `is_active`; events have their own `archived`
 status and a can't-delete-while-referenced guard, so they didn't need a second mechanism.
 
 ## Inventory
 
 The portal is the **single source of truth** for equipment. Each item carries a total
 pool (e.g. 100 Arduinos) that is split into **allocations** — chunks checked out to a
-purpose (training, competition, R&D, borrowed, other), optionally labelled (which
-competition/project) and optionally held by a named person. From that the API computes
+purpose (training, event, R&D, borrowed, other), optionally labelled (which
+event/project) and optionally held by a named person. From that the API computes
 **in-use** and **free** counts and a per-purpose breakdown, so a 100-board pool reads as
-*50 training · 30 competition · 10 R&D · 5 borrowed → 5 free*, and you can see that
-*Salma has 2 in R&D and 1 in a competition*.
+*50 training · 30 event · 10 R&D · 5 borrowed → 5 free*, and you can see that
+*Salma has 2 in R&D and 1 in an event*.
 
 Access follows the same hierarchy:
 
 - **Staff get full storage** — see every item, create/edit/delete, manage allocations,
   and push to Google Sheets.
-- **Non-staff (students, competition members) see only their dedicated stuff** — items
+- **Non-staff (students, event members) see only their dedicated stuff** — items
   *designated to a team lead on their manager chain*, read-only. General-storage items
   (no designation) are invisible to them (404, so existence isn't leaked).
 
@@ -105,18 +105,19 @@ capped at what's on hand there); the requester or a manager later **returns** it
 location, which is the only way that movement reverses. An issued request past its
 return-by date shows as **overdue**.
 
-**Competitions** nest `Competition → Category → Team → members`. Expand a competition to
-add categories, add teams under a category, appoint a team lead, and assign members.
-Authority is **scoped to the competition**, not global:
+**Events** (Competition / Training / R&D, discriminated by an editable EventKind) nest
+`Event → Category → Team → members`. Expand an event to add categories, add teams under a
+category, appoint a team lead, and assign members. Authority is **scoped to the event**,
+not global:
 
-- **High staff** create competitions and appoint the **Project Managers** (the creator is
+- **High staff** create events and appoint the **Project Managers** (the creator is
   auto-made a PM, so there's always one).
-- A **PM** (or admin/CEO) runs that competition's structure — categories, teams, leads.
+- A **PM** (or admin/CEO) runs that event's structure — categories, teams, leads.
 - A **Team Lead** manages only their own team's members (a lead can be a non-staff member).
 
-Being a lead/PM in one competition grants nothing in another. A competition-purpose
-inventory allocation links to a competition (its name flows to the Holdings matrix and
-Sheets); a competition referenced by an allocation can't be deleted — archive it instead.
+Being a lead/PM in one event grants nothing in another. An event-purpose inventory
+allocation links to an event (its name flows to the Holdings matrix and Sheets); an event
+referenced by an allocation can't be deleted — archive it instead.
 
 ### Import components from a Google Sheet
 
@@ -147,7 +148,7 @@ Sheets API, and **share the target spreadsheet with the service account's email*
 ## Data Sync / Rebuild from Sheets
 
 Beyond the inventory-only mirror above, an org manager (admin or CEO) can mirror the
-portal's full **structural data** — people, positions, competitions, categories,
+portal's full **structural data** — people, positions, events, categories,
 teams, PMs, team members, inventory locations, inventory items, and inventory
 movements — to a multi-tab spreadsheet from **Admin → Data Sync**, and, in the other
 direction, **rebuild the entire database from that spreadsheet**. This uses the same
@@ -327,7 +328,7 @@ guards, the who-holds-what breakdown, and the stock-movement ledger with checkou
 requests (submit→approve/reject→issue→return, overdue); **event kinds** (Competition/
 Training/R&D, admin-addable) with per-kind automatic roles (a role fires and chains
 only within its kind, or across all) and per-kind labels; event nesting with
-seat-level authority (occupying a role seat whose level carries `competitions.manage_seated`
+seat-level authority (occupying a role seat whose level carries `events.manage_seated`
 manages that event/team — a team role touches only its own team); Google Sheet import
 (mocked) with upsert; the **Positions** org tree (single root, no cycles,
 multi-occupant seats, occupant→manager derivation with vacant-seat skip and
@@ -346,7 +347,7 @@ matching task visibility, the history trail ordering and its
 participant-not-admin-only access, multi-assignee batch creation (atomic on a bad
 assignee, batch view limited to the assigner); and the generic role-chain engine —
 template CRUD/reordering/deletion (with live reparenting and splice-on-delete),
-the single ask-once-ever root, a full competition→team→member chain seating
+the single ask-once-ever root, a full event→team→member chain seating
 correctly with multi-occupant seats, a seat's access level actually gating
 scoped management, seats starting vacant, retitle/archive/delete cascading
 through every level, and never disturbing a real seat or manager_id.
@@ -369,7 +370,7 @@ backend/
       requests/            up/across requests -> spawned tasks
       notifications/       in-app notifications
       inventory/           items + allocations, capacity, Sheets sync + import
-      competitions/        first-class competitions linked from allocations
+      events/              first-class events (Competition/Training/R&D) linked from allocations
       positions/           org-chart Position tree, resync_managers() bridge
       audit/               general audit log (domain/action/entity, JSON detail)
       sync/                multi-tab Sheets export + destructive rebuild
@@ -382,7 +383,7 @@ frontend/
     api/                   typed REST client
     auth/                  session context
     components/            layout, task/inventory drawers, modals, notification bell
-    pages/                 Tasks, Inventory, Competitions, Requests, Team,
+    pages/                 Tasks, Inventory, Events, Requests, Team,
                            Organization (org-tree), Admin Users, Login
 ```
 
@@ -407,22 +408,22 @@ frontend/
   · `GET/POST /inventory/requests` · `POST /inventory/requests/{id}/approve`
   · `POST /inventory/requests/{id}/reject` · `POST /inventory/requests/{id}/issue`
   · `POST /inventory/requests/{id}/return`
-- `GET/POST /competitions` · `GET/PATCH/DELETE /competitions/{id}` (nested detail,
+- `GET/POST /events` · `GET/PATCH/DELETE /events/{id}` (nested detail,
   `roles: [{template_id, title, position_id, occupants}]` reflects whatever role
   templates are configured — no `pms`/`lead`/`coach` fields, see `/org/roles` below)
-  · `POST /competitions/{id}/categories` · `DELETE /competitions/categories/{id}`
-  · `POST /competitions/categories/{id}/teams` · `PATCH/DELETE /competitions/teams/{id}`
-  · `POST/DELETE /competitions/teams/{id}/members`
+  · `POST /events/{id}/categories` · `DELETE /events/categories/{id}`
+  · `POST /events/categories/{id}/teams` · `PATCH/DELETE /events/teams/{id}`
+  · `POST/DELETE /events/teams/{id}/members`
 - `GET /org/tree` · `POST /org/positions` · `PATCH/DELETE /org/positions/{id}`
   (`occupant_ids: number[]` — a position can have zero, one, or many occupants)
   · `GET /org/audit`
 - `GET/POST /org/roles/templates` · `PATCH/DELETE /org/roles/templates/{id}` — the
   admin-configurable role chain (title template, trigger event, order, `access_level_id`)
-  that auto-seats org-chart positions when a competition/team/member is created; zero
+  that auto-seats org-chart positions when an event/team/member is created; zero
   hardcoded role names anywhere
   · `GET /org/roles/root` — whether the single ask-once-ever org-chart root is set
   · `PUT /org/roles/positions/{id}/occupants` — assign who fills a role-chain seat,
-  reachable by `org.edit` or by whoever already manages the linked competition/team
+  reachable by `org.edit` or by whoever already manages the linked event/team
 - `GET /access/privileges` — the fixed privilege vocabulary (keys + labels)
   · `GET /access/levels` (any signed-in user) · `POST /access/levels` ·
   `PATCH/DELETE /access/levels/{id}` (`users.manage`) — CRUD the access ladder

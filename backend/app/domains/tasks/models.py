@@ -42,6 +42,16 @@ class Task(Base):
     # set only when this task was created alongside sibling tasks in one
     # multi-assignee "team assignment" — null for ordinary single-assignee tasks
     batch_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    # set when the task was assigned in an event-team context — null for
+    # ordinary org/permanent-team tasks. Drives team-scoped visibility and,
+    # once the event is archived (or the team soft-deleted), archival: an
+    # archived task derives entirely from this link, never a stored flag.
+    event_team_id: Mapped[int | None] = mapped_column(
+        ForeignKey("event_teams.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # assigner's choice: when True, every member of event_team_id may view the
+    # task (a shared team board); when False, only assigner + assignee see it.
+    team_visible: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

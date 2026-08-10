@@ -4,11 +4,11 @@ rebuild is the opposite and destructive direction — it takes the Sheets as
 truth and replaces the DB wholesale. It never merges or reconciles.
 
 Scope: the mirror covers structural/reference data — people, org positions,
-competitions (+ categories/teams/members), and inventory (items/locations/
+events (+ categories/teams/members), and inventory (items/locations/
 movements). Operational workflow state (tasks, work requests, notifications,
 sessions, the audit logs, and checkout requests) is out of scope — a
 spreadsheet snapshot can't meaningfully replace in-flight process state — but
-since that state references people/items/competitions by foreign key, a
+since that state references people/items/events by foreign key, a
 rebuild must still clear or de-reference it so the DB never ends up with
 dangling references. See DECISIONS.md.
 """
@@ -26,12 +26,12 @@ from app.core import gsheets
 from app.core.config import settings
 from app.core.security import hash_password
 from app.domains.auth.models import AuthSession
-from app.domains.competitions.models import (
-    Competition,
-    CompetitionCategory,
-    CompetitionStatus,
-    CompetitionTeam,
-    CompetitionTeamMember,
+from app.domains.events.models import (
+    Event,
+    EventCategory,
+    EventStatus,
+    EventTeam,
+    EventTeamMember,
     EventKind,
 )
 from app.domains.inventory.models import (
@@ -62,10 +62,10 @@ TAB_ORDER = [
     "people",
     "positions",
     "event_kinds",
-    "competitions",
-    "competition_categories",
-    "competition_teams",
-    "competition_team_members",
+    "events",
+    "event_categories",
+    "event_teams",
+    "event_team_members",
     "inventory_locations",
     "inventory_items",
     "inventory_movements",
@@ -126,20 +126,20 @@ def _export_event_kinds(db: Session) -> tuple[list[str], list[list[str]]]:
     return header, rows
 
 
-def _export_competitions(db: Session) -> tuple[list[str], list[list[str]]]:
+def _export_events(db: Session) -> tuple[list[str], list[list[str]]]:
     header = ["id", "name", "kind", "description", "start_date", "end_date", "status"]
     rows = [
         [_s(c.id), c.name, c.kind.slug if c.kind else "", c.description, _s(c.start_date), _s(c.end_date), c.status]
-        for c in db.scalars(select(Competition).order_by(Competition.id))
+        for c in db.scalars(select(Event).order_by(Event.id))
     ]
     return header, rows
 
 
 def _export_categories(db: Session) -> tuple[list[str], list[list[str]]]:
-    header = ["id", "competition_id", "name"]
+    header = ["id", "event_id", "name"]
     rows = [
-        [_s(c.id), _s(c.competition_id), c.name]
-        for c in db.scalars(select(CompetitionCategory).order_by(CompetitionCategory.id))
+        [_s(c.id), _s(c.event_id), c.name]
+        for c in db.scalars(select(EventCategory).order_by(EventCategory.id))
     ]
     return header, rows
 
@@ -149,7 +149,7 @@ def _export_teams(db: Session) -> tuple[list[str], list[list[str]]]:
     rows = [
         [_s(t.id), _s(t.category_id), t.name]
         for t in db.scalars(
-            select(CompetitionTeam).where(CompetitionTeam.deleted_at.is_(None)).order_by(CompetitionTeam.id)
+            select(EventTeam).where(EventTeam.deleted_at.is_(None)).order_by(EventTeam.id)
         )
     ]
     return header, rows
@@ -159,7 +159,7 @@ def _export_team_members(db: Session) -> tuple[list[str], list[list[str]]]:
     header = ["id", "team_id", "user_id"]
     rows = [
         [_s(m.id), _s(m.team_id), _s(m.user_id)]
-        for m in db.scalars(select(CompetitionTeamMember).order_by(CompetitionTeamMember.id))
+        for m in db.scalars(select(EventTeamMember).order_by(EventTeamMember.id))
     ]
     return header, rows
 
@@ -201,10 +201,10 @@ _EXPORTERS = {
     "people": _export_people,
     "positions": _export_positions,
     "event_kinds": _export_event_kinds,
-    "competitions": _export_competitions,
-    "competition_categories": _export_categories,
-    "competition_teams": _export_teams,
-    "competition_team_members": _export_team_members,
+    "events": _export_events,
+    "event_categories": _export_categories,
+    "event_teams": _export_teams,
+    "event_team_members": _export_team_members,
     "inventory_locations": _export_locations,
     "inventory_items": _export_items,
     "inventory_movements": _export_movements,
@@ -346,7 +346,7 @@ def _validate(db: Session, sheet_data: dict[str, list[dict[str, str]]]) -> tuple
     parsed["positions"] = positions
     counts["positions"] = len(positions)
 
-    # event_kinds (Competition/Training/R&D/...) — referenced by competitions
+    # event_kinds (Event/Training/R&D/...) — referenced by events
     event_kinds = []
     for row in sheet_data.get("event_kinds", []):
         if not _require(row, "id", "slug", "name", tab="event_kinds", errors=errors):
@@ -365,71 +365,71 @@ def _validate(db: Session, sheet_data: dict[str, list[dict[str, str]]]) -> tuple
     parsed["event_kinds"] = event_kinds
     counts["event_kinds"] = len(event_kinds)
 
-    # competitions
-    competitions = []
-    for row in sheet_data.get("competitions", []):
-        if not _require(row, "id", "name", tab="competitions", errors=errors):
+    # events
+    events = []
+    for row in sheet_data.get("events", []):
+        if not _require(row, "id", "name", tab="events", errors=errors):
             continue
         rid = int(row["id"])
-        status = row.get("status", "").strip() or CompetitionStatus.ACTIVE
-        if status not in (CompetitionStatus.ACTIVE, CompetitionStatus.ARCHIVED):
-            errors.append(f"competitions row {rid}: invalid status '{status}'")
+        status = row.get("status", "").strip() or EventStatus.ACTIVE
+        if status not in (EventStatus.ACTIVE, EventStatus.ARCHIVED):
+            errors.append(f"events row {rid}: invalid status '{status}'")
             continue
         kind_slug = (row.get("kind") or "").strip()
         if kind_slug and kind_slug not in kind_slugs:
-            errors.append(f"competitions row {rid}: unknown event kind '{kind_slug}'")
+            errors.append(f"events row {rid}: unknown event kind '{kind_slug}'")
             continue
-        known_ids["competitions"].add(rid)
-        competitions.append({
+        known_ids["events"].add(rid)
+        events.append({
             "id": rid, "name": row["name"], "kind_slug": kind_slug,
             "description": row.get("description", ""),
             "start_date": row.get("start_date", ""), "end_date": row.get("end_date", ""), "status": status,
         })
-    parsed["competitions"] = competitions
-    counts["competitions"] = len(competitions)
+    parsed["events"] = events
+    counts["events"] = len(events)
 
-    # competition_categories
+    # event_categories
     categories = []
-    for row in sheet_data.get("competition_categories", []):
-        if not _require(row, "id", "competition_id", "name", tab="competition_categories", errors=errors):
+    for row in sheet_data.get("event_categories", []):
+        if not _require(row, "id", "event_id", "name", tab="event_categories", errors=errors):
             continue
         rid = int(row["id"])
-        comp = _check_ref(row["competition_id"], known_ids["competitions"], "competition_categories", row["id"], "competition_id", errors)
+        comp = _check_ref(row["event_id"], known_ids["events"], "event_categories", row["id"], "event_id", errors)
         if comp is None:
             continue
-        known_ids["competition_categories"].add(rid)
-        categories.append({"id": rid, "competition_id": comp, "name": row["name"]})
-    parsed["competition_categories"] = categories
-    counts["competition_categories"] = len(categories)
+        known_ids["event_categories"].add(rid)
+        categories.append({"id": rid, "event_id": comp, "name": row["name"]})
+    parsed["event_categories"] = categories
+    counts["event_categories"] = len(categories)
 
-    # competition_teams
+    # event_teams
     teams = []
-    for row in sheet_data.get("competition_teams", []):
-        if not _require(row, "id", "category_id", "name", tab="competition_teams", errors=errors):
+    for row in sheet_data.get("event_teams", []):
+        if not _require(row, "id", "category_id", "name", tab="event_teams", errors=errors):
             continue
         rid = int(row["id"])
-        cat = _check_ref(row["category_id"], known_ids["competition_categories"], "competition_teams", row["id"], "category_id", errors)
+        cat = _check_ref(row["category_id"], known_ids["event_categories"], "event_teams", row["id"], "category_id", errors)
         if cat is None:
             continue
-        known_ids["competition_teams"].add(rid)
+        known_ids["event_teams"].add(rid)
         teams.append({"id": rid, "category_id": cat, "name": row["name"]})
-    parsed["competition_teams"] = teams
-    counts["competition_teams"] = len(teams)
+    parsed["event_teams"] = teams
+    counts["event_teams"] = len(teams)
 
-    # competition_team_members
+    # event_team_members
     members = []
-    for row in sheet_data.get("competition_team_members", []):
-        if not _require(row, "id", "team_id", "user_id", tab="competition_team_members", errors=errors):
+    for row in sheet_data.get("event_team_members", []):
+        if not _require(row, "id", "team_id", "user_id", tab="event_team_members", errors=errors):
             continue
         rid = int(row["id"])
-        team = _check_ref(row["team_id"], known_ids["competition_teams"], "competition_team_members", row["id"], "team_id", errors)
-        usr = _check_ref(row["user_id"], known_ids["people"], "competition_team_members", row["id"], "user_id", errors)
+        team = _check_ref(row["team_id"], known_ids["event_teams"], "event_team_members", row["id"], "team_id", errors)
+        usr = _check_ref(row["user_id"], known_ids["people"], "event_team_members", row["id"], "user_id", errors)
         if team is None or usr is None:
             continue
-        known_ids["competition_team_members"].add(rid)
+        known_ids["event_team_members"].add(rid)
         members.append({"id": rid, "team_id": team, "user_id": usr})
-    parsed["competition_team_members"] = members
-    counts["competition_team_members"] = len(members)
+    parsed["event_team_members"] = members
+    counts["event_team_members"] = len(members)
 
     # inventory_locations
     locations = []
@@ -518,10 +518,10 @@ def _write_snapshot(db: Session) -> str:
         "position_occupants": dump(PositionOccupant, ["id", "position_id", "user_id"]),
         "event_kinds": dump(EventKind, ["id", "slug", "name", "event_label", "category_label",
                                           "team_label", "member_label", "sort_order"]),
-        "competitions": dump(Competition, ["id", "name", "kind_id", "description", "start_date", "end_date", "status"]),
-        "competition_categories": dump(CompetitionCategory, ["id", "competition_id", "name"]),
-        "competition_teams": dump(CompetitionTeam, ["id", "category_id", "name", "deleted_at"]),
-        "competition_team_members": dump(CompetitionTeamMember, ["id", "team_id", "user_id"]),
+        "events": dump(Event, ["id", "name", "kind_id", "description", "start_date", "end_date", "status"]),
+        "event_categories": dump(EventCategory, ["id", "event_id", "name"]),
+        "event_teams": dump(EventTeam, ["id", "category_id", "name", "deleted_at"]),
+        "event_team_members": dump(EventTeamMember, ["id", "team_id", "user_id"]),
         "inventory_locations": dump(Location, ["id", "name", "kind", "notes"]),
         "inventory_items": dump(InventoryItem, ["id", "name", "quantity", "team_lead_id", "deleted_at"]),
         "inventory_movements": dump(StockMovement, ["id", "item_id", "quantity", "from_location_id",
@@ -532,7 +532,7 @@ def _write_snapshot(db: Session) -> str:
 
 
 def _clear_dependent_tables(db: Session) -> None:
-    """Everything NOT in the mirror that references people/items/competitions
+    """Everything NOT in the mirror that references people/items/events
     by FK. De-reference self/mutual references first, then delete — order-
     independent regardless of whether FK enforcement is on."""
     db.execute(update(Task).values(origin_request_id=None))
@@ -552,10 +552,10 @@ def _truncate_managed_tables(db: Session) -> None:
     db.execute(delete(StockMovement))
     db.execute(delete(InventoryItem))
     db.execute(delete(Location))
-    db.execute(delete(CompetitionTeamMember))
-    db.execute(delete(CompetitionTeam))
-    db.execute(delete(CompetitionCategory))
-    db.execute(delete(Competition))
+    db.execute(delete(EventTeamMember))
+    db.execute(delete(EventTeam))
+    db.execute(delete(EventCategory))
+    db.execute(delete(Event))
     db.execute(delete(EventKind))
     db.execute(delete(PositionOccupant))
     db.execute(update(Position).values(parent_id=None))
@@ -600,18 +600,18 @@ def _import_all(db: Session, parsed: dict[str, list[dict]]) -> None:
     db.flush()
     kind_id_by_slug = {k["slug"]: k["id"] for k in parsed.get("event_kinds", [])}
 
-    for c in parsed["competitions"]:
-        db.add(Competition(
+    for c in parsed["events"]:
+        db.add(Event(
             id=c["id"], name=c["name"], kind_id=kind_id_by_slug.get(c.get("kind_slug")),
             description=c["description"],
             start_date=_parse_date(c["start_date"]), end_date=_parse_date(c["end_date"]), status=c["status"],
         ))
-    for cat in parsed["competition_categories"]:
-        db.add(CompetitionCategory(id=cat["id"], competition_id=cat["competition_id"], name=cat["name"]))
-    for t in parsed["competition_teams"]:
-        db.add(CompetitionTeam(id=t["id"], category_id=t["category_id"], name=t["name"]))
-    for m in parsed["competition_team_members"]:
-        db.add(CompetitionTeamMember(id=m["id"], team_id=m["team_id"], user_id=m["user_id"]))
+    for cat in parsed["event_categories"]:
+        db.add(EventCategory(id=cat["id"], event_id=cat["event_id"], name=cat["name"]))
+    for t in parsed["event_teams"]:
+        db.add(EventTeam(id=t["id"], category_id=t["category_id"], name=t["name"]))
+    for m in parsed["event_team_members"]:
+        db.add(EventTeamMember(id=m["id"], team_id=m["team_id"], user_id=m["user_id"]))
     for loc in parsed["inventory_locations"]:
         db.add(Location(id=loc["id"], name=loc["name"], kind=loc["kind"], notes=loc["notes"]))
     for it in parsed["inventory_items"]:

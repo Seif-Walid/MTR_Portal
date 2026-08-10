@@ -37,7 +37,7 @@ def assignable_users(db: DB, user: CurrentUser) -> list[UserBrief]:
 
 @router.get("/directory")
 def directory(db: DB, user: CurrentUser) -> list[UserBrief]:
-    """Active users, for people-pickers (e.g. competition team members)."""
+    """Active users, for people-pickers (e.g. event team members)."""
     access.require_privilege(db, user, "people.view")
     users = db.scalars(select(User).where(User.is_active).order_by(User.full_name))
     return [UserBrief.model_validate(u) for u in users]

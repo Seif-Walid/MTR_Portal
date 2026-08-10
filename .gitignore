@@ -4,6 +4,8 @@ __pycache__/
 *.pyc
 backend/uploads/
 backend/*.db
+backend/*.db.bak*
+backend/*.db-journal
 backend/snapshots/
 
 # Node

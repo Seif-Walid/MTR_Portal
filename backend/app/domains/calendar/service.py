@@ -13,11 +13,11 @@ from sqlalchemy.orm import Session
 
 from app.domains.access import service as access
 from app.domains.calendar.schemas import CalendarItem
-from app.domains.competitions.models import (
-    Competition,
-    CompetitionStatus,
-    CompetitionTeam,
-    CompetitionTeamMember,
+from app.domains.events.models import (
+    Event,
+    EventStatus,
+    EventTeam,
+    EventTeamMember,
 )
 from app.domains.hierarchy.service import visible_user_ids
 from app.domains.inventory.models import InventoryRequest, InventoryRequestStatus
@@ -64,47 +64,47 @@ def _tasks(db: Session, user: User, scope: str, start, end) -> list[CalendarItem
     return out
 
 
-def _my_competition_ids(db: Session, user: User) -> set[int]:
-    """Competitions the user participates in: as a team member, or by
-    occupying any role seat for the competition / one of its teams /
+def _my_event_ids(db: Session, user: User) -> set[int]:
+    """Events the user participates in: as a team member, or by
+    occupying any role seat for the event / one of its teams /
     memberships."""
     ids: set[int] = set()
     # team memberships
     for team in db.scalars(
-        select(CompetitionTeam)
-        .join(CompetitionTeamMember, CompetitionTeamMember.team_id == CompetitionTeam.id)
-        .where(CompetitionTeamMember.user_id == user.id)
+        select(EventTeam)
+        .join(EventTeamMember, EventTeamMember.team_id == EventTeam.id)
+        .where(EventTeamMember.user_id == user.id)
     ):
-        ids.add(team.category.competition_id)
-    # role seats the user occupies (entity_type/entity_id → competition)
+        ids.add(team.category.event_id)
+    # role seats the user occupies (entity_type/entity_id → event)
     seats = db.scalars(
         select(Position)
         .join(PositionOccupant, PositionOccupant.position_id == Position.id)
         .where(PositionOccupant.user_id == user.id, Position.entity_type.is_not(None))
     )
     for pos in seats:
-        if pos.entity_type == "competition":
+        if pos.entity_type == "event":
             ids.add(pos.entity_id)
         elif pos.entity_type == "team":
-            team = db.get(CompetitionTeam, pos.entity_id)
+            team = db.get(EventTeam, pos.entity_id)
             if team is not None:
-                ids.add(team.category.competition_id)
+                ids.add(team.category.event_id)
         elif pos.entity_type == "membership":
-            m = db.get(CompetitionTeamMember, pos.entity_id)
+            m = db.get(EventTeamMember, pos.entity_id)
             if m is not None:
-                ids.add(m.team.category.competition_id)
+                ids.add(m.team.category.event_id)
     return ids
 
 
 def _events(db: Session, user: User, scope: str, start, end) -> list[CalendarItem]:
-    if not access.has_privilege(db, user, "competitions.view"):
+    if not access.has_privilege(db, user, "events.view"):
         return []
-    query = select(Competition).where(Competition.status == CompetitionStatus.ACTIVE)
+    query = select(Event).where(Event.status == EventStatus.ACTIVE)
     if scope == "me":
-        mine = _my_competition_ids(db, user)
+        mine = _my_event_ids(db, user)
         if not mine:
             return []
-        query = query.where(Competition.id.in_(mine))
+        query = query.where(Event.id.in_(mine))
     out = []
     for comp in db.scalars(query):
         # a dateless event isn't placeable on a calendar; skip it

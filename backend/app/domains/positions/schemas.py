@@ -73,7 +73,7 @@ class OccupantsSet(BaseModel):
 
 
 class EntityRoleOut(BaseModel):
-    """One entity's occupancy of one role template — what a competition/team
+    """One entity's occupancy of one role template — what a event/team
     "Roles" panel renders, regardless of what roles are actually configured."""
 
     template_id: int

@@ -10,6 +10,7 @@ from app.domains.audit.models import AuditLog
 from app.domains.audit.service import log as audit_log
 from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
+from app.domains.events.models import EventTeam
 from app.domains.hierarchy.service import can_assign_task
 from app.domains.notifications.models import NotificationType
 from app.domains.notifications.service import notify
@@ -43,6 +44,7 @@ def list_tasks(
     view: str = "assigned",  # assigned | created | all
     status_filter: str | None = None,
     assignee_id: int | None = None,
+    event_team_id: int | None = None,
 ) -> list[TaskOut]:
     query = visible_tasks_query(db, user)
     if view == "assigned":
@@ -53,6 +55,8 @@ def list_tasks(
         query = query.where(Task.status == status_filter)
     if assignee_id is not None:
         query = query.where(Task.assignee_id == assignee_id)
+    if event_team_id is not None:
+        query = query.where(Task.event_team_id == event_team_id)
     tasks = db.scalars(query.order_by(Task.updated_at.desc())).unique()
     return [TaskOut.model_validate(t) for t in tasks]
 
@@ -62,19 +66,47 @@ def create_task(payload: TaskCreate, db: DB, user: CurrentUser) -> list[TaskOut]
     access.require_privilege(db, user, "tasks.assign")
     """Creates one task per assignee. With more than one assignee ("team
     assignment"), the resulting tasks share a batch_id so the assigner can
-    track them together — each still moves through the workflow independently."""
-    assignee_ids = list(dict.fromkeys(payload.assignee_ids))  # de-dupe, keep order
-    assignees: list[User] = []
-    for assignee_id in assignee_ids:
-        assignee = db.get(User, assignee_id)
-        if assignee is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Assignee {assignee_id} not found")
-        if not can_assign_task(db, user, assignee):
+    track them together — each still moves through the workflow independently.
+
+    When event_team_id is set, the task targets a whole event team: it fans out
+    to the team's current members that the assigner may task (their subtree),
+    and every resulting task is stamped with the team link + team_visible."""
+    event_team_id: int | None = None
+    if payload.event_team_id is not None:
+        team = db.get(EventTeam, payload.event_team_id)
+        if team is None or team.deleted_at is not None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Team not found")
+        event_team_id = team.id
+        seen: set[int] = set()
+        assignees = []
+        for m in team.members:
+            if m.user_id in seen:
+                continue
+            seen.add(m.user_id)
+            if m.user is not None and can_assign_task(db, user, m.user):
+                assignees.append(m.user)
+        if not assignees:
             raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
-                "You can only assign tasks to people below you in the hierarchy",
+                status.HTTP_400_BAD_REQUEST,
+                "No one on this team is below you in the hierarchy",
             )
-        assignees.append(assignee)
+    else:
+        assignee_ids = list(dict.fromkeys(payload.assignee_ids))  # de-dupe, keep order
+        if not assignee_ids:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pick at least one assignee")
+        assignees = []
+        for assignee_id in assignee_ids:
+            assignee = db.get(User, assignee_id)
+            if assignee is None:
+                raise HTTPException(
+                    status.HTTP_404_NOT_FOUND, f"Assignee {assignee_id} not found"
+                )
+            if not can_assign_task(db, user, assignee):
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN,
+                    "You can only assign tasks to people below you in the hierarchy",
+                )
+            assignees.append(assignee)
 
     batch_id = uuid.uuid4().hex if len(assignees) > 1 else None
     tasks: list[Task] = []
@@ -88,6 +120,8 @@ def create_task(payload: TaskCreate, db: DB, user: CurrentUser) -> list[TaskOut]
             priority=payload.priority,
             category=payload.category,
             batch_id=batch_id,
+            event_team_id=event_team_id,
+            team_visible=payload.team_visible if event_team_id is not None else False,
         )
         db.add(task)
         db.flush()

@@ -102,6 +102,8 @@ export interface Task {
   is_blocked: boolean;
   blocked_reason: string;
   batch_id: string | null;
+  event_team_id: number | null;
+  team_visible: boolean;
   created_at: string;
   updated_at: string;
   attachments: Attachment[];
@@ -136,16 +138,46 @@ export interface TeamMember {
   total_tasks: number;
 }
 
+export interface TeamBlock {
+  kind: 'org' | 'event';
+  team_id: number | null; // event-team id; null for the org block
+  name: string;
+  event_name: string | null;
+  event_id: number | null;
+  members: TeamMember[];
+}
+
+export interface ArchivedEvent {
+  id: number;
+  name: string;
+  kind_name: string | null;
+  kind_label: string | null;
+  start_date: string | null;
+  end_date: string | null;
+}
+
+export interface ArchivedTask {
+  outcome: 'accomplished' | 'incomplete';
+  team_name: string;
+  task: Task;
+}
+
+export interface ArchivedEventDetail {
+  event: ArchivedEvent;
+  teams: string[]; // the viewer's teams within this event
+  tasks: ArchivedTask[];
+}
+
 export type Condition = 'new' | 'good' | 'fair' | 'poor' | 'damaged';
 
 export type AllocationPurpose =
   | 'training'
-  | 'competition'
+  | 'event'
   | 'research'
   | 'borrowed'
   | 'other';
 
-export type CompetitionStatus = 'active' | 'archived';
+export type EventStatus = 'active' | 'archived';
 
 export interface EventKind {
   id: number;
@@ -158,13 +190,13 @@ export interface EventKind {
   sort_order: number;
 }
 
-export interface CompetitionBrief {
+export interface EventBrief {
   id: number;
   name: string;
-  status: CompetitionStatus;
+  status: EventStatus;
 }
 
-export interface CompetitionMember {
+export interface EventMember {
   id: number; // membership row id
   user: UserBrief;
 }
@@ -176,21 +208,21 @@ export interface EntityRole {
   occupants: UserBrief[];
 }
 
-export interface CompetitionTeam {
+export interface EventTeam {
   id: number;
   name: string;
   roles: EntityRole[];
-  members: CompetitionMember[];
+  members: EventMember[];
   can_manage_members: boolean;
 }
 
-export interface CompetitionCategory {
+export interface EventCategory {
   id: number;
   name: string;
-  teams: CompetitionTeam[];
+  teams: EventTeam[];
 }
 
-export interface Competition extends CompetitionBrief {
+export interface Event extends EventBrief {
   description: string;
   start_date: string | null;
   end_date: string | null;
@@ -204,8 +236,8 @@ export interface Competition extends CompetitionBrief {
   can_manage: boolean;
 }
 
-export interface CompetitionDetail extends Competition {
-  categories: CompetitionCategory[];
+export interface EventDetail extends Event {
+  categories: EventCategory[];
 }
 
 export interface Allocation {
@@ -213,8 +245,8 @@ export interface Allocation {
   quantity: number;
   purpose: AllocationPurpose;
   label: string;
-  competition: CompetitionBrief | null;
-  display_label: string; // competition name if linked, else the free-text label
+  event: EventBrief | null;
+  display_label: string; // event name if linked, else the free-text label
   holder: UserBrief | null;
   notes: string;
   created_at: string;
@@ -350,7 +382,7 @@ export interface PositionNode {
   children: PositionNode[];
 }
 
-export type RoleEvent = 'competition_created' | 'team_created' | 'team_member_added';
+export type RoleEvent = 'event_created' | 'team_created' | 'team_member_added';
 
 export interface RoleTemplate {
   id: number;

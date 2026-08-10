@@ -1,5 +1,5 @@
 """General AuditLog (permissions / inventory quantity / role occupancy) and
-soft delete for inventory items and competition teams."""
+soft delete for inventory items and event teams."""
 
 import json
 
@@ -12,7 +12,7 @@ def _new_comp(login, name: str) -> dict:
     body = {"name": name}
     if not admin.get("/api/org/roles/root").json()["root_position_id"]:
         body["role_root_position_id"] = ensure_position(admin)
-    comp = login("cto").post("/api/competitions", json=body).json()
+    comp = login("cto").post("/api/events", json=body).json()
     # seats start vacant now — appoint the creator so cto manages what it made
     me = login("cto").get("/api/auth/me").json()
     seat_role(admin, comp, [me["id"]])
@@ -25,7 +25,7 @@ def _new_team(login, cat_id: int, name: str) -> dict:
     body = {"name": name}
     if not admin.get("/api/org/roles/root").json()["root_position_id"]:
         body["role_root_position_id"] = ensure_position(admin)
-    return login("cto").post(f"/api/competitions/categories/{cat_id}/teams", json=body).json()
+    return login("cto").post(f"/api/events/categories/{cat_id}/teams", json=body).json()
 
 
 def test_item_delete_is_soft_by_default(login, org):
@@ -58,31 +58,31 @@ def test_soft_deleted_item_preserves_allocation_history(login, org):
 
 def test_team_delete_is_soft_by_default_and_excluded_from_detail(login, org):
     cid = _new_comp(login, "Cup")["id"]
-    cat = login("cto").post(f"/api/competitions/{cid}/categories", json={"name": "Senior"}).json()
+    cat = login("cto").post(f"/api/events/{cid}/categories", json={"name": "Senior"}).json()
     team = _new_team(login, cat["id"], "A")
-    assert login("cto").delete(f"/api/competitions/teams/{team['id']}").status_code == 204
-    detail = login("cto").get(f"/api/competitions/{cid}").json()
+    assert login("cto").delete(f"/api/events/teams/{team['id']}").status_code == 204
+    detail = login("cto").get(f"/api/events/{cid}").json()
     assert detail["categories"][0]["teams"] == []
     assert detail["team_count"] == 0
 
 
 def test_category_delete_blocked_while_teams_exist(login, org):
     cid = _new_comp(login, "Cup2")["id"]
-    cat = login("cto").post(f"/api/competitions/{cid}/categories", json={"name": "Senior"}).json()
+    cat = login("cto").post(f"/api/events/{cid}/categories", json={"name": "Senior"}).json()
     _new_team(login, cat["id"], "A")
-    assert login("cto").delete(f"/api/competitions/categories/{cat['id']}").status_code == 400
+    assert login("cto").delete(f"/api/events/categories/{cat['id']}").status_code == 400
     # once the (only) team is soft-deleted, the category can go
-    team = login("cto").get(f"/api/competitions/{cid}").json()["categories"][0]["teams"][0]
-    login("cto").delete(f"/api/competitions/teams/{team['id']}")
-    assert login("cto").delete(f"/api/competitions/categories/{cat['id']}").status_code == 204
+    team = login("cto").get(f"/api/events/{cid}").json()["categories"][0]["teams"][0]
+    login("cto").delete(f"/api/events/teams/{team['id']}")
+    assert login("cto").delete(f"/api/events/categories/{cat['id']}").status_code == 204
 
 
 def test_permanent_team_delete_is_admin_only(login, org):
     cid = _new_comp(login, "Cup3")["id"]
-    cat = login("cto").post(f"/api/competitions/{cid}/categories", json={"name": "Senior"}).json()
+    cat = login("cto").post(f"/api/events/{cid}/categories", json={"name": "Senior"}).json()
     team = _new_team(login, cat["id"], "A")
-    assert login("cto").delete(f"/api/competitions/teams/{team['id']}?permanent=true").status_code == 403
-    assert login("admin").delete(f"/api/competitions/teams/{team['id']}?permanent=true").status_code == 204
+    assert login("cto").delete(f"/api/events/teams/{team['id']}?permanent=true").status_code == 403
+    assert login("admin").delete(f"/api/events/teams/{team['id']}?permanent=true").status_code == 204
 
 
 def test_audit_log_records_quantity_role_and_occupant_changes(login, org):
@@ -95,7 +95,7 @@ def test_audit_log_records_quantity_role_and_occupant_changes(login, org):
     login("admin").patch(f"/api/users/{org['sw_emp'].id}", json={"access_level_id": lead_id})
 
     # a role-position occupant change (the new generic replacement for the
-    # old dedicated "PM added" competition action)
+    # old dedicated "PM added" event action)
     comp = _new_comp(login, "AuditCup")
     pos_id = comp["roles"][0]["position_id"]
     login("cto").put(

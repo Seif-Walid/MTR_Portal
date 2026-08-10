@@ -17,6 +17,10 @@ services:
       retries: 10
 
   backend:
+    # Local dev builds from ./backend; CI/CD sets BACKEND_IMAGE to a GHCR tag
+    # (see .github/workflows/ci-cd.yml) so the VM pulls a prebuilt image instead
+    # of building on the resource-constrained free-tier box.
+    image: ${BACKEND_IMAGE:-ghcr.io/seif-walid/mtr_portal-backend:latest}
     build: ./backend
     container_name: portal-backend
     depends_on:
@@ -41,6 +45,7 @@ services:
       retries: 10
 
   frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/seif-walid/mtr_portal-frontend:latest}
     build: ./frontend
     container_name: portal-frontend
     depends_on:

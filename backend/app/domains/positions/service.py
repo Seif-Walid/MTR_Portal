@@ -36,10 +36,10 @@ def resync_managers(db: Session) -> None:
     that has one. Positions can have more than one occupant now (co-leads, a
     whole roster) — when a parent has several, the earliest-added one is
     treated as "the" manager for anyone below, same convention this app
-    already used for "the" PM of a competition before that concept moved
+    already used for "the" PM of a event before that concept moved
     onto this same generic occupancy system.
 
-    Role-template positions (role_template_id is not None — a competition's
+    Role-template positions (role_template_id is not None — a event's
     PM seat, a team's Lead/Coach/Member seat, whatever the admin has
     configured) are excluded entirely: holding one never sets your
     manager_id, and one is never treated as an ancestor's manager either.
@@ -83,7 +83,7 @@ def clear_user_from_other_positions(db: Session, user_id: int, keep_position_id:
     """A person occupies at most one REAL seat. Role-template positions (see
     resync_managers above) are a separate kind of "hat" and are deliberately
     left alone — someone can hold their real seat and also occupy any number
-    of role-template positions (a competition's PM, a team's Lead, a team's
+    of role-template positions (a event's PM, a team's Lead, a team's
     Coach, several at once) without being evicted from either."""
     for link in db.scalars(
         select(PositionOccupant)

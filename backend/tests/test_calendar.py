@@ -50,20 +50,20 @@ def test_events_me_vs_general(login, org):
     setup_role_templates(admin, pm=True, member=True)
     root = ensure_position(admin)
     # an event with dates, created by cto
-    r = login("cto").post("/api/competitions", json={
+    r = login("cto").post("/api/events", json={
         "name": "MATE ROV", "start_date": "2026-09-01", "end_date": "2026-09-05",
         "role_root_position_id": root,
     })
     assert r.status_code == 201, r.text
     comp = r.json()
-    cat = login("cto").post(f"/api/competitions/{comp['id']}/categories", json={"name": "Senior"})
+    cat = login("cto").post(f"/api/events/{comp['id']}/categories", json={"name": "Senior"})
     # cto must manage it to add a category — seat them as PM first
     seat_role(admin, comp, [org["cto"].id])
-    cat = login("cto").post(f"/api/competitions/{comp['id']}/categories", json={"name": "Senior"}).json()
-    team = login("cto").post(f"/api/competitions/categories/{cat['id']}/teams", json={"name": "Alpha"}).json()
-    login("cto").post(f"/api/competitions/teams/{team['id']}/members", json={"user_id": org["student"].id})
+    cat = login("cto").post(f"/api/events/{comp['id']}/categories", json={"name": "Senior"}).json()
+    team = login("cto").post(f"/api/events/categories/{cat['id']}/teams", json={"name": "Alpha"}).json()
+    login("cto").post(f"/api/events/teams/{team['id']}/members", json={"user_id": org["student"].id})
 
-    # general (anyone with competitions.view) sees the event as a span
+    # general (anyone with events.view) sees the event as a span
     ev = [i for i in _cal(login, "cfo", "general", "events") if i["title"] == "MATE ROV"]
     assert ev and ev[0]["start"] == "2026-09-01" and ev[0]["end"] == "2026-09-05"
     assert ev[0]["source"] == "event"
@@ -88,7 +88,7 @@ def test_combined_sources_sorted_by_date(login, org):
     admin = login("admin")
     setup_role_templates(admin, pm=True)
     root = ensure_position(admin)
-    login("cto").post("/api/competitions", json={
+    login("cto").post("/api/events", json={
         "name": "Early Cup", "start_date": "2026-08-05", "end_date": "2026-08-06",
         "role_root_position_id": root,
     })

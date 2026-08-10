@@ -22,7 +22,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import type {
   AllocationPurpose,
-  CompetitionBrief,
+  EventBrief,
   InventoryItem,
   UserBrief,
 } from '../api/types';
@@ -33,7 +33,7 @@ import { ConditionTag, PURPOSE_META, PurposeTag } from './tags';
 import UsageBreakdown from './UsageBreakdown';
 import WhereaboutsPanel from './WhereaboutsPanel';
 
-const PURPOSES: AllocationPurpose[] = ['training', 'competition', 'research', 'borrowed', 'other'];
+const PURPOSES: AllocationPurpose[] = ['training', 'event', 'research', 'borrowed', 'other'];
 
 export default function InventoryItemDrawer({
   itemId,
@@ -47,7 +47,7 @@ export default function InventoryItemDrawer({
   const { me } = useAuth();
   const [item, setItem] = useState<InventoryItem | null>(null);
   const [holders, setHolders] = useState<UserBrief[]>([]);
-  const [competitions, setCompetitions] = useState<CompetitionBrief[]>([]);
+  const [events, setEvents] = useState<EventBrief[]>([]);
   const [allocForm] = Form.useForm();
   const allocPurpose = Form.useWatch('purpose', allocForm) as AllocationPurpose | undefined;
   const [busy, setBusy] = useState(false);
@@ -66,7 +66,7 @@ export default function InventoryItemDrawer({
   useEffect(() => {
     if (itemId !== null && canManage && holders.length === 0) {
       api.get<UserBrief[]>('/api/inventory/holders').then(setHolders).catch(() => {});
-      api.get<CompetitionBrief[]>('/api/competitions').then(setCompetitions).catch(() => {});
+      api.get<EventBrief[]>('/api/events').then(setEvents).catch(() => {});
     }
   }, [itemId, canManage, holders.length]);
 
@@ -84,7 +84,7 @@ export default function InventoryItemDrawer({
     quantity: number;
     purpose: AllocationPurpose;
     label?: string;
-    competition_id?: number;
+    event_id?: number;
     holder_id?: number;
   }) => {
     if (!item) return;
@@ -191,8 +191,8 @@ export default function InventoryItemDrawer({
                     <Space wrap>
                       <PurposeTag purpose={a.purpose} />
                       <Typography.Text strong>{a.quantity}</Typography.Text>
-                      {a.competition ? (
-                        <Tag color="gold">{a.competition.name}</Tag>
+                      {a.event ? (
+                        <Tag color="gold">{a.event.name}</Tag>
                       ) : (
                         a.display_label && (
                           <Typography.Text type="secondary">{a.display_label}</Typography.Text>
@@ -226,15 +226,15 @@ export default function InventoryItemDrawer({
                     </Form.Item>
                   </Col>
                 </Row>
-                {allocPurpose === 'competition' ? (
-                  <Form.Item name="competition_id" label="Competition">
+                {allocPurpose === 'event' ? (
+                  <Form.Item name="event_id" label="Event">
                     <Select
                       allowClear
                       showSearch
                       optionFilterProp="label"
-                      placeholder={competitions.length ? 'Pick a competition' : 'No competitions yet — add one first'}
-                      options={competitions.map((c) => ({ value: c.id, label: c.name }))}
-                      notFoundContent="Add competitions on the Competitions page"
+                      placeholder={events.length ? 'Pick a event' : 'No events yet — add one first'}
+                      options={events.map((c) => ({ value: c.id, label: c.name }))}
+                      notFoundContent="Add events on the Events page"
                     />
                   </Form.Item>
                 ) : (

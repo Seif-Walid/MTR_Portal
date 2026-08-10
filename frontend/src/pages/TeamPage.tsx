@@ -1,8 +1,8 @@
-import { Card, Space, Table, Typography } from 'antd';
+import { Card, Empty, Space, Table, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 
 import { api } from '../api/client';
-import type { Task, TeamMember } from '../api/types';
+import type { Task, TeamBlock, TeamMember } from '../api/types';
 import { STATUS_META, StatusTag } from '../components/tags';
 import TaskDrawer from '../components/TaskDrawer';
 
@@ -18,39 +18,46 @@ function StatCard({ label, value, accent }: { label: string; value: number; acce
   );
 }
 
-export default function TeamPage() {
-  const [members, setMembers] = useState<TeamMember[]>([]);
-  const [loading, setLoading] = useState(true);
+function TeamSection({ block, onOpenTask }: { block: TeamBlock; onOpenTask: (id: number) => void }) {
   const [selected, setSelected] = useState<TeamMember | null>(null);
   const [memberTasks, setMemberTasks] = useState<Task[]>([]);
-  const [openTask, setOpenTask] = useState<number | null>(null);
 
   useEffect(() => {
-    api.get<TeamMember[]>('/api/team').then(setMembers).finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    if (selected) api.get<Task[]>(`/api/tasks?view=all&assignee_id=${selected.user.id}`).then(setMemberTasks);
-  }, [selected]);
+    if (!selected) return;
+    // scope the drill-down to this team's board for event teams
+    const teamScope = block.team_id != null ? `&event_team_id=${block.team_id}` : '';
+    api.get<Task[]>(`/api/tasks?view=all&assignee_id=${selected.user.id}${teamScope}`).then(setMemberTasks);
+  }, [selected, block.team_id]);
 
   const totals = useMemo(() => {
     const sum: Record<string, number> = {};
-    for (const m of members) for (const [status, n] of Object.entries(m.task_counts)) sum[status] = (sum[status] ?? 0) + (n ?? 0);
+    for (const m of block.members) for (const [status, n] of Object.entries(m.task_counts)) sum[status] = (sum[status] ?? 0) + (n ?? 0);
     return sum;
-  }, [members]);
+  }, [block.members]);
 
   return (
-    <>
-      <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: '0 0 18px', color: '#eaf2ff' }}>My Team</h2>
+    <section style={{ marginBottom: 34 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, margin: '0 0 14px' }}>
+        <h3 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 18, margin: 0, color: '#eaf2ff' }}>{block.name}</h3>
+        {block.kind === 'event' ? (
+          <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: '#c58bff', border: '1px solid rgba(197,139,255,.3)', background: 'rgba(197,139,255,.08)', padding: '2px 8px', borderRadius: 5 }}>
+            {block.event_name}
+          </span>
+        ) : (
+          <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: '#5cc6ff', border: '1px solid rgba(92,198,255,.3)', background: 'rgba(92,198,255,.08)', padding: '2px 8px', borderRadius: 5 }}>
+            org hierarchy
+          </span>
+        )}
+      </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Object.keys(STATUS_META).length + 1}, minmax(0,1fr))`, gap: 12, marginBottom: 20 }}>
-        <StatCard label="People" value={members.length} accent />
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Object.keys(STATUS_META).length + 1}, minmax(0,1fr))`, gap: 12, marginBottom: 16 }}>
+        <StatCard label="People" value={block.members.length} accent />
         {Object.entries(STATUS_META).map(([status, meta]) => (
           <StatCard key={status} label={meta.label} value={totals[status] ?? 0} />
         ))}
       </div>
 
-      <Table className="circuit-table" rowKey={(m) => m.user.id} loading={loading} dataSource={members}
+      <Table className="circuit-table" rowKey={(m) => m.user.id} dataSource={block.members}
         pagination={{ defaultPageSize: 20, hideOnSinglePage: true }}
         onRow={(m) => ({ onClick: () => setSelected(m), style: { cursor: 'pointer' } })}
         columns={[
@@ -85,7 +92,7 @@ export default function TeamPage() {
         <Card size="small" title={`Tasks — ${selected.user.full_name}`} style={{ marginTop: 16 }}>
           <Table className="circuit-table" rowKey="id" size="small" dataSource={memberTasks}
             pagination={{ defaultPageSize: 10, hideOnSinglePage: true }}
-            onRow={(t) => ({ onClick: () => setOpenTask(t.id), style: { cursor: 'pointer' } })}
+            onRow={(t) => ({ onClick: () => onOpenTask(t.id), style: { cursor: 'pointer' } })}
             columns={[
               { title: 'Title', dataIndex: 'title', ellipsis: true },
               { title: 'Status', dataIndex: 'status', width: 190, render: (s: Task['status']) => <StatusTag status={s} /> },
@@ -94,7 +101,31 @@ export default function TeamPage() {
             ]} />
         </Card>
       )}
-      <TaskDrawer taskId={openTask} onClose={() => setOpenTask(null)} onChanged={() => selected && setSelected({ ...selected })} />
+    </section>
+  );
+}
+
+export default function TeamPage() {
+  const [blocks, setBlocks] = useState<TeamBlock[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [openTask, setOpenTask] = useState<number | null>(null);
+
+  const reload = () => api.get<TeamBlock[]>('/api/team/mine').then(setBlocks).finally(() => setLoading(false));
+  useEffect(() => { reload(); }, []);
+
+  return (
+    <>
+      <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: '0 0 18px', color: '#eaf2ff' }}>My Teams</h2>
+
+      {!loading && blocks.length === 0 && (
+        <Empty description="You're not on any team yet" style={{ marginTop: 40 }} />
+      )}
+
+      {blocks.map((b) => (
+        <TeamSection key={`${b.kind}-${b.team_id ?? 'org'}`} block={b} onOpenTask={setOpenTask} />
+      ))}
+
+      <TaskDrawer taskId={openTask} onClose={() => setOpenTask(null)} onChanged={reload} />
     </>
   );
 }

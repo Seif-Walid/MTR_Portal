@@ -3,10 +3,10 @@ import { Empty, Table, Tag, Typography } from 'antd';
 import type { Allocation, AllocationPurpose, InventoryItem } from '../api/types';
 import { PURPOSE_META } from './tags';
 
-/** Column identity: a distinct competition is its own column; otherwise group
+/** Column identity: a distinct event is its own column; otherwise group
  *  by purpose + free-text label. */
 function bucketKey(a: Allocation): string {
-  return a.competition ? `comp:${a.competition.id}` : `${a.purpose}||${a.label}`;
+  return a.event ? `comp:${a.event.id}` : `${a.purpose}||${a.label}`;
 }
 
 function bucketHeader(a: Allocation): string {
@@ -15,7 +15,7 @@ function bucketHeader(a: Allocation): string {
 
 const PURPOSE_ORDER: AllocationPurpose[] = [
   'training',
-  'competition',
+  'event',
   'research',
   'borrowed',
   'other',
@@ -36,7 +36,7 @@ interface Row {
 }
 
 /** Rows = people (plus an unassigned pool), columns = each distinct activity
- *  (R&D, Borrowed, and one per competition/project), cells = units held. Every
+ *  (R&D, Borrowed, and one per event/project), cells = units held. Every
  *  number is derived from the item's allocations — no hardcoded data. */
 export default function HoldingsMatrix({ item }: { item: InventoryItem }) {
   if (item.allocations.length === 0) {

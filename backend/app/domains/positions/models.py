@@ -83,33 +83,33 @@ class PositionOccupant(Base):
 
 
 class RoleTemplate(Base):
-    """An admin-defined role, e.g. "{competition} PM" or "{member}" — fully
+    """An admin-defined role, e.g. "{event} PM" or "{member}" — fully
     data-driven, no role name is ever hardcoded in Python. `event` is one of
     the three fixed points in the app that can seat someone (creating a
-    competition, creating a team, adding a team member) — that's the app's
+    event, creating a team, adding a team member) — that's the app's
     fixed structure, not a hardcoded role. `sort_order` is globally unique
     across every template and defines the single chain: this template's
     positions are parented under whichever earlier-in-order template already
-    has a position for an ancestor entity (competition -> team ->
+    has a position for an ancestor entity (event -> team ->
     membership), or under RoleChainRoot if none does yet.
 
     access_level_id: the power every position this template produces confers
     on its occupants — same meaning as Position.access_level_id, copied onto
     each produced position at creation time. This is what replaced the old
-    grants_management flag: a "{competition} PM" template set to a level
-    whose privileges include competitions.manage_seated makes its occupants
-    managers of that competition; a "{member}" template with no level (or a
+    grants_management flag: a "{event} PM" template set to a level
+    whose privileges include events.manage_seated makes its occupants
+    managers of that event; a "{member}" template with no level (or a
     powerless one) is just an org-chart seat. NULL confers nothing.
 
     Every seat starts vacant — nothing auto-seats a creator — except
     event="team_member_added", where the added member *is* the seat's
     meaning and always occupies it.
 
-    event_kind_id: which event kind (competition/training/R&D/...) this role
+    event_kind_id: which event kind (event/training/R&D/...) this role
     fires for. NULL means "every kind" (a shared role). A template with a
     kind only ever fires — and only ever chains — within that kind, so a
-    Training's "Season Lead" and a Competition's "PM" never collide even
-    though both react to the same event="competition_created" trigger. See
+    Training's "Season Lead" and a Event's "PM" never collide even
+    though both react to the same event="event_created" trigger. See
     role_engine._templates_for_kind / _find_chain_parent.
 
     Chaining: this template's positions parent under whichever earlier

@@ -7,9 +7,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
-import type { Competition, EventKind, RoleRoot } from '../api/types';
+import type { Event, EventKind, RoleRoot } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
-import CompetitionDetailPanel from '../components/CompetitionDetailPanel';
+import EventDetailPanel from '../components/EventDetailPanel';
 import PositionPicker from '../components/PositionPicker';
 
 const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
@@ -25,7 +25,7 @@ interface FormValues {
 /* ---- EventModal — unchanged auth/data flow -------------------------------- */
 function EventModal({ kind, event, open, onClose, onSaved }: {
   kind: EventKind;
-  event: Competition | null;
+  event: Event | null;
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -62,8 +62,8 @@ function EventModal({ kind, event, open, onClose, onSaved }: {
       ...(event ? {} : { kind_id: kind.id, role_root_position_id: values.role_root_position_id ?? null }),
     };
     try {
-      if (event) await api.patch(`/api/competitions/${event.id}`, body);
-      else await api.post('/api/competitions', body);
+      if (event) await api.patch(`/api/events/${event.id}`, body);
+      else await api.post('/api/events', body);
       message.success('Saved');
       onSaved();
       onClose();
@@ -110,7 +110,7 @@ function EventModal({ kind, event, open, onClose, onSaved }: {
 /* ---- EventsList — prototype card grid ------------------------------------- */
 function EventCard({ kind, c, onEdit, onStatus, onRemove, expanded, onToggle, onChanged }: {
   kind: EventKind;
-  c: Competition;
+  c: Event;
   onEdit: () => void;
   onStatus: (status: 'active' | 'archived') => void;
   onRemove: () => void;
@@ -184,7 +184,7 @@ function EventCard({ kind, c, onEdit, onStatus, onRemove, expanded, onToggle, on
         )}
         {expanded && (
           <div style={{ marginTop: 18, borderTop: '1px solid rgba(120,170,230,.12)', paddingTop: 16 }}>
-            <CompetitionDetailPanel competitionId={c.id} onChanged={onChanged} />
+            <EventDetailPanel eventId={c.id} onChanged={onChanged} />
           </div>
         )}
       </div>
@@ -193,15 +193,15 @@ function EventCard({ kind, c, onEdit, onStatus, onRemove, expanded, onToggle, on
 }
 
 function EventsList({ kind, canCreate }: { kind: EventKind; canCreate: boolean }) {
-  const [events, setEvents] = useState<Competition[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<Competition | null>(null);
+  const [editing, setEditing] = useState<Event | null>(null);
   const [open, setOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
-    api.get<Competition[]>(`/api/competitions?include_archived=true&kind_id=${kind.id}`)
+    api.get<Event[]>(`/api/events?include_archived=true&kind_id=${kind.id}`)
       .then(setEvents)
       .catch((e) => message.error(e.message))
       .finally(() => setLoading(false));
@@ -209,12 +209,12 @@ function EventsList({ kind, canCreate }: { kind: EventKind; canCreate: boolean }
 
   useEffect(load, [load]);
 
-  const setStatus = async (c: Competition, status: 'active' | 'archived') => {
-    try { await api.patch(`/api/competitions/${c.id}`, { status }); load(); }
+  const setStatus = async (c: Event, status: 'active' | 'archived') => {
+    try { await api.patch(`/api/events/${c.id}`, { status }); load(); }
     catch (e) { message.error(e instanceof ApiError ? e.message : 'Failed'); }
   };
-  const remove = async (c: Competition) => {
-    try { await api.delete(`/api/competitions/${c.id}`); message.success('Deleted'); load(); }
+  const remove = async (c: Event) => {
+    try { await api.delete(`/api/events/${c.id}`); message.success('Deleted'); load(); }
     catch (e) { message.error(e instanceof ApiError ? e.message : 'Delete failed'); }
   };
 
@@ -264,7 +264,7 @@ function KindsManagerModal({ kinds, open, onClose, onChanged }: {
 
   const add = async (v: { name: string; event_label: string; category_label?: string; team_label?: string; member_label?: string }) => {
     try {
-      await api.post('/api/competitions/kinds', {
+      await api.post('/api/events/kinds', {
         name: v.name,
         event_label: v.event_label,
         category_label: v.category_label || 'Category',
@@ -279,11 +279,11 @@ function KindsManagerModal({ kinds, open, onClose, onChanged }: {
   };
   const patch = async (k: EventKind, field: keyof EventKind, value: string) => {
     if (!value || value === k[field]) return;
-    try { await api.patch(`/api/competitions/kinds/${k.id}`, { [field]: value }); onChanged(); }
+    try { await api.patch(`/api/events/kinds/${k.id}`, { [field]: value }); onChanged(); }
     catch (e) { message.error(e instanceof ApiError ? e.message : 'Failed'); }
   };
   const remove = async (k: EventKind) => {
-    try { await api.delete(`/api/competitions/kinds/${k.id}`); message.success('Removed'); onChanged(); }
+    try { await api.delete(`/api/events/kinds/${k.id}`); message.success('Removed'); onChanged(); }
     catch (e) { message.error(e instanceof ApiError ? e.message : 'Delete failed'); }
   };
 
@@ -341,11 +341,11 @@ export default function EventsPage() {
   const [kinds, setKinds] = useState<EventKind[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [managing, setManaging] = useState(false);
-  const canCreate = can(me, 'competitions.create');
+  const canCreate = can(me, 'events.create');
   const canManageKinds = can(me, 'org.edit');
 
   const loadKinds = useCallback(() => {
-    api.get<EventKind[]>('/api/competitions/kinds')
+    api.get<EventKind[]>('/api/events/kinds')
       .then(setKinds)
       .catch(() => {})
       .finally(() => setLoaded(true));
@@ -394,7 +394,7 @@ export default function EventsPage() {
         <Empty
           description={
             canManageKinds
-              ? 'No event types yet. Use "Event types" to add one (e.g. Competition, Training, R&D).'
+              ? 'No event types yet. Use "Event types" to add one (e.g. Event, Training, R&D).'
               : 'No event types have been set up yet.'
           }
         />

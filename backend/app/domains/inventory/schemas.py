@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domains.competitions.schemas import CompetitionBrief
+from app.domains.events.schemas import EventBrief
 from app.domains.inventory.models import AllocationPurpose, Condition
 from app.domains.users.schemas import UserBrief
 
@@ -14,7 +14,7 @@ class AllocationOut(BaseModel):
     quantity: int
     purpose: str
     label: str
-    competition: CompetitionBrief | None
+    event: EventBrief | None
     display_label: str
     holder: UserBrief | None
     notes: str
@@ -130,7 +130,7 @@ class AllocationCreate(BaseModel):
     quantity: int = Field(ge=1)
     purpose: AllocationPurpose = AllocationPurpose.OTHER
     label: str = Field(default="", max_length=255)
-    competition_id: int | None = None
+    event_id: int | None = None
     holder_id: int | None = None
     notes: str = ""
 
@@ -139,8 +139,8 @@ class AllocationEdit(BaseModel):
     quantity: int | None = Field(default=None, ge=1)
     purpose: AllocationPurpose | None = None
     label: str | None = Field(default=None, max_length=255)
-    competition_id: int | None = None
-    clear_competition: bool = False
+    event_id: int | None = None
+    clear_event: bool = False
     holder_id: int | None = None
     clear_holder: bool = False
     notes: str | None = None

@@ -3,7 +3,7 @@ import { Empty, Space, Tag, Typography } from 'antd';
 import type { AllocationPurpose, InventoryItem } from '../api/types';
 import { PURPOSE_META } from './tags';
 
-const ORDER: AllocationPurpose[] = ['training', 'competition', 'research', 'borrowed', 'other'];
+const ORDER: AllocationPurpose[] = ['training', 'event', 'research', 'borrowed', 'other'];
 
 /** The per-purpose split of everything currently in use — shown both in the
  *  hover popover on the table and inside the detail drawer. */
