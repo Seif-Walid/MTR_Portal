@@ -18,19 +18,19 @@ def _alloc(login, item_id, quantity, purpose="training", who="cto", **over):
 def test_allocations_compute_in_use_and_free(login, org):
     item_id = _item(login, quantity=100)
     _alloc(login, item_id, 50, "training")
-    _alloc(login, item_id, 30, "competition", label="RoboCup")
+    _alloc(login, item_id, 30, "event", label="RoboCup")
     r = _alloc(login, item_id, 10, "research")
     assert r.status_code == 201
     item = r.json()
     assert item["in_use"] == 90
     assert item["free"] == 10
-    assert item["by_purpose"] == {"training": 50, "competition": 30, "research": 10}
+    assert item["by_purpose"] == {"training": 50, "event": 30, "research": 10}
 
 
 def test_cannot_over_allocate(login, org):
     item_id = _item(login, quantity=10)
     _alloc(login, item_id, 8, "training")
-    r = _alloc(login, item_id, 5, "competition")
+    r = _alloc(login, item_id, 5, "event")
     assert r.status_code == 400
     assert "free" in r.json()["detail"].lower()
 
@@ -57,10 +57,10 @@ def test_holder_breakdown_reports_who_has_what(login, org):
     item_id = _item(login, quantity=100)
     student_id = org["student"].id
     _alloc(login, item_id, 2, "research", label="R&D", holder_id=student_id)
-    r = _alloc(login, item_id, 1, "competition", label="RoboCup", holder_id=student_id)
+    r = _alloc(login, item_id, 1, "event", label="RoboCup", holder_id=student_id)
     held = [a for a in r.json()["allocations"] if a["holder"]]
     by_purpose = {a["purpose"]: a["quantity"] for a in held if a["holder"]["id"] == student_id}
-    assert by_purpose == {"research": 2, "competition": 1}
+    assert by_purpose == {"research": 2, "event": 1}
 
 
 def test_delete_allocation_frees_capacity(login, org):

@@ -21,11 +21,11 @@ import type { RebuildBatch, RebuildReport, SheetExportStatus } from '../api/type
 const TAB_LABELS: Record<string, string> = {
   people: 'People',
   positions: 'Positions',
-  competitions: 'Competitions',
-  competition_categories: 'Competition categories',
-  competition_teams: 'Competition teams',
-  competition_pms: 'Competition PMs',
-  competition_team_members: 'Team members',
+  events: 'Events',
+  event_categories: 'Event categories',
+  event_teams: 'Event teams',
+  event_pms: 'Event PMs',
+  event_team_members: 'Team members',
   inventory_locations: 'Inventory locations',
   inventory_items: 'Inventory items',
   inventory_movements: 'Inventory movements',
@@ -74,7 +74,7 @@ function RebuildModal({
         type="error"
         showIcon
         message="This replaces the entire database with what's in the sheet."
-        description="Anything created in the portal since the last export and not present in the sheet will be destroyed — people, positions, competitions, and inventory. This is a restore from spreadsheet, not a sync. Everyone will need to sign in again afterward. A full snapshot is taken automatically before anything is touched."
+        description="Anything created in the portal since the last export and not present in the sheet will be destroyed — people, positions, events, and inventory. This is a restore from spreadsheet, not a sync. Everyone will need to sign in again afterward. A full snapshot is taken automatically before anything is touched."
         style={{ marginBottom: 16 }}
       />
 

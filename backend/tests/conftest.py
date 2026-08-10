@@ -13,7 +13,7 @@ from app.core.database import Base, get_db
 from app.domains.access import models as _access  # noqa: F401
 from app.domains.audit import models as _audit  # noqa: F401
 from app.domains.auth import models as _auth  # noqa: F401
-from app.domains.competitions import models as _competitions  # noqa: F401
+from app.domains.events import models as _events  # noqa: F401
 from app.domains.inventory import models as _inventory  # noqa: F401
 from app.domains.notifications import models as _notifications  # noqa: F401
 from app.domains.positions import models as _positions  # noqa: F401
@@ -75,32 +75,32 @@ def client(db_session):
 
 # The test ladder mirrors the app's old effective tiers so the reference
 # hierarchy keeps its historical powers: Exec ~ the old CEO (org editor,
-# rebuilds, manages any competition), Lead ~ old high staff (creates and
+# rebuilds, manages any event), Lead ~ old high staff (creates and
 # manages-where-seated), Staff ~ old plain employee (runs inventory, assigns
-# tasks, no competition creation), Member ~ old student/competition member.
+# tasks, no event creation), Member ~ old student/event member.
 TEST_LEVELS: list[tuple[str, list[str]]] = [
     ("Admin", []),  # rank 1 implicitly holds everything
     ("Exec", [
         "inventory.view", "inventory.request", "inventory.approve", "inventory.edit",
-        "competitions.view", "competitions.manage_seated", "competitions.create",
-        "competitions.manage_any", "tasks.use", "tasks.assign", "org.view", "org.edit",
+        "events.view", "events.manage_seated", "events.create",
+        "events.manage_any", "tasks.use", "tasks.assign", "org.view", "org.edit",
         "people.view", "audit.view", "sync.export", "sync.rebuild",
     ]),
     ("Lead", [
         "inventory.view", "inventory.request", "inventory.approve", "inventory.edit",
-        "competitions.view", "competitions.manage_seated", "competitions.create",
+        "events.view", "events.manage_seated", "events.create",
         "tasks.use", "tasks.assign", "org.view", "people.view",
     ]),
     ("Staff", [
         "inventory.view", "inventory.request", "inventory.approve", "inventory.edit",
-        "competitions.view", "tasks.use", "tasks.assign", "org.view", "people.view",
+        "events.view", "tasks.use", "tasks.assign", "org.view", "people.view",
     ]),
     ("Requester", [
         "inventory.view", "inventory.request",
-        "competitions.view", "tasks.use", "org.view", "people.view",
+        "events.view", "tasks.use", "org.view", "people.view",
     ]),
     ("Member", [
-        "competitions.view", "tasks.use", "org.view", "people.view",
+        "events.view", "tasks.use", "org.view", "people.view",
     ]),
     ("Guest", []),  # the bottom rung: the default for unassigned accounts
 ]
@@ -121,8 +121,8 @@ def org(db_session):
     admin (outside the tree)
     """
     db = db_session
-    from app.domains.competitions.service import ensure_preset_kinds
-    ensure_preset_kinds(db)  # Competition / Training / R&D
+    from app.domains.events.service import ensure_preset_kinds
+    ensure_preset_kinds(db)  # Event / Training / R&D
     levels: dict[str, AccessLevel] = {}
     for rank, (name, keys) in enumerate(TEST_LEVELS, start=1):
         level = AccessLevel(rank=rank, name=name, privileges=json.dumps(keys))
@@ -213,7 +213,7 @@ def make_task(login, assigner: str, org, assignee_key: str, title: str = "t") ->
 def ensure_position(admin) -> int:
     """A position ID to pass as role_root_position_id — reuses whatever's
     already in the org tree, or creates a root position if there's none yet.
-    Competitions/teams/members only need this the very first time any
+    Events/teams/members only need this the very first time any
     role-template position is ever created system-wide; passing it on every
     call is harmless (ignored once the root is already remembered)."""
     tree = admin.get("/api/org/tree").json()
@@ -232,10 +232,10 @@ def _level_id_by_name(admin, name: str) -> int:
 def setup_role_templates(
     admin, *, pm: bool = False, team_lead: bool = False, member: bool = False
 ) -> dict[str, int]:
-    """Creates the minimal role templates a test needs: a competition-scope
+    """Creates the minimal role templates a test needs: a event-scope
     "PM" template and/or a team-scope "Lead" template, both carrying the
     test ladder's "Lead" level (whose privileges include
-    competitions.manage_seated — occupants manage that entity), and/or a
+    events.manage_seated — occupants manage that entity), and/or a
     member-scope "{member}" template with no level (a bare org-chart seat).
     Seats always start vacant — see seat_role to appoint someone.
     Idempotent within a test (checks by event before creating)."""
@@ -255,7 +255,7 @@ def setup_role_templates(
         existing[event] = ids[key]
 
     if pm:
-        _ensure("pm", "competition_created", "{competition} PM", lead_level)
+        _ensure("pm", "event_created", "{event} PM", lead_level)
     if team_lead:
         _ensure("team_lead", "team_created", "{team} Lead", lead_level)
     if member:
@@ -265,7 +265,7 @@ def setup_role_templates(
 
 def seat_role(admin, entity_json: dict, user_ids: list[int], role_index: int = 0) -> None:
     """Appoints occupants into an entity's role seat (e.g. the PM seat of a
-    freshly created competition) — nothing auto-seats creators anymore, so
+    freshly created event) — nothing auto-seats creators anymore, so
     tests that need a scoped manager appoint one explicitly."""
     position_id = entity_json["roles"][role_index]["position_id"]
     assert position_id is not None, entity_json

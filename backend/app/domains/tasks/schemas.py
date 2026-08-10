@@ -42,6 +42,8 @@ class TaskOut(BaseModel):
     is_blocked: bool
     blocked_reason: str
     batch_id: str | None
+    event_team_id: int | None
+    team_visible: bool
     created_at: datetime
     updated_at: datetime
     attachments: list[AttachmentOut] = []
@@ -51,7 +53,13 @@ class TaskOut(BaseModel):
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str = ""
-    assignee_ids: list[int] = Field(min_length=1)
+    # explicit people to assign to; ignored when event_team_id is given (the
+    # team's current members are expanded instead)
+    assignee_ids: list[int] = Field(default_factory=list)
+    # assign to a whole event team: fans out to its members you may task
+    event_team_id: int | None = None
+    # only meaningful with event_team_id: share the task with the whole team
+    team_visible: bool = False
     due_date: date | None = None
     priority: TaskPriority = TaskPriority.MEDIUM
     category: str | None = Field(default=None, max_length=100)

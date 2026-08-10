@@ -1,4 +1,4 @@
-"""Competition CRUD, the competitions.create gate, archiving, and
+"""Event CRUD, the events.create gate, archiving, and
 seat-level (manage-where-seated) authority."""
 
 from tests.conftest import ensure_position, seat_role, setup_role_templates
@@ -11,11 +11,11 @@ def _comp(login, who="cto", name="RoboCup 2026", **over):
     if not admin.get("/api/org/roles/root").json()["root_position_id"]:
         body["role_root_position_id"] = ensure_position(admin)
     body.update(over)
-    return login(who).post("/api/competitions", json=body)
+    return login(who).post("/api/events", json=body)
 
 
 def _managed_comp(login, org, who="cto", name="RoboCup 2026", **over) -> dict:
-    """Create a competition and seat the creator into its PM role — nothing
+    """Create a event and seat the creator into its PM role — nothing
     auto-seats anymore, so scoped management is an explicit appointment."""
     r = _comp(login, who, name=name, **over)
     assert r.status_code == 201, r.text
@@ -32,10 +32,10 @@ def test_create_gate_and_vacant_pm_seat(login, org):
     r = _comp(login, "cto")
     assert r.status_code == 201, r.text
     data = r.json()
-    # every seat starts vacant — creating a competition grants nothing
+    # every seat starts vacant — creating a event grants nothing
     assert data["roles"][0]["occupants"] == []
     assert data["can_manage"] is False
-    # a plain staff member and a member-tier user cannot create competitions
+    # a plain staff member and a member-tier user cannot create events
     assert _comp(login, "sw_emp", name="X").status_code == 403
     assert _comp(login, "student", name="Y").status_code == 403
 
@@ -48,10 +48,10 @@ def test_duplicate_name_conflicts(login, org):
 def test_archive_hides_by_default(login, org):
     keep = _managed_comp(login, org, "cto", name="Active Cup")
     gone = _managed_comp(login, org, "cto", name="Old Cup")
-    login("cto").patch(f"/api/competitions/{gone['id']}", json={"status": "archived"})
-    active = {c["name"] for c in login("cto").get("/api/competitions").json()}
+    login("cto").patch(f"/api/events/{gone['id']}", json={"status": "archived"})
+    active = {c["name"] for c in login("cto").get("/api/events").json()}
     assert "Active Cup" in active and "Old Cup" not in active
-    all_names = {c["name"] for c in login("cto").get("/api/competitions?include_archived=true").json()}
+    all_names = {c["name"] for c in login("cto").get("/api/events?include_archived=true").json()}
     assert {"Active Cup", "Old Cup"} <= all_names
     assert keep["id"]
 
@@ -67,16 +67,16 @@ def test_role_occupant_appointment_grants_scoped_management(login, org):
     )
     assert r.status_code == 200, r.text
     # as an occupant of a manage_seated-level seat, the employee can now
-    # manage THIS competition's structure
-    assert login("sw_emp").post(f"/api/competitions/{cid}/categories", json={"name": "Senior"}).status_code == 201
+    # manage THIS event's structure
+    assert login("sw_emp").post(f"/api/events/{cid}/categories", json={"name": "Senior"}).status_code == 201
     # but someone who manages nothing cannot touch the roles panel at all
     assert login("student").put(
         f"/api/org/roles/positions/{pos_id}/occupants", json={"user_ids": [org["student"].id]}
     ).status_code == 403
-    assert login("student").post(f"/api/competitions/{cid}/categories", json={"name": "X"}).status_code == 403
+    assert login("student").post(f"/api/events/{cid}/categories", json={"name": "X"}).status_code == 403
 
 
-def test_role_scope_does_not_leak_across_competitions(login, org):
+def test_role_scope_does_not_leak_across_events(login, org):
     a = _managed_comp(login, org, "cto", name="Comp A")
     b = _comp(login, "cto", name="Comp B").json()
     login("cto").put(
@@ -84,5 +84,5 @@ def test_role_scope_does_not_leak_across_competitions(login, org):
         json={"user_ids": [org["cto"].id, org["sw_emp"].id]},
     )
     # occupant of A's role can manage A, but not B
-    assert login("sw_emp").post(f"/api/competitions/{a['id']}/categories", json={"name": "S"}).status_code == 201
-    assert login("sw_emp").post(f"/api/competitions/{b['id']}/categories", json={"name": "S"}).status_code == 403
+    assert login("sw_emp").post(f"/api/events/{a['id']}/categories", json={"name": "S"}).status_code == 201
+    assert login("sw_emp").post(f"/api/events/{b['id']}/categories", json={"name": "S"}).status_code == 403

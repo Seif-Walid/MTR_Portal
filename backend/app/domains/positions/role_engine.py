@@ -1,10 +1,10 @@
 """Generic, admin-configurable auto-seating: a RoleTemplate says "when X
 happens, seat a position titled Y, chained under whatever role came before
-it." This module knows nothing about competitions/teams/members specifically
+it." This module knows nothing about events/teams/members specifically
 — it operates on `event` (one of the three fixed trigger points the app
 actually has) and `entity_type`/`entity_id` (whatever the caller says an
-event happened to), so the competitions domain stays the only place that
-knows what a competition/team/membership actually is. See
+event happened to), so the events domain stays the only place that
+knows what a event/team/membership actually is. See
 app/domains/positions/models.py for the exclusion rules these positions get
 from the rest of the org-chart logic (resync_managers,
 clear_user_from_other_positions)."""
@@ -19,21 +19,21 @@ from app.domains.positions.models import Position, PositionOccupant, RoleChainRo
 # entity each one produces a position for. Fixed because the app only has
 # three such trigger points — not a hardcoded role name.
 EVENT_ENTITY_TYPE = {
-    "competition_created": "competition",
+    "event_created": "event",
     "team_created": "team",
     "team_member_added": "membership",
 }
 
 # The entity types a *real* lineage would contain for each event, if every
 # ancestor already exists — i.e. EVENT_ENTITY_TYPE, plus everything shallower
-# in the fixed competition -> team -> membership structure. Used only to
+# in the fixed event -> team -> membership structure. Used only to
 # preview where a template *would* chain in the org tree before any real
-# competition/team exists to compute an actual lineage from — see
+# event/team exists to compute an actual lineage from — see
 # template_chain_parent_id.
 _STRUCTURAL_LINEAGE = {
-    "competition_created": {"competition"},
-    "team_created": {"competition", "team"},
-    "team_member_added": {"competition", "team", "membership"},
+    "event_created": {"event"},
+    "team_created": {"event", "team"},
+    "team_member_added": {"event", "team", "membership"},
 }
 
 
@@ -57,7 +57,7 @@ def template_chain_parent_id(templates: list[RoleTemplate], template: RoleTempla
 
     Kind-scoped: only chains under an earlier template that applies wherever
     this one fires (kind-agnostic, or the same kind), so Training roles nest
-    under Training roles and never under Competition ones."""
+    under Training roles and never under Event ones."""
     eligible_types = _STRUCTURAL_LINEAGE[template.event]
     for t in reversed([t for t in templates if t.sort_order < template.sort_order]):
         if EVENT_ENTITY_TYPE[t.event] in eligible_types and _kind_ok(t.event_kind_id, template.event_kind_id):
@@ -156,7 +156,7 @@ def update_template(
 def delete_template(db: Session, template_id: int) -> None:
     """Deletes the template and every position it produced (cascading to
     their occupants). Anything that was chained under one of those positions
-    is left with a dangling parent_id — call competitions/role_sync.resync_all
+    is left with a dangling parent_id — call events/role_sync.resync_all
     right after this to re-derive correct parents (it naturally splices the
     gap closed: the backward search just skips the now-missing template)."""
     template = db.get(RoleTemplate, template_id)
@@ -317,7 +317,7 @@ def resync_position_parent(
     """Re-derive parent_id for this entity's own role positions from the
     current template chain — call after a template's order changes or a
     template is deleted, once per (entity_type, entity_id) that has any role
-    positions (see competitions/role_sync.resync_all for the tree walk).
+    positions (see events/role_sync.resync_all for the tree walk).
 
     A position whose chain link is now missing (see _find_chain_parent) is
     left exactly where it last resolved rather than deleted or moved — this
@@ -342,7 +342,7 @@ def resync_position_parent(
 
 def occupied_seat_level_ids(db: Session, user_id: int, entity_type: str, entity_id: int) -> list[int]:
     """Access-level ids of the role seats this user occupies for this entity.
-    The caller (competitions/service) decides what those levels permit — this
+    The caller (events/service) decides what those levels permit — this
     module stays ignorant of the privilege vocabulary."""
     return list(db.scalars(
         select(Position.access_level_id)

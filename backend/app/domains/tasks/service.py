@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.domains.access import service as access
 from app.domains.audit.service import log as audit_log
+from app.domains.events.models import Event, EventCategory, EventStatus, EventTeam, EventTeamMember
 from app.domains.hierarchy.service import can_review_task, visible_user_ids
 from app.domains.notifications.models import NotificationType
 from app.domains.notifications.service import notify
@@ -30,20 +31,63 @@ STATUS_LABELS = {
 }
 
 
-def visible_tasks_query(db: Session, user: User):
-    """Own tasks (assigned to or by me), everything in my subtree, plus tasks
-    spawned by requests I sent (so requesters can track outcomes)."""
+def archived_team_ids(db: Session) -> set[int]:
+    """Event teams whose tasks count as archived: soft-deleted teams, or teams
+    whose event has been archived. Task archival is derived from this — there
+    is no stored archived flag on a task."""
+    rows = db.execute(
+        select(EventTeam.id)
+        .join(EventCategory, EventTeam.category_id == EventCategory.id)
+        .join(Event, EventCategory.event_id == Event.id)
+        .where(
+            or_(
+                EventTeam.deleted_at.is_not(None),
+                Event.status == EventStatus.ARCHIVED,
+            )
+        )
+    )
+    return set(rows.scalars())
+
+
+def my_team_ids(db: Session, user: User) -> set[int]:
+    """Event-team ids the user is a member of."""
+    return set(
+        db.scalars(
+            select(EventTeamMember.team_id).where(EventTeamMember.user_id == user.id)
+        )
+    )
+
+
+def visible_tasks_query(db: Session, user: User, include_archived: bool = False):
+    """Own tasks (assigned to or by me), everything in my subtree, tasks
+    spawned by requests I sent (so requesters can track outcomes), plus
+    team-visible tasks on any event team I'm a member of. Archived-event tasks
+    are excluded unless include_archived is set."""
     scope = visible_user_ids(db, user)
     my_request_tasks = select(WorkRequest.created_task_id).where(
         WorkRequest.requester_id == user.id, WorkRequest.created_task_id.is_not(None)
     )
-    return select(Task).where(
-        or_(
-            Task.assignee_id.in_(scope),
-            Task.assigner_id == user.id,
-            Task.id.in_(my_request_tasks),
+    team_ids = my_team_ids(db, user)
+    conditions = [
+        Task.assignee_id.in_(scope),
+        Task.assigner_id == user.id,
+        Task.id.in_(my_request_tasks),
+    ]
+    if team_ids:
+        conditions.append(
+            (Task.team_visible.is_(True)) & (Task.event_team_id.in_(team_ids))
         )
-    )
+    query = select(Task).where(or_(*conditions))
+    if not include_archived:
+        archived = archived_team_ids(db)
+        if archived:
+            query = query.where(
+                or_(
+                    Task.event_team_id.is_(None),
+                    Task.event_team_id.notin_(archived),
+                )
+            )
+    return query
 
 
 def can_view_task(db: Session, user: User, task: Task) -> bool:
@@ -53,6 +97,9 @@ def can_view_task(db: Session, user: User, task: Task) -> bool:
         return True
     if task.assignee_id in visible_user_ids(db, user):
         return True
+    if task.team_visible and task.event_team_id is not None:
+        if task.event_team_id in my_team_ids(db, user):
+            return True
     if task.origin_request_id is not None:
         origin = db.get(WorkRequest, task.origin_request_id)
         if origin is not None and origin.requester_id == user.id:

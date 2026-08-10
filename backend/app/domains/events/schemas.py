@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domains.competitions.models import CompetitionStatus
+from app.domains.events.models import EventStatus
 from app.domains.positions.schemas import EntityRoleOut
 from app.domains.users.schemas import UserBrief
 
@@ -61,7 +61,7 @@ class CategoryOut(BaseModel):
     teams: list[TeamOut] = []
 
 
-class CompetitionBrief(BaseModel):
+class EventBrief(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -69,7 +69,7 @@ class CompetitionBrief(BaseModel):
     status: str
 
 
-class CompetitionOut(CompetitionBrief):
+class EventOut(EventBrief):
     description: str
     start_date: date | None
     end_date: date | None
@@ -83,13 +83,13 @@ class CompetitionOut(CompetitionBrief):
     can_manage: bool = False  # for the current user
 
 
-class CompetitionDetailOut(CompetitionOut):
+class EventDetailOut(EventOut):
     categories: list[CategoryOut] = []
 
 
-class CompetitionCreate(BaseModel):
+class EventCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    kind_id: int | None = None  # which event kind; defaults to Competition
+    kind_id: int | None = None  # which event kind; defaults to Event
     description: str = ""
     start_date: date | None = None
     end_date: date | None = None
@@ -100,14 +100,14 @@ class CompetitionCreate(BaseModel):
     role_root_position_id: int | None = None
 
 
-class CompetitionEdit(BaseModel):
+class EventEdit(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     start_date: date | None = None
     end_date: date | None = None
     clear_start_date: bool = False
     clear_end_date: bool = False
-    status: CompetitionStatus | None = None
+    status: EventStatus | None = None
 
 
 class CategoryCreate(BaseModel):

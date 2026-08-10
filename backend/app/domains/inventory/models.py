@@ -33,12 +33,12 @@ class InventoryRequestStatus(StrEnum):
 
 
 class AllocationPurpose(StrEnum):
-    """Why a chunk of an item's pool is currently checked out. `COMPETITION`
+    """Why a chunk of an item's pool is currently checked out. `EVENT`
     and `RESEARCH` chunks usually also carry a free-text label naming the
-    specific competition or project."""
+    specific event or project."""
 
     TRAINING = "training"
-    COMPETITION = "competition"
+    EVENT = "event"
     RESEARCH = "research"  # R&D
     BORROWED = "borrowed"
     OTHER = "other"
@@ -110,11 +110,11 @@ class InventoryAllocation(Base):
     )
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     purpose: Mapped[str] = mapped_column(String(20), default=AllocationPurpose.OTHER)
-    label: Mapped[str] = mapped_column(String(255), default="")  # free-text (non-competition)
-    # For competition-purpose allocations: link to a first-class Competition.
+    label: Mapped[str] = mapped_column(String(255), default="")  # free-text (non-event)
+    # For event-purpose allocations: link to a first-class Event.
     # When set, its name is the display label everywhere.
-    competition_id: Mapped[int | None] = mapped_column(
-        ForeignKey("competitions.id", ondelete="SET NULL"), nullable=True, index=True
+    event_id: Mapped[int | None] = mapped_column(
+        ForeignKey("events.id", ondelete="SET NULL"), nullable=True, index=True
     )
     # Who physically holds these units (optional — a chunk can be assigned to a
     # purpose without a named holder, e.g. a general training pool).
@@ -133,13 +133,13 @@ class InventoryAllocation(Base):
 
     item: Mapped[InventoryItem] = relationship(back_populates="allocations")
     holder = relationship("User", foreign_keys=[holder_id], lazy="joined")
-    competition = relationship("Competition", lazy="joined")
+    event = relationship("Event", lazy="joined")
 
     @property
     def display_label(self) -> str:
-        """Competition name takes precedence over the free-text label."""
-        if self.competition is not None:
-            return self.competition.name
+        """Event name takes precedence over the free-text label."""
+        if self.event is not None:
+            return self.event.name
         return self.label
 
 

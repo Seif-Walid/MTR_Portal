@@ -107,7 +107,7 @@ export function BlockedTag() {
 // ---- Inventory chips (unchanged callers) — restyled to CIRCUIT ------------
 export const PURPOSE_META: Record<AllocationPurpose, { label: string; color: string }> = {
   training: { label: 'Training', color: C.accent },
-  competition: { label: 'Competition', color: C.amber },
+  event: { label: 'Event', color: C.amber },
   research: { label: 'R&D', color: C.violet },
   borrowed: { label: 'Borrowed', color: C.steel },
   other: { label: 'Other', color: C.textMuted },

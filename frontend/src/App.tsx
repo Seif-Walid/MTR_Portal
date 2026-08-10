@@ -4,8 +4,9 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext';
 import AppLayout from './components/AppLayout';
 import AdminUsersPage from './pages/AdminUsersPage';
+import ArchivePage from './pages/ArchivePage';
 import AuditLogPage from './pages/AuditLogPage';
-import CompetitionsPage from './pages/CompetitionsPage';
+import EventsPage from './pages/EventsPage';
 import HomePage from './pages/HomePage';
 import InventoryPage from './pages/InventoryPage';
 import LoginPage from './pages/LoginPage';
@@ -36,10 +37,12 @@ export default function App() {
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/inventory" element={<InventoryPage />} />
-          <Route path="/events" element={<CompetitionsPage />} />
-          <Route path="/events/:slug" element={<CompetitionsPage />} />
+          <Route path="/events" element={<EventsPage />} />
+          <Route path="/events/:slug" element={<EventsPage />} />
           <Route path="/requests" element={<RequestsPage />} />
           <Route path="/team" element={<TeamPage />} />
+          <Route path="/archive" element={<ArchivePage />} />
+          <Route path="/archive/:eventId" element={<ArchivePage />} />
           <Route path="/organization" element={<OrganizationPage />} />
           <Route path="/admin/users" element={<AdminUsersPage />} />
           <Route path="/admin/audit" element={<AuditLogPage />} />

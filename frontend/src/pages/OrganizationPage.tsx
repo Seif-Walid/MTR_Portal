@@ -25,12 +25,12 @@ interface EditTarget {
 }
 
 const EVENT_LABELS: Record<RoleEvent, string> = {
-  competition_created: 'When a competition is created',
+  event_created: 'When a event is created',
   team_created: 'When a team is created',
   team_member_added: 'When a member is added to a team',
 };
 
-const EVENT_DEPTH: Record<RoleEvent, number> = { competition_created: 0, team_created: 1, team_member_added: 2 };
+const EVENT_DEPTH: Record<RoleEvent, number> = { event_created: 0, team_created: 1, team_member_added: 2 };
 const childEventOptions = (parent: RoleEvent) =>
   (Object.entries(EVENT_LABELS) as [RoleEvent, string][]).filter(([e]) => EVENT_DEPTH[e] >= EVENT_DEPTH[parent]).map(([value, label]) => ({ value, label }));
 
@@ -58,7 +58,7 @@ function PositionModal({ target, holders, levels, kinds, open, onClose, onSaved 
     } else if (target?.mode === 'create-template-child') {
       form.setFieldsValue({ event: target.template?.event, access_level_id: null });
     } else {
-      form.setFieldsValue({ is_technical: false, event: 'competition_created', access_level_id: null, event_kind_id: null });
+      form.setFieldsValue({ is_technical: false, event: 'event_created', access_level_id: null, event_kind_id: null });
     }
   }, [open, target, form]);
 
@@ -102,14 +102,14 @@ function PositionModal({ target, holders, levels, kinds, open, onClose, onSaved 
           <Typography.Text>
             {underTemplate
               ? `Automatic role — pick this role's own condition instead of inheriting "${target?.template?.title_template}"'s.`
-              : 'Automatic role — seats itself when a competition/team/member event happens, chained together with any other automatic roles for the same event, instead of a position you assign by hand.'}
+              : 'Automatic role — seats itself when a event/team/member event happens, chained together with any other automatic roles for the same event, instead of a position you assign by hand.'}
           </Typography.Text>
         </Space>
       )}
       <Form form={form} layout="vertical" onFinish={submit}>
         {underTemplate && target?.template ? (
           <>
-            <Form.Item name="title_template" label="Title" rules={[{ required: true, max: 255 }]} extra="Use {competition}, {team}, or {member} as placeholders">
+            <Form.Item name="title_template" label="Title" rules={[{ required: true, max: 255 }]} extra="Use {event}, {team}, or {member} as placeholders">
               <Input placeholder="e.g. Team Lead" />
             </Form.Item>
             {automatic ? (
@@ -129,8 +129,8 @@ function PositionModal({ target, holders, levels, kinds, open, onClose, onSaved 
           </>
         ) : isTemplateForm ? (
           <>
-            <Form.Item name="title_template" label="Title" rules={[{ required: true, max: 255 }]} extra="Use {competition}, {team}, or {member} as placeholders">
-              <Input placeholder="e.g. {competition} PM" />
+            <Form.Item name="title_template" label="Title" rules={[{ required: true, max: 255 }]} extra="Use {event}, {team}, or {member} as placeholders">
+              <Input placeholder="e.g. {event} PM" />
             </Form.Item>
             {showWhenField && (
               <Form.Item name="event" label="When" rules={[{ required: true }]}>
@@ -190,7 +190,7 @@ export default function OrganizationPage() {
       api.get<PositionNode[]>('/api/org/tree'),
       api.get<RoleTemplate[]>('/api/org/roles/templates'),
       api.get<AccessLevelT[]>('/api/access/levels'),
-      api.get<EventKindT[]>('/api/competitions/kinds'),
+      api.get<EventKindT[]>('/api/events/kinds'),
     ])
       .then(([positions, roleTemplates, ladder, eventKinds]) => { setRoots(positions); setTemplates(roleTemplates); setLevels(ladder); setKinds(eventKinds); })
       .catch((e) => message.error(e.message))

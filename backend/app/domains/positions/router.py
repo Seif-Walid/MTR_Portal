@@ -5,10 +5,10 @@ from sqlalchemy import select
 
 from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, CurrentUser
-from app.domains.competitions.role_sync import resync_all as resync_all_role_positions
+from app.domains.events.role_sync import resync_all as resync_all_role_positions
 from app.domains.access import service as access
 from app.domains.access.models import AccessLevel
-from app.domains.competitions.service import can_manage_entity
+from app.domains.events.service import can_manage_entity
 from app.domains.positions import role_engine
 from app.domains.positions.models import OrgAuditLog, Position
 from app.domains.positions.schemas import (
@@ -44,7 +44,7 @@ def _resolve_level(db: DB, level_id: int | None) -> None:
 
 
 def _resolve_kind(db: DB, kind_id: int | None) -> None:
-    from app.domains.competitions.models import EventKind
+    from app.domains.events.models import EventKind
     if kind_id is not None and db.get(EventKind, kind_id) is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown event kind")
 
@@ -265,9 +265,9 @@ def set_role_position_occupants(
     position_id: int, payload: OccupantsSet, db: DB, user: CurrentUser
 ) -> EntityRoleOut:
     """Assign who fills a role-template position. Anyone who manages the
-    linked competition/team (per competitions.service.can_manage_entity) may
+    linked event/team (per events.service.can_manage_entity) may
     do this, not just CEO/Admin — matching how appointing a PM/lead used to
-    be reachable by the competition's own managers, not just org-tree
+    be reachable by the event's own managers, not just org-tree
     editors."""
     position = db.get(Position, position_id)
     if position is None or position.role_template_id is None or position.entity_type is None:
@@ -275,7 +275,7 @@ def set_role_position_occupants(
     if not access.has_privilege(db, user, "org.edit") and not can_manage_entity(
         db, user, position.entity_type, position.entity_id
     ):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "You don't manage this competition/team")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You don't manage this event/team")
     occupant_ids = _resolve_occupants(db, payload.user_ids)
     role_engine.set_position_occupants(db, position, occupant_ids)
     resync_managers(db)

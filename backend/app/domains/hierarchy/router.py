@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 
 from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
+from app.domains.events.models import Event, EventCategory, EventStatus, EventTeam, EventTeamMember
 from app.domains.hierarchy.service import subtree_ids
 from app.domains.tasks.models import Task
 from app.domains.users.models import User
@@ -110,6 +111,105 @@ def my_team(db: DB, user: CurrentUser) -> list[TeamMemberOut]:
         )
         for m in members
     ]
+
+
+class TeamBlockOut(BaseModel):
+    kind: str  # "org" | "event"
+    team_id: int | None  # event-team id; null for the org block
+    name: str
+    event_name: str | None = None
+    event_id: int | None = None
+    members: list[TeamMemberOut]
+
+
+def _task_counts_for(db, member_ids: set[int], team_id: int | None) -> dict[int, dict[str, int]]:
+    """Per-member per-status task counts. Scoped to one event team when team_id
+    is given (its own board), else every task assigned to the member."""
+    if not member_ids:
+        return {}
+    query = (
+        select(Task.assignee_id, Task.status, func.count())
+        .where(Task.assignee_id.in_(member_ids))
+        .group_by(Task.assignee_id, Task.status)
+    )
+    if team_id is not None:
+        query = query.where(Task.event_team_id == team_id)
+    by_user: dict[int, dict[str, int]] = {}
+    for assignee_id, task_status, count in db.execute(query).all():
+        by_user.setdefault(assignee_id, {})[task_status] = count
+    return by_user
+
+
+def _members_out(members, counts, manager_ref_id: int | None) -> list[TeamMemberOut]:
+    return [
+        TeamMemberOut(
+            user=UserBrief.model_validate(m),
+            manager_id=m.manager_id,
+            is_direct_report=m.manager_id == manager_ref_id,
+            task_counts=counts.get(m.id, {}),
+            total_tasks=sum(counts.get(m.id, {}).values()),
+        )
+        for m in members
+    ]
+
+
+@router.get("/mine")
+def my_teams(db: DB, user: CurrentUser) -> list[TeamBlockOut]:
+    """Every team the user belongs to as its own block: the permanent org team
+    (their subtree) first, then each active event team they're a member of with
+    task counts scoped to that team's board."""
+    access.require_privilege(db, user, "people.view")
+    blocks: list[TeamBlockOut] = []
+
+    # Org block — the permanent subtree (mirrors GET /team).
+    org_ids = subtree_ids(db, user.id)
+    if org_ids:
+        org_members = db.scalars(
+            select(User).where(User.id.in_(org_ids)).order_by(User.full_name)
+        ).all()
+        blocks.append(
+            TeamBlockOut(
+                kind="org",
+                team_id=None,
+                name="My Team",
+                members=_members_out(org_members, _task_counts_for(db, org_ids, None), user.id),
+            )
+        )
+
+    # Event blocks — active teams (not soft-deleted) on active events.
+    team_rows = db.execute(
+        select(EventTeam, Event.name, Event.id)
+        .join(EventTeamMember, EventTeamMember.team_id == EventTeam.id)
+        .join(EventCategory, EventTeam.category_id == EventCategory.id)
+        .join(Event, EventCategory.event_id == Event.id)
+        .where(
+            EventTeamMember.user_id == user.id,
+            EventTeam.deleted_at.is_(None),
+            Event.status == EventStatus.ACTIVE,
+        )
+        .order_by(Event.name, EventTeam.name)
+    ).all()
+    for team, event_name, event_id in team_rows:
+        member_ids = {m.user_id for m in team.members}
+        if not member_ids:
+            continue
+        team_members = db.scalars(
+            select(User).where(User.id.in_(member_ids)).order_by(User.full_name)
+        ).all()
+        blocks.append(
+            TeamBlockOut(
+                kind="event",
+                team_id=team.id,
+                name=team.name,
+                event_name=event_name,
+                event_id=event_id,
+                members=_members_out(
+                    team_members, _task_counts_for(db, member_ids, team.id), user.id
+                ),
+            )
+        )
+
+    return blocks
 
 
 @router.get("/{member_id}/check")

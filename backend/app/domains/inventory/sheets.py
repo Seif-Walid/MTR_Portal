@@ -19,7 +19,7 @@ from app.domains.inventory.models import AllocationPurpose, InventoryItem
 
 PURPOSE_LABELS = {
     AllocationPurpose.TRAINING: "Training",
-    AllocationPurpose.COMPETITION: "Competition",
+    AllocationPurpose.EVENT: "Event",
     AllocationPurpose.RESEARCH: "R&D",
     AllocationPurpose.BORROWED: "Borrowed",
     AllocationPurpose.OTHER: "Other",
@@ -59,7 +59,7 @@ def _usage_breakdown(item: InventoryItem) -> str:
 
 
 def _holders(item: InventoryItem) -> str:
-    """e.g. 'Seif — 2 R&D; Seif — 1 Competition (RoboCup)'."""
+    """e.g. 'Seif — 2 R&D; Seif — 1 Event (RoboCup)'."""
     lines = []
     for a in item.allocations:
         if a.holder is None:

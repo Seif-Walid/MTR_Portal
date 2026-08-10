@@ -1,6 +1,19 @@
 """Phase 7: blocked state, comments, history, and multi-assignee (team) tasks."""
 
 from tests.conftest import make_task
+from tests.test_event_teams import _category, _comp, _team
+
+
+def _team_with_members(login, org, member_keys, who="cto"):
+    """Build an event -> category -> team, then add each org[key] as a member.
+    Returns (event_id, team_dict)."""
+    cid = _comp(login, who).json()["id"]
+    cat = _category(login, cid).json()
+    team = _team(login, cat["id"], who=who).json()
+    for k in member_keys:
+        r = login(who).post(f"/api/events/teams/{team['id']}/members", json={"user_id": org[k].id})
+        assert r.status_code == 201, r.text
+    return cid, team
 
 
 def test_assignee_can_block_and_unblock(login, org):
@@ -147,3 +160,51 @@ def test_batch_view_limited_to_assigner(login, org):
 
 def test_batch_not_found(login, org):
     assert login("cto").get("/api/tasks/batch/does-not-exist").status_code == 404
+
+
+# --- assign-to-a-team (event team) -----------------------------------------
+
+def test_assign_to_team_fans_out_to_subtree_members(login, org):
+    # fin_emp is under cfo, outside the CTO's subtree — excluded from the fan-out
+    _cid, team = _team_with_members(login, org, ["sw_emp", "mech_emp", "fin_emp"])
+    r = login("cto").post(
+        "/api/tasks",
+        json={"title": "team job", "event_team_id": team["id"], "team_visible": True},
+    )
+    assert r.status_code == 201, r.text
+    tasks = r.json()
+    assert {t["assignee"]["id"] for t in tasks} == {org["sw_emp"].id, org["mech_emp"].id}
+    assert all(t["event_team_id"] == team["id"] for t in tasks)
+    assert all(t["team_visible"] is True for t in tasks)
+    assert tasks[0]["batch_id"] is not None
+    assert tasks[0]["batch_id"] == tasks[1]["batch_id"]
+
+
+def test_assign_to_team_with_no_subtree_members_fails(login, org):
+    # a team of only fin_emp, whom the CTO cannot task
+    _cid, team = _team_with_members(login, org, ["fin_emp"])
+    r = login("cto").post("/api/tasks", json={"title": "x", "event_team_id": team["id"]})
+    assert r.status_code == 400
+
+
+def test_team_visible_shares_with_non_assignee_teammate(login, org):
+    # fin_emp is a team member but not an assignee (outside the CTO's subtree)
+    _cid, team = _team_with_members(login, org, ["sw_emp", "fin_emp"])
+    t = login("cto").post(
+        "/api/tasks",
+        json={"title": "shared", "event_team_id": team["id"], "team_visible": True},
+    ).json()[0]
+    assert login("fin_emp").get(f"/api/tasks/{t['id']}").status_code == 200
+    seen = login("fin_emp").get("/api/tasks", params={"view": "all"}).json()
+    assert any(x["id"] == t["id"] for x in seen)
+
+
+def test_team_not_visible_hidden_from_non_assignee_teammate(login, org):
+    _cid, team = _team_with_members(login, org, ["sw_emp", "fin_emp"])
+    t = login("cto").post(
+        "/api/tasks",
+        json={"title": "private", "event_team_id": team["id"], "team_visible": False},
+    ).json()[0]
+    assert login("fin_emp").get(f"/api/tasks/{t['id']}").status_code == 404
+    seen = login("fin_emp").get("/api/tasks", params={"view": "all"}).json()
+    assert not any(x["id"] == t["id"] for x in seen)

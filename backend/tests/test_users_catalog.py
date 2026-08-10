@@ -13,7 +13,7 @@ def test_levels_are_readable_by_anyone_signed_in(login, org):
 def test_privilege_vocabulary_is_served_not_hardcoded(login, org):
     privs = login("student").get("/api/access/privileges").json()
     keys = {p["key"] for p in privs}
-    assert {"inventory.view", "competitions.create", "org.edit", "users.manage"} <= keys
+    assert {"inventory.view", "events.create", "org.edit", "users.manage"} <= keys
     assert all(p["label"] for p in privs)
 
 

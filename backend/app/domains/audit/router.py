@@ -18,7 +18,7 @@ def list_audit_log(
     entity_id: int | None = None,
     limit: int = 100,
 ) -> list[dict]:
-    """Filter by domain (users|inventory|competitions), entity type, or a
+    """Filter by domain (users|inventory|events), entity type, or a
     specific entity id."""
     access.require_privilege(db, user, "audit.view")
     query = select(AuditLog)

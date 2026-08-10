@@ -135,16 +135,16 @@ def test_dry_run_flags_unknown_access_level(login, org, fake_sheets):
 # --- commit (the destructive path) -----------------------------------------
 def _minimal_valid_sheet(data: dict) -> None:
     """A small, internally-consistent dataset: one person, one position (that
-    person as CEO), one competition with a category/team/member, one location
+    person as CEO), one event with a category/team/member, one location
     + item + movement. Ids are deliberately disjoint from the org fixture's
     ids to prove the old data was actually replaced."""
     data["people"] = [_row(id=501, email="rebuilt@t.local", full_name="Rebuilt Person",
                            department="", access_level="Exec", manager_id="", is_active="true")]
     data["positions"] = [_row(id=601, title="CEO", parent_id="", occupant_ids="501", is_technical="false")]
-    data["competitions"] = [_row(id=701, name="Rebuilt Cup", description="", start_date="", end_date="", status="active")]
-    data["competition_categories"] = [_row(id=801, competition_id="701", name="Senior")]
-    data["competition_teams"] = [_row(id=901, category_id="801", name="Team A")]
-    data["competition_team_members"] = [_row(id=1101, team_id="901", user_id="501")]
+    data["events"] = [_row(id=701, name="Rebuilt Cup", description="", start_date="", end_date="", status="active")]
+    data["event_categories"] = [_row(id=801, event_id="701", name="Senior")]
+    data["event_teams"] = [_row(id=901, category_id="801", name="Team A")]
+    data["event_team_members"] = [_row(id=1101, team_id="901", user_id="501")]
     data["inventory_locations"] = [_row(id=1201, name="Shelf A", kind="shelf", notes="")]
     data["inventory_items"] = [_row(id=1301, name="Widget", category="", asset_tag="", sku="",
                                     quantity=10, low_stock_threshold=0, unit="unit", location="",

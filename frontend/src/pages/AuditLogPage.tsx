@@ -9,7 +9,7 @@ import type { AuditEntry } from '../api/types';
 const DOMAIN_COLOR: Record<string, string> = {
   users: 'geekblue',
   inventory: 'gold',
-  competitions: 'purple',
+  events: 'purple',
 };
 
 function detailSummary(detail: string): string {
@@ -23,7 +23,7 @@ function detailSummary(detail: string): string {
 }
 
 export default function AuditLogPage() {
-  const [domain, setDomain] = useState<'all' | 'users' | 'inventory' | 'competitions'>('all');
+  const [domain, setDomain] = useState<'all' | 'users' | 'inventory' | 'events'>('all');
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -47,7 +47,7 @@ export default function AuditLogPage() {
             Audit Log
           </Typography.Title>
           <Typography.Text type="secondary">
-            Every permission change, inventory quantity change, and competition-role change.
+            Every permission change, inventory quantity change, and event-role change.
             Org-structure changes have their own log on the Organization page.
           </Typography.Text>
         </div>
@@ -59,7 +59,7 @@ export default function AuditLogPage() {
               { label: 'All', value: 'all' },
               { label: 'Users', value: 'users' },
               { label: 'Inventory', value: 'inventory' },
-              { label: 'Competitions', value: 'competitions' },
+              { label: 'Events', value: 'events' },
             ]}
           />
           <Button icon={<ReloadOutlined />} onClick={load} />

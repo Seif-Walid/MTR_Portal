@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.domains.audit.service import log as audit_log
 from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
-from app.domains.competitions.models import Competition
+from app.domains.events.models import Event
 from app.domains.inventory import file_import, sheets, stock
 from app.domains.inventory.models import (
     Condition,
@@ -59,12 +59,12 @@ def _resolve_user(db: DB, user_id: int | None, what: str) -> int | None:
     return user_id
 
 
-def _resolve_competition(db: DB, competition_id: int | None) -> int | None:
-    if competition_id is None:
+def _resolve_event(db: DB, event_id: int | None) -> int | None:
+    if event_id is None:
         return None
-    if db.get(Competition, competition_id) is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Competition not found")
-    return competition_id
+    if db.get(Event, event_id) is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Event not found")
+    return event_id
 
 
 # --- literal routes (declared before /{item_id}) --------------------------
@@ -421,7 +421,7 @@ def add_allocation(
         quantity=payload.quantity,
         purpose=payload.purpose,
         label=payload.label,
-        competition_id=_resolve_competition(db, payload.competition_id),
+        event_id=_resolve_event(db, payload.event_id),
         holder_id=_resolve_user(db, payload.holder_id, "Holder"),
         notes=payload.notes,
     )
@@ -447,10 +447,10 @@ def edit_allocation(
         allocation.label = payload.label
     if payload.notes is not None:
         allocation.notes = payload.notes
-    if payload.clear_competition:
-        allocation.competition_id = None
-    elif payload.competition_id is not None:
-        allocation.competition_id = _resolve_competition(db, payload.competition_id)
+    if payload.clear_event:
+        allocation.event_id = None
+    elif payload.event_id is not None:
+        allocation.event_id = _resolve_event(db, payload.event_id)
     if payload.clear_holder:
         allocation.holder_id = None
     elif payload.holder_id is not None:

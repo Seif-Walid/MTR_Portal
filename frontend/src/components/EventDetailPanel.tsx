@@ -3,7 +3,7 @@ import { Button, Card, Divider, Empty, Input, Popconfirm, Select, Space, Tag, Ty
 import { useCallback, useEffect, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
-import type { CompetitionDetail, EntityRole, RoleRoot, UserBrief } from '../api/types';
+import type { EventDetail, EntityRole, RoleRoot, UserBrief } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import PositionPicker from './PositionPicker';
 
@@ -75,7 +75,7 @@ function RolesEditor({ roles, dir, canManage, onChanged }: {
 }
 
 function TeamCard({ team, dir, canManageComp, isAdmin, onChanged }: {
-  team: CompetitionDetail['categories'][number]['teams'][number];
+  team: EventDetail['categories'][number]['teams'][number];
   dir: UserBrief[];
   canManageComp: boolean;
   isAdmin: boolean;
@@ -96,7 +96,7 @@ function TeamCard({ team, dir, canManageComp, isAdmin, onChanged }: {
             <Popconfirm
               title="Remove this team?"
               description="It's kept for history but hidden everywhere."
-              onConfirm={() => run(api.delete(`/api/competitions/teams/${team.id}`), 'Team removed', onChanged)}
+              onConfirm={() => run(api.delete(`/api/events/teams/${team.id}`), 'Team removed', onChanged)}
             >
               <Button size="small" danger icon={<DeleteOutlined />} />
             </Popconfirm>
@@ -104,7 +104,7 @@ function TeamCard({ team, dir, canManageComp, isAdmin, onChanged }: {
               <Popconfirm
                 title="Permanently delete this team?"
                 description="Really removes it and its member history. Admin-only."
-                onConfirm={() => run(api.delete(`/api/competitions/teams/${team.id}?permanent=true`), 'Team permanently deleted', onChanged)}
+                onConfirm={() => run(api.delete(`/api/events/teams/${team.id}?permanent=true`), 'Team permanently deleted', onChanged)}
               >
                 <Button size="small" danger type="text" icon={<DeleteOutlined />} title="Permanently delete (admin)" />
               </Popconfirm>
@@ -119,7 +119,7 @@ function TeamCard({ team, dir, canManageComp, isAdmin, onChanged }: {
         {team.members.length === 0 && <Typography.Text type="secondary">No members yet.</Typography.Text>}
         {team.members.map((m) => (
           <Tag key={m.id} closable={canMembers}
-            onClose={(e) => { e.preventDefault(); run(api.delete(`/api/competitions/teams/${team.id}/members/${m.user.id}`), 'Removed', onChanged); }}>
+            onClose={(e) => { e.preventDefault(); run(api.delete(`/api/events/teams/${team.id}/members/${m.user.id}`), 'Removed', onChanged); }}>
             {m.user.full_name}
           </Tag>
         ))}
@@ -131,7 +131,7 @@ function TeamCard({ team, dir, canManageComp, isAdmin, onChanged }: {
             value={memberId} options={opts(dir.filter((u) => !taken.has(u.id)))} onChange={setMemberId}
           />
           <Button icon={<PlusOutlined />} disabled={!memberId}
-            onClick={() => run(api.post(`/api/competitions/teams/${team.id}/members`, { user_id: memberId }), 'Member added', () => { setMemberId(undefined); onChanged(); })}>
+            onClick={() => run(api.post(`/api/events/teams/${team.id}/members`, { user_id: memberId }), 'Member added', () => { setMemberId(undefined); onChanged(); })}>
             Add
           </Button>
         </Space.Compact>
@@ -140,12 +140,12 @@ function TeamCard({ team, dir, canManageComp, isAdmin, onChanged }: {
   );
 }
 
-export default function CompetitionDetailPanel({ competitionId, onChanged }: {
-  competitionId: number;
+export default function EventDetailPanel({ eventId, onChanged }: {
+  eventId: number;
   onChanged: () => void;
 }) {
   const { me } = useAuth();
-  const [detail, setDetail] = useState<CompetitionDetail | null>(null);
+  const [detail, setDetail] = useState<EventDetail | null>(null);
   const [dir, setDir] = useState<UserBrief[]>([]);
   const [newCat, setNewCat] = useState('');
   const [teamNames, setTeamNames] = useState<Record<number, string>>({});
@@ -155,8 +155,8 @@ export default function CompetitionDetailPanel({ competitionId, onChanged }: {
   const isAdmin = me?.level?.rank === 1;
 
   const load = useCallback(() => {
-    api.get<CompetitionDetail>(`/api/competitions/${competitionId}`).then(setDetail).catch(() => {});
-  }, [competitionId]);
+    api.get<EventDetail>(`/api/events/${eventId}`).then(setDetail).catch(() => {});
+  }, [eventId]);
 
   useEffect(() => {
     load();
@@ -172,7 +172,7 @@ export default function CompetitionDetailPanel({ competitionId, onChanged }: {
     const body: Record<string, unknown> = { name };
     if (needsRoot) body.role_root_position_id = roleRootParent[catId];
     run(
-      api.post(`/api/competitions/categories/${catId}/teams`, body),
+      api.post(`/api/events/categories/${catId}/teams`, body),
       'Team added',
       () => {
         setTeamNames((s) => ({ ...s, [catId]: '' }));
@@ -206,7 +206,7 @@ export default function CompetitionDetailPanel({ competitionId, onChanged }: {
           title={<Typography.Text strong>{cat.name}</Typography.Text>}
           extra={canManage && (
             <Button size="small" danger icon={<DeleteOutlined />}
-              onClick={() => run(api.delete(`/api/competitions/categories/${cat.id}`), 'Category removed', refresh)} />
+              onClick={() => run(api.delete(`/api/events/categories/${cat.id}`), 'Category removed', refresh)} />
           )}
         >
           {cat.teams.map((t) => (
@@ -243,9 +243,9 @@ export default function CompetitionDetailPanel({ competitionId, onChanged }: {
         <Space.Compact style={{ marginTop: 4, width: '100%', maxWidth: 460 }}>
           <Input placeholder={`New ${categoryLabel.toLowerCase()}`} value={newCat}
             onChange={(e) => setNewCat(e.target.value)}
-            onPressEnter={() => newCat.trim() && run(api.post(`/api/competitions/${competitionId}/categories`, { name: newCat.trim() }), 'Category added', () => { setNewCat(''); refresh(); })} />
+            onPressEnter={() => newCat.trim() && run(api.post(`/api/events/${eventId}/categories`, { name: newCat.trim() }), 'Category added', () => { setNewCat(''); refresh(); })} />
           <Button type="primary" icon={<PlusOutlined />} disabled={!newCat.trim()}
-            onClick={() => run(api.post(`/api/competitions/${competitionId}/categories`, { name: newCat.trim() }), 'Category added', () => { setNewCat(''); refresh(); })}>
+            onClick={() => run(api.post(`/api/events/${eventId}/categories`, { name: newCat.trim() }), 'Category added', () => { setNewCat(''); refresh(); })}>
             Add {categoryLabel.toLowerCase()}
           </Button>
         </Space.Compact>

@@ -18,7 +18,7 @@ from app.core.database import Base, SessionLocal, engine
 from app.domains.access import models as _access_models  # noqa: F401
 from app.domains.audit import models as _audit_models  # noqa: F401
 from app.domains.auth import models as _auth_models  # noqa: F401
-from app.domains.competitions import models as _comp_models  # noqa: F401
+from app.domains.events import models as _comp_models  # noqa: F401
 from app.domains.inventory import models as _inv_models  # noqa: F401
 from app.domains.positions import models as _pos_models  # noqa: F401
 from app.domains.notifications import models as _notif_models  # noqa: F401
@@ -26,12 +26,12 @@ from app.domains.requests import models as _req_models
 from app.domains.tasks import models as _task_models
 from app.domains.users import models as _user_models
 from app.core.security import hash_password
-from app.domains.competitions.models import (
-    Competition,
-    CompetitionCategory,
-    CompetitionStatus,
-    CompetitionTeam,
-    CompetitionTeamMember,
+from app.domains.events.models import (
+    Event,
+    EventCategory,
+    EventStatus,
+    EventTeam,
+    EventTeamMember,
 )
 from app.domains.inventory.models import (
     AllocationPurpose,
@@ -100,35 +100,35 @@ def ensure_task(db: Session, assigner: User, assignee: User, title: str, **kw) -
 
 
 def seed_inventory(db: Session, team_lead: User, student: User, borrower: User) -> None:
-    """The 100-Arduino example: a pool split across training, two competitions,
+    """The 100-Arduino example: a pool split across training, two events,
     R&D and borrowed, with a couple of units held by a named student so the
     "who has it" drill-down has real data. Idempotent by item name."""
     if db.scalar(select(InventoryItem).where(InventoryItem.name == "Arduino Uno R3")):
         return
 
-    # competitions the allocations link to — RoboCup has the full nesting:
+    # events the allocations link to — RoboCup has the full nesting:
     # PM → category (Senior) → team (Robotics A, led by the team lead) → members
-    from app.domains.competitions.models import EventKind
+    from app.domains.events.models import EventKind
     comp_kind = db.scalar(select(EventKind).where(EventKind.slug == "competition"))
     comp_kind_id = comp_kind.id if comp_kind else None
-    robocup = Competition(name="RoboCup 2026", status=CompetitionStatus.ACTIVE,
+    robocup = Event(name="RoboCup 2026", status=EventStatus.ACTIVE,
                           kind_id=comp_kind_id, description="Annual robotics championship.")
-    vex = Competition(name="VEX Worlds 2026", status=CompetitionStatus.ACTIVE, kind_id=comp_kind_id)
+    vex = Event(name="VEX Worlds 2026", status=EventStatus.ACTIVE, kind_id=comp_kind_id)
     db.add_all([robocup, vex])
     db.flush()
     # who manages RoboCup 2026 / leads Robotics A is now a matter of
     # role-template occupancy (an org-chart concern, see seed_positions /
     # the admin-configured role templates), not a dedicated field here.
-    senior = CompetitionCategory(competition_id=robocup.id, name="Senior")
+    senior = EventCategory(event_id=robocup.id, name="Senior")
     db.add(senior)
     db.flush()
-    team_a = CompetitionTeam(category_id=senior.id, name="Robotics A")
+    team_a = EventTeam(category_id=senior.id, name="Robotics A")
     db.add(team_a)
     db.flush()
-    db.add(CompetitionTeamMember(team_id=team_a.id, user_id=student.id))
+    db.add(EventTeamMember(team_id=team_a.id, user_id=student.id))
     comp_member = db.scalar(select(User).where(User.email == "comp@org.local"))
     if comp_member is not None:
-        db.add(CompetitionTeamMember(team_id=team_a.id, user_id=comp_member.id))
+        db.add(EventTeamMember(team_id=team_a.id, user_id=comp_member.id))
 
     arduino = InventoryItem(
         name="Arduino Uno R3",
@@ -148,11 +148,11 @@ def seed_inventory(db: Session, team_lead: User, student: User, borrower: User) 
     allocations = [
         # 50 in training (general pool, no single holder)
         dict(quantity=50, purpose=P.TRAINING, label="Training program"),
-        # 20 in competition RoboCup — 1 of them held by the student
-        dict(quantity=19, purpose=P.COMPETITION, competition_id=robocup.id),
-        dict(quantity=1, purpose=P.COMPETITION, competition_id=robocup.id, holder_id=student.id),
-        # 10 in a second competition
-        dict(quantity=10, purpose=P.COMPETITION, competition_id=vex.id),
+        # 20 in event RoboCup — 1 of them held by the student
+        dict(quantity=19, purpose=P.EVENT, event_id=robocup.id),
+        dict(quantity=1, purpose=P.EVENT, event_id=robocup.id, holder_id=student.id),
+        # 10 in a second event
+        dict(quantity=10, purpose=P.EVENT, event_id=vex.id),
         # 10 in R&D — 2 of them held by the student
         dict(quantity=8, purpose=P.RESEARCH, label="Line-follower R&D"),
         dict(quantity=2, purpose=P.RESEARCH, label="Line-follower R&D", holder_id=student.id),
@@ -189,7 +189,7 @@ def seed_inventory(db: Session, team_lead: User, student: User, borrower: User) 
     if comp_member is not None:
         db.add(InventoryRequest(
             item_id=arduino.id, requester_id=comp_member.id, quantity=2,
-            reason="Competition spares", needed_by=date.today() + timedelta(days=3),
+            reason="Event spares", needed_by=date.today() + timedelta(days=3),
         ))  # left submitted, so there's something waiting for review
 
     # a couple of general-storage items (staff-only, no team designation)
@@ -244,7 +244,7 @@ def seed_positions(db: Session) -> None:
     pm = pos("Project Manager", ceo, "pm@org.local")
     tl = pos("Team Lead", pm, "teamlead@org.local")
     pos("Student", tl, "student@org.local")
-    pos("Competition Member", tl, "comp@org.local")
+    pos("Event Member", tl, "comp@org.local")
 
     resync_managers(db)
     db.flush()
@@ -273,8 +273,8 @@ def seed_admin(db: Session, levels: dict[str, AccessLevel]) -> User:
 def seed_demo(db: Session, levels: dict[str, AccessLevel]) -> None:
     """Optional sample org, tasks, requests and inventory — only for exploring
     the app. Run with `--demo`. Idempotent."""
-    from app.domains.competitions.service import ensure_preset_kinds
-    ensure_preset_kinds(db)  # sample event kinds for the demo (Competition/Training/R&D)
+    from app.domains.events.service import ensure_preset_kinds
+    ensure_preset_kinds(db)  # sample event kinds for the demo (Event/Training/R&D)
     ceo = ensure_user(db, levels, "ceo@org.local", "Sara Chief", "Board")
     cto = ensure_user(db, levels, "cto@org.local", "Tarek Tech", "Lead",
                       manager=ceo, department=Department.SOFTWARE)
@@ -300,7 +300,7 @@ def seed_demo(db: Session, levels: dict[str, AccessLevel]) -> None:
     ensure_user(db, levels, "fin.emp@org.local", "Fatma FinanceTeam", "Member",
                 manager=cfo, department=Department.FINANCE)
 
-    # full chain: CEO -> PM -> Team Lead -> Student / Competition Member —
+    # full chain: CEO -> PM -> Team Lead -> Student / Event Member —
     # the competitor is left with no level at all: a live "guest" example
     team_lead = ensure_user(db, levels, "teamlead@org.local", "Tamer TeamLead", "Lead",
                             manager=pm)
@@ -337,7 +337,7 @@ def seed_demo(db: Session, levels: dict[str, AccessLevel]) -> None:
         db.add(WorkRequest(
             requester_id=pm.id, recipient_id=cto.id,
             title="Need a build server",
-            description="The competition team needs CI for their firmware.",
+            description="The event team needs CI for their firmware.",
             priority=TaskPriority.HIGH, status=RequestStatus.PENDING,
         ))
 
@@ -351,7 +351,7 @@ def run(demo: bool = False) -> None:
         levels = seed_levels(db)
         admin = seed_admin(db, levels)
         # A clean install starts with NO event kinds — Events is empty until
-        # the org defines its own (Competition/Training/… are the admin's
+        # the org defines its own (Event/Training/… are the admin's
         # data, created on the site, not shipped in the repo). The sample
         # kinds live in the demo seed only.
         if demo:
