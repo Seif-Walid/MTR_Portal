@@ -141,6 +141,12 @@ export default function AppLayout() {
     ...(can(me, 'users.manage') ? [{ key: '/admin/users', label: 'User Management' }] : []),
     ...(can(me, 'audit.view') ? [{ key: '/admin/audit', label: 'Audit Log' }] : []),
     ...(can(me, 'sync.export') || can(me, 'sync.rebuild') ? [{ key: '/admin/sync', label: 'Data Sync' }] : []),
+    ...(can(me, 'inventory.edit') ||
+    can(me, 'users.manage') ||
+    can(me, 'org.edit') ||
+    can(me, 'events.manage_any')
+      ? [{ key: '/admin/data', label: 'Data Tables' }]
+      : []),
   ];
 
   const allKeys = items.flatMap((i) => (i.children ? i.children.map((c) => c.key) : [i.key]));

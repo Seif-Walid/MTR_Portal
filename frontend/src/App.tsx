@@ -5,6 +5,7 @@ import { useAuth } from './auth/AuthContext';
 import AppLayout from './components/AppLayout';
 import AdminUsersPage from './pages/AdminUsersPage';
 import ArchivePage from './pages/ArchivePage';
+import BulkDataPage from './pages/BulkDataPage';
 import AuditLogPage from './pages/AuditLogPage';
 import EventsPage from './pages/EventsPage';
 import HomePage from './pages/HomePage';
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="/admin/users" element={<AdminUsersPage />} />
           <Route path="/admin/audit" element={<AuditLogPage />} />
           <Route path="/admin/sync" element={<SheetsSyncPage />} />
+          <Route path="/admin/data" element={<BulkDataPage />} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Route>
       ) : (
