@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.domains.access import service as access
 from app.domains.audit.service import log as audit_log
-from app.domains.events.models import Event, EventCategory, EventStatus, EventTeam, EventTeamMember
+from app.domains.events.models import Event, EventCategory, EventStatus, EventTeam
 from app.domains.hierarchy.service import can_review_task, visible_user_ids
 from app.domains.notifications.models import NotificationType
 from app.domains.notifications.service import notify
@@ -50,12 +50,10 @@ def archived_team_ids(db: Session) -> set[int]:
 
 
 def my_team_ids(db: Session, user: User) -> set[int]:
-    """Event-team ids the user is a member of."""
-    return set(
-        db.scalars(
-            select(EventTeamMember.team_id).where(EventTeamMember.user_id == user.id)
-        )
-    )
+    """Event-team ids the user is on (role seat or explicit membership)."""
+    from app.domains.events.service import user_event_team_ids
+
+    return user_event_team_ids(db, user.id)
 
 
 def visible_tasks_query(db: Session, user: User, include_archived: bool = False):

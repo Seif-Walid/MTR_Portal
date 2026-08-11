@@ -208,3 +208,32 @@ def test_team_not_visible_hidden_from_non_assignee_teammate(login, org):
     assert login("fin_emp").get(f"/api/tasks/{t['id']}").status_code == 404
     seen = login("fin_emp").get("/api/tasks", params={"view": "all"}).json()
     assert not any(x["id"] == t["id"] for x in seen)
+
+
+def test_team_roster_includes_role_seat_holders_not_just_members(login, org):
+    """A team's people include its role-seat occupants (lead/coach), not only
+    EventTeamMember rows — assigning to the team fans out to a seated lead."""
+    from tests.test_event_teams import _appoint_lead
+
+    _cid, team = _team_with_members(login, org, ["sw_emp"])
+    # seat mech_emp as the team lead (a seat, no membership row)
+    _appoint_lead(login, team, org["mech_emp"].id)
+    r = login("cto").post("/api/tasks", json={"title": "seated fan-out", "event_team_id": team["id"]})
+    assert r.status_code == 201, r.text
+    # both the member (sw_emp) and the seated lead (mech_emp) get a task
+    assert {t["assignee"]["id"] for t in r.json()} == {org["sw_emp"].id, org["mech_emp"].id}
+
+
+def test_my_teams_surfaces_a_team_you_only_lead_by_seat(login, org):
+    """You appear on a team you hold a role seat for even with no membership row."""
+    from tests.test_event_teams import _appoint_lead
+
+    _cid, team = _team_with_members(login, org, ["comp_member"])
+    # the team_lead user leads the team via a seat only
+    _appoint_lead(login, team, org["team_lead"].id)
+    blocks = login("team_lead").get("/api/team/mine").json()
+    event_blocks = [b for b in blocks if b["kind"] == "event"]
+    assert any(b["team_id"] == team["id"] for b in event_blocks)
+    mine = next(b for b in event_blocks if b["team_id"] == team["id"])
+    # roster spans the seated lead and the member
+    assert {m["user"]["id"] for m in mine["members"]} == {org["team_lead"].id, org["comp_member"].id}

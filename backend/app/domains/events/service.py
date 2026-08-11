@@ -21,8 +21,47 @@ from sqlalchemy.orm import Session
 from app.domains.access import service as access
 from app.domains.access.models import AccessLevel
 from app.domains.events.models import EventTeam, EventTeamMember, EventKind
+from app.domains.positions.models import Position, PositionOccupant
 from app.domains.positions.role_engine import occupied_seat_level_ids
 from app.domains.users.models import User
+
+
+def team_member_user_ids(db: Session, team_id: int) -> set[int]:
+    """Everyone on an event team: occupants of its team-scoped role seats
+    (coach / assistant / lead / member) plus any explicit membership rows.
+    Leadership here is expressed through role-seat occupancy, so a team's
+    people are not only its EventTeamMember rows."""
+    seat_users = set(
+        db.scalars(
+            select(PositionOccupant.user_id)
+            .join(Position, Position.id == PositionOccupant.position_id)
+            .where(Position.entity_type == "team", Position.entity_id == team_id)
+        )
+    )
+    membership_users = set(
+        db.scalars(select(EventTeamMember.user_id).where(EventTeamMember.team_id == team_id))
+    )
+    return seat_users | membership_users
+
+
+def user_event_team_ids(db: Session, user_id: int) -> set[int]:
+    """Event teams the user is on — by occupying a team-scoped role seat or by
+    an explicit membership row."""
+    by_seat = set(
+        db.scalars(
+            select(Position.entity_id)
+            .join(PositionOccupant, PositionOccupant.position_id == Position.id)
+            .where(
+                PositionOccupant.user_id == user_id,
+                Position.entity_type == "team",
+                Position.entity_id.is_not(None),
+            )
+        )
+    )
+    by_membership = set(
+        db.scalars(select(EventTeamMember.team_id).where(EventTeamMember.user_id == user_id))
+    )
+    return by_seat | by_membership
 
 # Sample event kinds — used ONLY by the demo seed (`app.seed --demo`) and the
 # test fixtures. A clean install ships with NO event kinds: Events is empty

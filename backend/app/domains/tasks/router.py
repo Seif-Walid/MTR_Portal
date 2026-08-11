@@ -11,6 +11,7 @@ from app.domains.audit.service import log as audit_log
 from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.events.models import EventTeam
+from app.domains.events.service import team_member_user_ids
 from app.domains.hierarchy.service import can_assign_task
 from app.domains.notifications.models import NotificationType
 from app.domains.notifications.service import notify
@@ -77,14 +78,11 @@ def create_task(payload: TaskCreate, db: DB, user: CurrentUser) -> list[TaskOut]
         if team is None or team.deleted_at is not None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Team not found")
         event_team_id = team.id
-        seen: set[int] = set()
         assignees = []
-        for m in team.members:
-            if m.user_id in seen:
-                continue
-            seen.add(m.user_id)
-            if m.user is not None and can_assign_task(db, user, m.user):
-                assignees.append(m.user)
+        for uid in sorted(team_member_user_ids(db, team.id)):
+            member = db.get(User, uid)
+            if member is not None and can_assign_task(db, user, member):
+                assignees.append(member)
         if not assignees:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,

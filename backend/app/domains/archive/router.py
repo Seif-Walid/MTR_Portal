@@ -89,7 +89,22 @@ def archived_event_detail(event_id: int, db: DB, user: CurrentUser) -> ArchivedE
     if not team_names:
         return ArchivedEventDetailOut(event=_event_out(event), teams=[], tasks=[])
 
-    my_team_ids = set(
+    tasks = list(
+        db.scalars(
+            select(Task)
+            .where(
+                Task.assignee_id == user.id,
+                Task.event_team_id.in_(team_names.keys()),
+            )
+            .order_by(Task.updated_at.desc())
+        ).unique()
+    )
+
+    # The viewer's teams in this event. Role seats are deleted when an event is
+    # archived, so we reconstruct from the durable signals: the teams their
+    # tasks were scoped to, plus any explicit membership rows that persist.
+    my_team_ids = {t.event_team_id for t in tasks if t.event_team_id in team_names}
+    my_team_ids |= set(
         db.scalars(
             select(EventTeamMember.team_id).where(
                 EventTeamMember.user_id == user.id,
@@ -97,15 +112,6 @@ def archived_event_detail(event_id: int, db: DB, user: CurrentUser) -> ArchivedE
             )
         )
     )
-
-    tasks = db.scalars(
-        select(Task)
-        .where(
-            Task.assignee_id == user.id,
-            Task.event_team_id.in_(team_names.keys()),
-        )
-        .order_by(Task.updated_at.desc())
-    ).unique()
 
     out_tasks = [
         ArchivedTaskOut(
