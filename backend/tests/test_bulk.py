@@ -35,14 +35,26 @@ def test_unknown_table_404(login):
 
 
 # --- Google Sheets escape hatch ---------------------------------------------
-def test_sheets_status_reports_unconfigured(login):
-    # No service-account creds / spreadsheet id in the test env -> not configured,
-    # so the UI shows the Sheets buttons disabled instead of erroring.
+def _force_sheets_unconfigured(monkeypatch):
+    # Don't depend on the ambient backend/.env (a real dev box may have Sheets
+    # configured) — pin the unconfigured state for these tests.
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "google_sheets_credentials_file", "")
+    monkeypatch.setattr(settings, "google_sheets_credentials_b64", "")
+    monkeypatch.setattr(settings, "google_sheets_spreadsheet_id", "")
+
+
+def test_sheets_status_reports_unconfigured(login, monkeypatch):
+    # No creds / spreadsheet id -> not configured, so the UI shows the Sheets
+    # buttons disabled instead of erroring.
+    _force_sheets_unconfigured(monkeypatch)
     body = login("admin").get("/api/bulk/sheets/status").json()
     assert body["configured"] is False
 
 
-def test_sheet_push_400_when_unconfigured(login):
+def test_sheet_push_400_when_unconfigured(login, monkeypatch):
+    _force_sheets_unconfigured(monkeypatch)
     r = login("ceo").post("/api/bulk/inventory_items/sheet/push")
     assert r.status_code == 400
     assert "configured" in r.json()["detail"].lower()
@@ -51,6 +63,78 @@ def test_sheet_push_400_when_unconfigured(login):
 def test_sheet_pull_requires_privilege(login):
     # gated by the same per-table privilege as the rest of the bulk editor
     assert login("comp_member").post("/api/bulk/inventory_items/sheet/pull").status_code == 403
+
+
+# --- live sheet -> DB webhook -----------------------------------------------
+def test_sheet_webhook_disabled_without_token(login, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "sheets_sync_token", "")  # webhook disabled -> 404
+    r = login("admin").post(
+        "/api/bulk/sheet-webhook", json={"tab": "inventory_items", "row": {}}
+    )
+    assert r.status_code == 404
+
+
+def test_sheet_webhook_rejects_bad_token(login, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "sheets_sync_token", "s3cret")
+    r = login("admin").post(
+        "/api/bulk/sheet-webhook",
+        json={"tab": "inventory_items", "row": {"id": "", "name": "X", "quantity": "1"}},
+        headers={"X-Sheet-Token": "wrong"},
+    )
+    assert r.status_code == 401
+
+
+def test_sheet_webhook_inserts_then_updates(login, db_session, monkeypatch):
+    from app.core.config import settings
+    from app.domains.inventory.models import InventoryItem
+
+    monkeypatch.setattr(settings, "sheets_sync_token", "s3cret")
+    admin = login("admin")
+    hdr = {"X-Sheet-Token": "s3cret"}
+
+    # a blank-id edit inserts and returns the new id (script writes it back)
+    r = admin.post(
+        "/api/bulk/sheet-webhook",
+        json={"tab": "inventory_items", "row": {"id": "", "name": "Live Widget", "quantity": "4"}},
+        headers=hdr,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True and isinstance(body["id"], int)
+    new_id = body["id"]
+    db_session.expire_all()
+    assert db_session.get(InventoryItem, new_id).quantity == 4
+
+    # editing that same row (now carrying the id) updates in place, no duplicate
+    r = admin.post(
+        "/api/bulk/sheet-webhook",
+        json={
+            "tab": "inventory_items",
+            "row": {"id": str(new_id), "name": "Live Widget", "quantity": "9"},
+        },
+        headers=hdr,
+    )
+    assert r.json()["id"] == new_id
+    db_session.expire_all()
+    assert db_session.get(InventoryItem, new_id).quantity == 9
+
+
+def test_sheet_webhook_reports_validation_error(login, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "sheets_sync_token", "s3cret")
+    r = login("admin").post(
+        "/api/bulk/sheet-webhook",
+        json={"tab": "inventory_items", "row": {"id": "", "name": "", "quantity": "x"}},
+        headers={"X-Sheet-Token": "s3cret"},
+    )
+    body = r.json()
+    assert body["ok"] is False and body["id"] is None
+    assert any(e["column"] in ("name", "quantity") for e in body["errors"])
 
 
 # --- validate ---------------------------------------------------------------

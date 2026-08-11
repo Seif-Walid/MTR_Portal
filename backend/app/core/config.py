@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     google_sheets_credentials_b64: str = ""
     google_sheets_spreadsheet_id: str = ""
     google_sheets_worksheet: str = "Inventory"
+    # Shared secret for the live sheet->DB webhook. The Apps Script bound to the
+    # spreadsheet sends it on every edit; empty disables the webhook (404).
+    sheets_sync_token: str = ""
 
 
 settings = Settings()

@@ -1,11 +1,19 @@
-from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
+import secrets
+
+from fastapi import APIRouter, File, Header, HTTPException, Response, UploadFile, status
 from sqlalchemy import func, select
 
+from app.core.config import settings
 from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.bulk import service
 from app.domains.bulk.registry import TABLES, TableSpec
-from app.domains.bulk.schemas import ApplyRequest, ApplyResult, TableSummary
+from app.domains.bulk.schemas import (
+    ApplyRequest,
+    ApplyResult,
+    SheetWebhookRequest,
+    TableSummary,
+)
 
 XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -38,6 +46,27 @@ def sheets_status(user: CurrentUser) -> dict:
     """Is the Google Sheets round-trip available on this server? Drives the
     enabled state of the 'Open in Google Sheets' / 'Pull from Sheet' buttons."""
     return service.sheet_status()
+
+
+@router.post("/sheet-webhook")
+def sheet_webhook(
+    payload: SheetWebhookRequest,
+    db: DB,
+    x_sheet_token: str = Header(default=""),
+) -> dict:
+    """Live sheet -> DB. Called by the spreadsheet's bound Apps Script on every
+    edit; authenticated by a shared token (not a user session), so each edit in
+    Google Sheets updates the database with no button press. Returns the row id
+    so the script can write it back into a newly-inserted (blank-id) row."""
+    token = settings.sheets_sync_token
+    if not token:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Live sheet sync is not enabled")
+    if not secrets.compare_digest(x_sheet_token, token):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid sheet-sync token")
+    spec = TABLES.get(payload.tab)
+    if spec is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown table '{payload.tab}'")
+    return service.webhook_apply(db, spec, payload.row, None)
 
 
 @router.get("/{table}")
