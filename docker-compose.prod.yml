@@ -52,6 +52,9 @@ services:
       # JSON base64-encoded (base64 -w0 key.json), so no file has to be mounted.
       GOOGLE_SHEETS_CREDENTIALS_B64: ${GOOGLE_SHEETS_CREDENTIALS_B64:-}
       GOOGLE_SHEETS_SPREADSHEET_ID: ${GOOGLE_SHEETS_SPREADSHEET_ID:-}
+      # Shared secret for the live sheet->DB webhook (the spreadsheet's bound
+      # Apps Script sends it on every edit). Empty leaves the webhook disabled.
+      SHEETS_SYNC_TOKEN: ${SHEETS_SYNC_TOKEN:-}
 
 volumes:
   caddy_data:

@@ -420,8 +420,8 @@ def _cell_to_str(value: object) -> str:
 # through the exact same validate/apply path. Reuses the service-account client
 # the Sheets mirror already uses (app/core/gsheets.py).
 BULK_SHEET_BANNER = (
-    "[ EDITABLE — change cells here, then click 'Pull from Sheet' in the portal to save. "
-    "Keep the header row and the id column; leave id blank on new rows. ]"
+    "[ LIVE — edits here save to the portal automatically. Keep the header row and the "
+    "id column; leave id blank to add a row (its id fills in once it saves). ]"
 )
 
 
@@ -470,6 +470,39 @@ def push_to_sheet(db: Session, spec: TableSpec) -> dict:
         "tab": spec.key,
         "rows": len(rows),
     }
+
+
+def webhook_apply(db: Session, spec: TableSpec, row: dict, actor_id: int | None) -> dict:
+    """Apply ONE row edited live in Google Sheets (called by the spreadsheet's
+    bound Apps Script on every edit). Same validation as the grid/upload, but
+    single-row and it returns the row's id so the script can write it back into
+    a freshly-inserted row (blank-id) — which is what stops re-edits of a new
+    row from inserting duplicates."""
+    coerced, errors, _ = validate(db, spec, [row], [])
+    if errors:
+        return {"ok": False, "errors": errors, "id": None}
+    if not coerced:
+        # nothing to write (e.g. an append-only ledger's existing row is immutable)
+        raw_id = str(row.get("id", "")).strip()
+        return {"ok": True, "errors": [], "id": int(raw_id) if raw_id else None}
+
+    c = coerced[0]
+    if c.id is None:
+        obj = spec.model(**_insert_defaults(spec, c.fields))
+        db.add(obj)
+        db.flush()
+        new_id, action = obj.id, "insert"
+    else:
+        obj = db.get(spec.model, c.id)
+        for attr, value in c.fields.items():
+            if getattr(obj, attr) != value:
+                setattr(obj, attr, value)
+        new_id, action = c.id, "update"
+
+    sync.mark_dirty(db, spec.key)
+    audit.log(db, actor_id, "bulk", f"sheet_{action}", spec.key, new_id, {"via": "sheet-webhook"})
+    db.commit()
+    return {"ok": True, "errors": [], "id": new_id}
 
 
 def pull_from_sheet(
