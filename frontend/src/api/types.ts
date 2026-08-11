@@ -42,6 +42,9 @@ export interface Me extends UserBrief {
   privileges: string[];
   has_team: boolean;
   google_linked: boolean;
+  created_at: string;
+  seats: string[];
+  profile: MemberProfile | null;
 }
 
 export interface AdminUser extends UserBrief {

@@ -14,10 +14,11 @@ from app.core.security import hash_password, new_session_token, verify_password
 from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.auth.models import AuthSession
-from app.domains.auth.schemas import LoginIn, RegisterIn
+from app.domains.auth.schemas import ChangePasswordIn, LoginIn, RegisterIn
 from app.domains.hierarchy.service import subtree_ids
+from app.domains.positions.models import Position, PositionOccupant
 from app.domains.users.models import User
-from app.domains.users.schemas import MeOut
+from app.domains.users.schemas import MeOut, MemberProfileOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -33,6 +34,12 @@ def _google_enabled() -> bool:
 
 def _me_payload(db: Session, user: User) -> MeOut:
     level = access.effective_level(db, user)
+    seats = db.scalars(
+        select(Position.title)
+        .join(PositionOccupant, PositionOccupant.position_id == Position.id)
+        .where(PositionOccupant.user_id == user.id)
+        .order_by(Position.title)
+    ).all()
     return MeOut(
         id=user.id,
         email=user.email,
@@ -43,6 +50,9 @@ def _me_payload(db: Session, user: User) -> MeOut:
         privileges=sorted(access.privileges_of(db, level)),
         has_team=len(subtree_ids(db, user.id)) > 0,
         google_linked=user.google_linked,
+        created_at=user.created_at,
+        seats=list(seats),
+        profile=MemberProfileOut.model_validate(user.profile) if user.profile else None,
     )
 
 
@@ -118,6 +128,20 @@ def logout(response: Response, db: DB, user: CurrentUser) -> None:
 @router.get("/me")
 def me(db: DB, user: CurrentUser) -> MeOut:
     return _me_payload(db, user)
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(payload: ChangePasswordIn, db: DB, user: CurrentUser) -> None:
+    """Self-service password change from the profile page. Proving the current
+    password guards against a hijacked session silently locking the owner out."""
+    if not verify_password(payload.current_password, user.hashed_password):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Current password is incorrect")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "New password must differ from the current one"
+        )
+    user.hashed_password = hash_password(payload.new_password)
+    db.commit()
 
 
 def _login_error(reason: str) -> RedirectResponse:
