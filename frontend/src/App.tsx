@@ -12,6 +12,7 @@ import HomePage from './pages/HomePage';
 import InventoryPage from './pages/InventoryPage';
 import LoginPage from './pages/LoginPage';
 import OrganizationPage from './pages/OrganizationPage';
+import ProfilePage from './pages/ProfilePage';
 import RequestsPage from './pages/RequestsPage';
 import SheetsSyncPage from './pages/SheetsSyncPage';
 import CalendarPage from './pages/CalendarPage';
@@ -35,6 +36,7 @@ export default function App() {
       {me ? (
         <Route element={<AppLayout />}>
           <Route path="/home" element={<HomePage />} />
+          <Route path="/profile" element={<ProfilePage />} />
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/inventory" element={<InventoryPage />} />

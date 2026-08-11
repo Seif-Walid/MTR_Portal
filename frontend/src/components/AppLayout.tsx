@@ -1,4 +1,4 @@
-import { GoogleOutlined, LogoutOutlined } from '@ant-design/icons';
+import { GoogleOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons';
 import { Dropdown, message } from 'antd';
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
@@ -169,9 +169,11 @@ export default function AppLayout() {
 
   const userMenu = {
     items: [
+      { key: 'profile', icon: <UserOutlined />, label: 'My profile', onClick: () => navigate('/profile') },
       ...(googleEnabled && !me.google_linked
         ? [{ key: 'link-google', icon: <GoogleOutlined />, label: 'Link Google account', onClick: () => { window.location.href = '/api/auth/google/login'; } }]
         : []),
+      { type: 'divider' as const },
       { key: 'logout', icon: <LogoutOutlined />, label: 'Log out', onClick: () => logout().then(() => navigate('/login')) },
     ],
   };

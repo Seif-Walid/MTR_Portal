@@ -22,14 +22,6 @@ class LevelBrief(BaseModel):
     name: str
 
 
-class MeOut(UserBrief):
-    manager_id: int | None
-    level: LevelBrief | None  # effective level (strongest of seats + override)
-    privileges: list[str]
-    has_team: bool
-    google_linked: bool
-
-
 class MemberProfileOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -45,6 +37,17 @@ class MemberProfileOut(BaseModel):
     mother_phone: str | None = None
     uni_id: str | None = None
     location: str | None = None
+
+
+class MeOut(UserBrief):
+    manager_id: int | None
+    level: LevelBrief | None  # effective level (strongest of seats + override)
+    privileges: list[str]
+    has_team: bool
+    google_linked: bool
+    created_at: datetime
+    seats: list[str] = []  # org positions occupied — shown on the profile page
+    profile: MemberProfileOut | None = None  # roster record, if this account has one
 
 
 class UserAdminOut(UserBrief):

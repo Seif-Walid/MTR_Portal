@@ -66,3 +66,55 @@ def test_registered_user_can_send_requests_but_not_tasks(client, org):
         cookies=cookies,
     )
     assert req.status_code == 201
+
+
+def test_change_password_flow(client, org):
+    reg = client.post(
+        "/api/auth/register",
+        json={"email": "pw@gmail.com", "full_name": "Pw User", "password": "secret123"},
+    )
+    cookies = dict(reg.cookies)
+
+    # wrong current password rejected
+    bad = client.post(
+        "/api/auth/change-password",
+        json={"current_password": "nope", "new_password": "brandnew123"},
+        cookies=cookies,
+    )
+    assert bad.status_code == 400
+
+    # reusing the same password rejected
+    same = client.post(
+        "/api/auth/change-password",
+        json={"current_password": "secret123", "new_password": "secret123"},
+        cookies=cookies,
+    )
+    assert same.status_code == 400
+
+    # too short rejected by schema
+    short = client.post(
+        "/api/auth/change-password",
+        json={"current_password": "secret123", "new_password": "short"},
+        cookies=cookies,
+    )
+    assert short.status_code == 422
+
+    # happy path
+    ok = client.post(
+        "/api/auth/change-password",
+        json={"current_password": "secret123", "new_password": "brandnew123"},
+        cookies=cookies,
+    )
+    assert ok.status_code == 204
+
+    # old password no longer works, new one does
+    assert client.post("/api/auth/login", json={"email": "pw@gmail.com", "password": "secret123"}).status_code == 401
+    assert client.post("/api/auth/login", json={"email": "pw@gmail.com", "password": "brandnew123"}).status_code == 200
+
+
+def test_change_password_requires_auth(client, org):
+    r = client.post(
+        "/api/auth/change-password",
+        json={"current_password": "x", "new_password": "brandnew123"},
+    )
+    assert r.status_code == 401
