@@ -6,8 +6,10 @@ from sqlalchemy import func, select
 
 from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
-from app.domains.events.models import Event, EventCategory, EventStatus, EventTeam, EventTeamMember
+from app.domains.events.models import Event, EventCategory, EventStatus, EventTeam
+from app.domains.events.service import team_member_user_ids, user_event_team_ids
 from app.domains.hierarchy.service import subtree_ids
+from app.domains.positions.models import Position, PositionOccupant
 from app.domains.tasks.models import Task
 from app.domains.users.models import User
 from app.domains.users.schemas import UserBrief
@@ -153,16 +155,67 @@ def _members_out(members, counts, manager_ref_id: int | None) -> list[TeamMember
     ]
 
 
+def _org_team_ids(db, user_id: int) -> set[int]:
+    """Everyone on the user's *permanent* org team, from two sources so it works
+    however the org is modelled:
+
+    - `manager_id` subtree (used when the hierarchy is populated), and
+    - the real Position tree (used here): the people occupying seats beneath a
+      real position the user occupies. If the user only occupies leaf seats
+      (they're a member, not a lead), their team is the unit under their seat's
+      parent — i.e. their peers.
+
+    Role-template ("hat") positions are ignored — they're the *event* teams,
+    surfaced separately."""
+    ids = set(subtree_ids(db, user_id))
+
+    # real positions the user occupies
+    my_real = db.scalars(
+        select(Position.id)
+        .join(PositionOccupant, PositionOccupant.position_id == Position.id)
+        .where(PositionOccupant.user_id == user_id, Position.role_template_id.is_(None))
+    ).all()
+    if not my_real:
+        return ids
+
+    # real org tree in memory (small): parent -> children, position -> occupants
+    real = db.scalars(select(Position).where(Position.role_template_id.is_(None))).all()
+    children: dict[int, list[int]] = defaultdict(list)
+    parent_of: dict[int, int | None] = {}
+    occ_of: dict[int, list[int]] = {}
+    for p in real:
+        parent_of[p.id] = p.parent_id
+        children[p.parent_id].append(p.id)
+        occ_of[p.id] = [l.user_id for l in p.occupant_links]
+
+    def descendants(pos_id: int) -> list[int]:
+        out, stack = [], list(children.get(pos_id, []))
+        while stack:
+            cur = stack.pop()
+            out.append(cur)
+            stack.extend(children.get(cur, []))
+        return out
+
+    for pid in my_real:
+        below = [u for d in descendants(pid) for u in occ_of.get(d, [])]
+        if not below and parent_of.get(pid) is not None:
+            # a leaf seat (a member): show the unit under their parent
+            below = [u for d in descendants(parent_of[pid]) for u in occ_of.get(d, [])]
+        ids.update(below)
+    ids.discard(user_id)
+    return ids
+
+
 @router.get("/mine")
 def my_teams(db: DB, user: CurrentUser) -> list[TeamBlockOut]:
     """Every team the user belongs to as its own block: the permanent org team
-    (their subtree) first, then each active event team they're a member of with
-    task counts scoped to that team's board."""
+    first (derived from the org hierarchy / Position tree), then each active
+    event team they hold a seat on, with task counts scoped to that team."""
     access.require_privilege(db, user, "people.view")
     blocks: list[TeamBlockOut] = []
 
-    # Org block — the permanent subtree (mirrors GET /team).
-    org_ids = subtree_ids(db, user.id)
+    # Org block — the permanent org team.
+    org_ids = _org_team_ids(db, user.id)
     if org_ids:
         org_members = db.scalars(
             select(User).where(User.id.in_(org_ids)).order_by(User.full_name)
@@ -177,20 +230,15 @@ def my_teams(db: DB, user: CurrentUser) -> list[TeamBlockOut]:
         )
 
     # Event blocks — active teams (not soft-deleted) on active events.
-    team_rows = db.execute(
-        select(EventTeam, Event.name, Event.id)
-        .join(EventTeamMember, EventTeamMember.team_id == EventTeam.id)
-        .join(EventCategory, EventTeam.category_id == EventCategory.id)
-        .join(Event, EventCategory.event_id == Event.id)
-        .where(
-            EventTeamMember.user_id == user.id,
-            EventTeam.deleted_at.is_(None),
-            Event.status == EventStatus.ACTIVE,
-        )
-        .order_by(Event.name, EventTeam.name)
-    ).all()
-    for team, event_name, event_id in team_rows:
-        member_ids = {m.user_id for m in team.members}
+    for team_id in user_event_team_ids(db, user.id):
+        team = db.get(EventTeam, team_id)
+        if team is None or team.deleted_at is not None:
+            continue
+        cat = db.get(EventCategory, team.category_id)
+        event = db.get(Event, cat.event_id) if cat else None
+        if event is None or event.status != EventStatus.ACTIVE:
+            continue
+        member_ids = team_member_user_ids(db, team_id)
         if not member_ids:
             continue
         team_members = db.scalars(
@@ -201,14 +249,16 @@ def my_teams(db: DB, user: CurrentUser) -> list[TeamBlockOut]:
                 kind="event",
                 team_id=team.id,
                 name=team.name,
-                event_name=event_name,
-                event_id=event_id,
+                event_name=event.name,
+                event_id=event.id,
                 members=_members_out(
                     team_members, _task_counts_for(db, member_ids, team.id), user.id
                 ),
             )
         )
 
+    # stable order: org first, then event teams by name
+    blocks.sort(key=lambda b: (b.kind != "org", b.event_name or "", b.name))
     return blocks
 
 
