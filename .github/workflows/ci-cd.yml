@@ -130,6 +130,8 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SITE_ADDRESS: ${{ secrets.SITE_ADDRESS || 'mindtechrobotics.duckdns.org' }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_SHEETS_CREDENTIALS_B64: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS_B64 }}
+          GOOGLE_SHEETS_SPREADSHEET_ID: ${{ secrets.GOOGLE_SHEETS_SPREADSHEET_ID }}
           APP_DIR: ${{ secrets.VM_APP_DIR || '~/MTR_Portal' }}
         with:
           host: ${{ secrets.VM_HOST }}
@@ -137,7 +139,7 @@ jobs:
           key_path: ${{ runner.temp }}/vm_key
           port: ${{ secrets.VM_SSH_PORT || 22 }}
           # Forward these env vars into the remote shell.
-          envs: BACKEND_IMAGE,FRONTEND_IMAGE,GHCR_USER,GHCR_TOKEN,SITE_ADDRESS,GOOGLE_CLIENT_SECRET,APP_DIR
+          envs: BACKEND_IMAGE,FRONTEND_IMAGE,GHCR_USER,GHCR_TOKEN,SITE_ADDRESS,GOOGLE_CLIENT_SECRET,GOOGLE_SHEETS_CREDENTIALS_B64,GOOGLE_SHEETS_SPREADSHEET_ID,APP_DIR
           script: |
             set -euo pipefail
             cd "${APP_DIR/#\~/$HOME}"
@@ -151,6 +153,7 @@ jobs:
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
 
             export BACKEND_IMAGE FRONTEND_IMAGE SITE_ADDRESS GOOGLE_CLIENT_SECRET
+            export GOOGLE_SHEETS_CREDENTIALS_B64 GOOGLE_SHEETS_SPREADSHEET_ID
             COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
             $COMPOSE pull
             $COMPOSE up -d --remove-orphans   # no --build: uses the pulled images

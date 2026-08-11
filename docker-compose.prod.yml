@@ -46,6 +46,12 @@ services:
       #   export GOOGLE_CLIENT_SECRET=... before `docker compose ... up`.
       GOOGLE_CLIENT_ID: "446030339213-jfn9k6rr3r3mqrkfjojbd4753694f2oi.apps.googleusercontent.com"
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?Set GOOGLE_CLIENT_SECRET in your shell before deploying (see deploy runbook)}
+      # Google Sheets round-trip (bulk editor "Open in Sheets" / "Pull from
+      # Sheet" + inventory mirror). Optional: empty defaults keep the feature
+      # disabled without breaking the deploy. The key is the service-account
+      # JSON base64-encoded (base64 -w0 key.json), so no file has to be mounted.
+      GOOGLE_SHEETS_CREDENTIALS_B64: ${GOOGLE_SHEETS_CREDENTIALS_B64:-}
+      GOOGLE_SHEETS_SPREADSHEET_ID: ${GOOGLE_SHEETS_SPREADSHEET_ID:-}
 
 volumes:
   caddy_data:
