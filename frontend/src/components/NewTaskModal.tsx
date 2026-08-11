@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
 import type { Task, TeamBlock, UserBrief } from '../api/types';
+import { useAuth } from '../auth/AuthContext';
 
 interface FormValues {
   assignee_ids?: number[];
@@ -27,6 +28,7 @@ export default function NewTaskModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { me } = useAuth();
   const [form] = Form.useForm<FormValues>();
   const [assignable, setAssignable] = useState<UserBrief[]>([]);
   const [teams, setTeams] = useState<TeamBlock[]>([]);
@@ -98,17 +100,17 @@ export default function NewTaskModal({
         {target === 'people' ? (
           <Form.Item
             name="assignee_ids"
-            label="People below you in the hierarchy — pick several to assign the same task to a group"
+            label="Yourself or people below you in the hierarchy — pick one or more to assign the same task"
             rules={[{ required: true, message: 'Pick at least one assignee' }]}
           >
             <Select
               mode="multiple"
               showSearch
               optionFilterProp="label"
-              placeholder={assignable.length ? 'Select one or more people' : 'No one reports to you'}
+              placeholder={assignable.length ? 'Select one or more people' : 'No one to assign to'}
               options={assignable.map((u) => ({
                 value: u.id,
-                label: `${u.full_name} (${u.email})`,
+                label: `${u.full_name}${u.id === me?.id ? ' (you)' : ''} (${u.email})`,
               }))}
             />
           </Form.Item>

@@ -23,14 +23,12 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 @router.get("/assignable")
 def assignable_users(db: DB, user: CurrentUser) -> list[UserBrief]:
-    """Everyone the current user may assign tasks to (their strict subtree;
-    a top-level user sees all active users)."""
+    """Everyone the current user may assign tasks to: themselves, their strict
+    subtree, or (for a top-level user) all active users."""
     if access.is_top(db, user):
-        query = select(User).where(User.is_active, User.id != user.id)
+        query = select(User).where(User.is_active)
     else:
-        ids = subtree_ids(db, user.id)
-        if not ids:
-            return []
+        ids = subtree_ids(db, user.id, include_self=True)
         query = select(User).where(User.id.in_(ids), User.is_active)
     return [UserBrief.model_validate(u) for u in db.scalars(query.order_by(User.full_name))]
 
