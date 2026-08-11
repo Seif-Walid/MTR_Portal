@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # Point google_sheets_credentials_file at a service-account JSON key and
     # share the target spreadsheet with that service account's email.
     google_sheets_credentials_file: str = ""
+    # Container-friendly alternative to the file above: the service-account JSON
+    # key, base64-encoded into a single env var (`base64 -w0 key.json`). Used by
+    # the Docker/CI deploy so no key file has to be mounted. If both are set the
+    # base64 value wins.
+    google_sheets_credentials_b64: str = ""
     google_sheets_spreadsheet_id: str = ""
     google_sheets_worksheet: str = "Inventory"
 

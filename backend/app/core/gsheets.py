@@ -13,11 +13,14 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
 def credentials_available() -> bool:
-    """True if the libraries import and a service-account key file is present.
-    Enough to read/write any sheet shared with the service account."""
-    if not settings.google_sheets_credentials_file:
-        return False
-    if not Path(settings.google_sheets_credentials_file).is_file():
+    """True if the libraries import and a service-account key is present — either
+    as a base64 env var or an on-disk key file. Enough to read/write any sheet
+    shared with the service account."""
+    has_key = bool(settings.google_sheets_credentials_b64) or (
+        bool(settings.google_sheets_credentials_file)
+        and Path(settings.google_sheets_credentials_file).is_file()
+    )
+    if not has_key:
         return False
     try:
         import gspread  # noqa: F401
@@ -25,6 +28,22 @@ def credentials_available() -> bool:
     except ImportError:
         return False
     return True
+
+
+def _load_credentials():
+    """Build service-account Credentials from the base64 env var if set,
+    otherwise from the key file. Prefer the env var (container deploys)."""
+    from google.oauth2.service_account import Credentials
+
+    if settings.google_sheets_credentials_b64:
+        import base64
+        import json
+
+        info = json.loads(base64.b64decode(settings.google_sheets_credentials_b64))
+        return Credentials.from_service_account_info(info, scopes=SCOPES)
+    return Credentials.from_service_account_file(
+        settings.google_sheets_credentials_file, scopes=SCOPES
+    )
 
 
 def parse_spreadsheet_id(url_or_id: str) -> str:
@@ -37,12 +56,8 @@ def parse_spreadsheet_id(url_or_id: str) -> str:
 def open_spreadsheet(spreadsheet_id: str):
     """Authorize with the service account and open a spreadsheet by id."""
     import gspread
-    from google.oauth2.service_account import Credentials
 
-    creds = Credentials.from_service_account_file(
-        settings.google_sheets_credentials_file, scopes=SCOPES
-    )
-    return gspread.authorize(creds).open_by_key(spreadsheet_id)
+    return gspread.authorize(_load_credentials()).open_by_key(spreadsheet_id)
 
 
 def read_worksheet(
