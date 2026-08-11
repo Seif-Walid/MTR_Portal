@@ -35,16 +35,16 @@ def test_cannot_assign_across_branches(login, org):
     assert assign(login, org, "media_mgr", "student").status_code == 403
 
 
-def test_cannot_assign_to_self_or_peer(login, org):
-    assert assign(login, org, "cto", "cto").status_code == 403
+def test_can_assign_to_self_but_not_peer(login, org):
+    assert assign(login, org, "cto", "cto").status_code == 201  # to self
     assert assign(login, org, "cto", "cfo").status_code == 403  # sibling
 
 
-def test_leaf_users_have_no_assignees(login, org):
+def test_leaf_users_can_only_assign_to_themselves(login, org):
     for who in ("sw_emp", "student", "comp_member"):
         r = login(who).get("/api/users/assignable")
         assert r.status_code == 200
-        assert r.json() == []
+        assert {u["id"] for u in r.json()} == {org[who].id}
 
 
 def test_admin_bypasses_hierarchy(login, org):
@@ -64,7 +64,7 @@ def test_moving_a_user_moves_permissions_with_zero_config(login, org, db_session
 def test_assignable_list_matches_subtree(login, org):
     r = login(cto := "cto").get("/api/users/assignable")
     ids = {u["id"] for u in r.json()}
-    expected = {org[k].id for k in ("sw_emp", "mech_lead", "elec_lead", "mech_emp")}
+    expected = {org[k].id for k in ("cto", "sw_emp", "mech_lead", "elec_lead", "mech_emp")}
     assert ids == expected
 
 # Cycle rejection lives on the Organization chart now (manager_id isn't

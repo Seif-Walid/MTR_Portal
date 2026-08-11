@@ -47,12 +47,15 @@ def ancestor_ids(db: Session, user_id: int, include_self: bool = False) -> set[i
 
 
 def can_assign_task(db: Session, assigner: User, assignee: User) -> bool:
-    """Tasks flow down: only into the assigner's strict subtree. A top-level
-    (rank 1) user bypasses the structural limit and can task anyone."""
+    """Tasks flow down: into the assigner's strict subtree, or to themselves.
+    A top-level (rank 1) user bypasses the structural limit and can task
+    anyone."""
     if not assignee.is_active:
         return False
+    if assignee.id == assigner.id:
+        return True
     if access.is_top(db, assigner):
-        return assigner.id != assignee.id
+        return True
     return is_in_subtree(db, assigner.id, assignee.id)
 
 
