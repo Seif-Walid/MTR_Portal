@@ -88,6 +88,9 @@ class TableSpec:
     columns: list[Column]
     privilege: str  # existing per-domain edit privilege
     delete: DeletePolicy
+    # read_only tables are the auto-registered "every other table" specs: shown
+    # in the grid for inspection, but no editing / Sheets round-trip / delete.
+    read_only: bool = False
     # append_only tables (the movements ledger) accept new rows only: existing
     # rows are locked and deletes are refused.
     append_only: bool = False
@@ -221,3 +224,63 @@ TABLES: dict[str, TableSpec] = {
         ],
     ),
 }
+
+
+# --- read-only auto-registration -------------------------------------------
+# Everything above is a hand-tuned, editable grid. Admins also want to *see*
+# every other table on the server (auth sessions, audit log, role templates,
+# position occupants, …). We reflect each remaining mapped table into a
+# read-only TableSpec so the same generic grid can display it. These are
+# gated behind "users.manage" (top-admin only) since they include sensitive
+# internal tables, and they carry no editing, delete or Sheets round-trip.
+_READONLY_PRIVILEGE = "users.manage"
+_readonly_loaded = False
+
+
+def _prettify(table_name: str) -> str:
+    return table_name.replace("_", " ").title()
+
+
+def ensure_all_tables_registered() -> None:
+    """Idempotently add a read-only spec for every mapped table not already
+    curated above. Imports all domain model modules first so SQLAlchemy knows
+    about every table, then registers the leftovers. Cheap after the first run."""
+    global _readonly_loaded
+    if _readonly_loaded:
+        return
+
+    import importlib
+    import pkgutil
+
+    import app.domains as _domains
+
+    for mod in pkgutil.walk_packages(_domains.__path__, "app.domains."):
+        if mod.name.endswith(".models"):
+            importlib.import_module(mod.name)
+
+    from app.core.database import Base
+
+    curated = {spec.model.__table__.name for spec in TABLES.values()}
+    autos: list[TableSpec] = []
+    seen: set[str] = set()
+    for mapper in Base.registry.mappers:
+        cls = mapper.class_
+        table = cls.__table__
+        name = table.name
+        if name in TABLES or name in curated or name in seen:
+            continue
+        seen.add(name)
+        autos.append(
+            TableSpec(
+                key=name,
+                label=_prettify(name),
+                model=cls,
+                columns=[Column(c.key, "str", editable=False) for c in table.columns],
+                privilege=_READONLY_PRIVILEGE,
+                delete="none",
+                read_only=True,
+            )
+        )
+    for spec in sorted(autos, key=lambda s: s.label):
+        TABLES[spec.key] = spec
+    _readonly_loaded = True

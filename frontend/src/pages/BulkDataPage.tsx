@@ -6,6 +6,7 @@ import {
   ExclamationCircleFilled,
   GoogleOutlined,
   LoadingOutlined,
+  LockOutlined,
   PlusOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
@@ -18,7 +19,6 @@ import {
   Input,
   InputNumber,
   List,
-  Modal,
   Popconfirm,
   Select,
   Space,
@@ -48,6 +48,7 @@ interface TableSummary {
   label: string;
   row_count: number;
   append_only: boolean;
+  read_only: boolean;
 }
 
 type Option = { value: string | number; label: string };
@@ -60,6 +61,7 @@ interface TablePayload {
   options: Record<string, Option[]>;
   append_only: boolean;
   delete: string;
+  read_only: boolean;
 }
 
 interface ApplyResult {
@@ -324,64 +326,32 @@ export default function BulkDataPage() {
     }
   };
 
-  const pullFromSheet = async () => {
+  // Force the live two-way reconcile for this tab now (the Apps Script timer
+  // also does it every minute): pull the sheet's edits/adds/deletes into the DB,
+  // then push the DB back so both sides match.
+  const syncNow = async () => {
     if (!active) return;
     setSheetBusy('pull');
     try {
-      const prev = await api.post<
-        ApplyResult & { new: number; changed: number; missing_ids: number[]; can_delete: boolean }
-      >(`/api/bulk/${active}/sheet/pull`);
-      if (!prev.ok) {
-        Modal.error({
-          title: 'The sheet has problems',
-          content: (
-            <List
-              size="small"
-              dataSource={prev.errors.slice(0, 30)}
-              renderItem={(e) => (
-                <List.Item>
-                  <Typography.Text type="danger">
-                    {e.row != null ? `Row ${e.row + 1}` : 'Sheet'}
-                    {e.column ? ` · ${e.column}` : ''}: {e.message}
-                  </Typography.Text>
-                </List.Item>
-              )}
-            />
-          ),
-        });
-        return;
+      const res = await api.post<{
+        ok: boolean;
+        adds?: number;
+        updates?: number;
+        deletes?: number;
+        errors?: { message: string }[];
+      }>(`/api/bulk/${active}/sheet/sync`);
+      if (res.ok) {
+        message.success(
+          `Synced with Google Sheets: ${res.adds ?? 0} added, ${res.updates ?? 0} updated, ${res.deletes ?? 0} deleted.`,
+        );
+        loadTable(active);
+      } else {
+        message.error(
+          res.errors?.[0]?.message ?? 'The sheet has invalid data — fix the flagged cells and retry.',
+        );
       }
-      const missing = prev.can_delete ? prev.missing_ids.length : 0;
-      Modal.confirm({
-        title: 'Pull changes from Google Sheets?',
-        content: (
-          <div>
-            <p>
-              From the sheet: <b>{prev.new}</b> new, <b>{prev.changed}</b> changed.
-            </p>
-            {missing > 0 && (
-              <p>
-                {missing} row(s) are in the database but were removed from the sheet — check the box
-                below to delete them too.
-              </p>
-            )}
-          </div>
-        ),
-        okText: 'Pull & save',
-        onOk: async () => {
-          const res = await api.post<ApplyResult>(`/api/bulk/${active}/sheet/pull?apply=true`);
-          if (res.ok) {
-            message.success(
-              `Saved: ${res.summary.adds} added, ${res.summary.updates} updated.`,
-            );
-            loadTable(active);
-          } else {
-            message.error(res.errors[0]?.message ?? 'Pull failed');
-          }
-        },
-      });
     } catch (e) {
-      message.error(e instanceof ApiError ? e.message : 'Could not read the sheet');
+      message.error(e instanceof ApiError ? e.message : 'Sync failed');
     } finally {
       setSheetBusy(null);
     }
@@ -626,38 +596,48 @@ export default function BulkDataPage() {
         extra={
           payload && (
             <Space wrap>
-              <Button icon={<PlusOutlined />} type="primary" onClick={addRow}>
-                Add row
-              </Button>
+              {payload.read_only ? (
+                <Tag icon={<LockOutlined />} color="default">
+                  Read-only
+                </Tag>
+              ) : (
+                <Button icon={<PlusOutlined />} type="primary" onClick={addRow}>
+                  Add row
+                </Button>
+              )}
               <Button icon={<ReloadOutlined />} onClick={() => active && loadTable(active)}>
                 Refresh
               </Button>
-              <Tooltip
-                title={
-                  sheets?.configured
-                    ? 'Open this table as a live Google Sheet'
-                    : 'Google Sheets is not configured on the server'
-                }
-              >
-                <Button
-                  icon={<GoogleOutlined />}
-                  loading={sheetBusy === 'push'}
-                  disabled={!sheets?.configured}
-                  onClick={openInSheets}
-                >
-                  Open in Google Sheets
-                </Button>
-              </Tooltip>
-              <Tooltip title="Read edits back from the Google Sheet">
-                <Button
-                  icon={<CloudSyncOutlined />}
-                  loading={sheetBusy === 'pull'}
-                  disabled={!sheets?.configured}
-                  onClick={pullFromSheet}
-                >
-                  Pull from Sheet
-                </Button>
-              </Tooltip>
+              {!payload.read_only && (
+                <>
+                  <Tooltip
+                    title={
+                      sheets?.configured
+                        ? 'Open this table as a live Google Sheet'
+                        : 'Google Sheets is not configured on the server'
+                    }
+                  >
+                    <Button
+                      icon={<GoogleOutlined />}
+                      loading={sheetBusy === 'push'}
+                      disabled={!sheets?.configured}
+                      onClick={openInSheets}
+                    >
+                      Open in Google Sheets
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title="Reconcile with Google Sheets now (also runs automatically every minute)">
+                    <Button
+                      icon={<CloudSyncOutlined />}
+                      loading={sheetBusy === 'pull'}
+                      disabled={!sheets?.configured}
+                      onClick={syncNow}
+                    >
+                      Sync now
+                    </Button>
+                  </Tooltip>
+                </>
+              )}
               <Button icon={<DownloadOutlined />} loading={downloading} onClick={download}>
                 Download Excel
               </Button>
@@ -668,8 +648,21 @@ export default function BulkDataPage() {
         {payload ? (
           <>
             <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-              Click any cell to edit it — changes save automatically.
-              {payload.append_only && (
+              {payload.read_only ? (
+                <>
+                  Read-only view of the <code>{payload.key}</code> table — shown
+                  for inspection only (no editing or Sheets sync). Download Excel
+                  to export it. Showing up to 2000 rows.
+                </>
+              ) : (
+                <>
+                  Click any cell to edit it — changes save automatically. This
+                  table is a live two-way mirror of its Google Sheet: edits,
+                  additions and deletions flow both ways (deletes reflect within a
+                  minute, or hit Sync now).
+                </>
+              )}
+              {!payload.read_only && payload.append_only && (
                 <> This is an append-only ledger: you can add rows, but existing rows are locked.</>
               )}
               {draftCount > 0 && (
