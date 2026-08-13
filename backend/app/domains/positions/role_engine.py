@@ -76,7 +76,13 @@ def _safe_title(template: str, names: dict[str, str]) -> str:
 
 # --- template CRUD ----------------------------------------------------------
 def list_templates(db: Session) -> list[RoleTemplate]:
-    return list(db.scalars(select(RoleTemplate).order_by(RoleTemplate.sort_order)))
+    """Live (non-archived) templates only, in chain order. Archived templates
+    keep their produced positions but never seat, chain, or list again — every
+    caller here (seating, chain resolution, the config UI) wants only live
+    ones."""
+    return list(db.scalars(
+        select(RoleTemplate).where(RoleTemplate.archived.is_(False)).order_by(RoleTemplate.sort_order)
+    ))
 
 
 def has_templates(db: Session) -> bool:
@@ -153,21 +159,41 @@ def update_template(
     return template
 
 
-def delete_template(db: Session, template_id: int) -> None:
-    """Deletes the template and every position it produced (cascading to
-    their occupants). Anything that was chained under one of those positions
-    is left with a dangling parent_id — call events/role_sync.resync_all
-    right after this to re-derive correct parents (it naturally splices the
-    gap closed: the backward search just skips the now-missing template)."""
+def archive_template(db: Session, template_id: int) -> None:
+    """Removes a template from all future auto-seating without touching a
+    single position it has already produced. This is what "delete an automatic
+    role" does: an automatic role must only govern future events, never
+    retroactively pull real people out of the seats they already hold or
+    reshape past org history.
+
+    Only *occupied* positions are kept — those hold real current assignments,
+    the thing that must never be touched. Vacant positions this template
+    produced are just future-placeholder seats no one holds, so they're removed
+    (keeping them would clutter the tree with the seats of a role the admin
+    just deleted); any live position chained under a removed vacant seat
+    splices up on the next resync.
+
+    The template row is kept (archived=True) so the surviving occupied
+    positions keep a valid role_template_id — they stay role-template-managed
+    hats (excluded from manager_id / real-seat logic) rather than silently
+    becoming ordinary org seats. sort_order is nulled so the freed slot can't
+    collide when the remaining live templates are renumbered. Live templates
+    that used to chain *through* this one splice the gap closed on the next
+    resync, since list_templates no longer returns it."""
     template = db.get(RoleTemplate, template_id)
-    if template is None:
+    if template is None or template.archived:
         return
     for pos in db.scalars(select(Position).where(Position.role_template_id == template_id)):
-        db.delete(pos)
-    db.flush()
-    db.delete(template)
+        if not pos.occupant_links:  # vacant placeholder — no assignment to lose
+            db.delete(pos)
+    template.archived = True
+    template.sort_order = None
     db.flush()
     _renumber(db, [t.id for t in list_templates(db)])
+
+
+# kept as the historical name; delete now means archive (see archive_template)
+delete_template = archive_template
 
 
 # --- root ---------------------------------------------------------------
@@ -327,7 +353,10 @@ def resync_position_parent(
     for pos in db.scalars(
         select(Position).where(Position.entity_type == entity_type, Position.entity_id == entity_id)
     ):
-        if pos.role_template is None:
+        # A position from an archived template is frozen where it last
+        # resolved: don't re-derive it (its sort_order is None anyway, and the
+        # whole point of archiving is to leave existing seats untouched).
+        if pos.role_template is None or pos.role_template.archived:
             continue
         new_parent_id, blocked = _find_chain_parent(
             db, before_order=pos.role_template.sort_order, lineage=lineage, kind_id=kind_id
