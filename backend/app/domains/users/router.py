@@ -7,7 +7,7 @@ from app.domains.access import service as access
 from app.domains.access.models import AccessLevel
 from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, CurrentUser
-from app.domains.hierarchy.service import subtree_ids
+from app.domains.hierarchy.service import taskable_user_ids
 from app.domains.positions.models import Position, PositionOccupant
 from app.domains.users.models import User
 from app.domains.users.schemas import (
@@ -23,12 +23,14 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 @router.get("/assignable")
 def assignable_users(db: DB, user: CurrentUser) -> list[UserBrief]:
-    """Everyone the current user may assign tasks to: themselves, their strict
-    subtree, or (for a top-level user) all active users."""
-    if access.is_top(db, user):
+    """Everyone the current user may assign tasks to — themselves plus whoever
+    they're connected to in the org (reporting line, seats below theirs, teams
+    they lead); everyone active if they hold `tasks.assign_any`. Mirrors
+    hierarchy.can_assign_task, which is what actually enforces it."""
+    if access.has_privilege(db, user, "tasks.assign_any"):
         query = select(User).where(User.is_active)
     else:
-        ids = subtree_ids(db, user.id, include_self=True)
+        ids = taskable_user_ids(db, user)
         query = select(User).where(User.id.in_(ids), User.is_active)
     return [UserBrief.model_validate(u) for u in db.scalars(query.order_by(User.full_name))]
 
@@ -44,8 +46,8 @@ def directory(db: DB, user: CurrentUser) -> list[UserBrief]:
 @router.get("/staff")
 def staff_users(db: DB, user: CurrentUser) -> list[UserBrief]:
     """Valid request recipients: active users who work with tasks and whom the
-    current user cannot task directly (outside their subtree, not themselves)."""
-    excluded = subtree_ids(db, user.id, include_self=True)
+    current user cannot task directly (no org connection down to them)."""
+    excluded = taskable_user_ids(db, user)
     eligible = access.users_with_privilege(db, "tasks.use") - excluded
     if not eligible:
         return []

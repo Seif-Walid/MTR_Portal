@@ -86,7 +86,7 @@ def create_task(payload: TaskCreate, db: DB, user: CurrentUser) -> list[TaskOut]
         if not assignees:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
-                "No one on this team is below you in the hierarchy",
+                "You are not connected above anyone on this team",
             )
     else:
         assignee_ids = list(dict.fromkeys(payload.assignee_ids))  # de-dupe, keep order
@@ -102,7 +102,8 @@ def create_task(payload: TaskCreate, db: DB, user: CurrentUser) -> list[TaskOut]
             if not can_assign_task(db, user, assignee):
                 raise HTTPException(
                     status.HTTP_403_FORBIDDEN,
-                    "You can only assign tasks to people below you in the hierarchy",
+                    "You can only assign tasks to people connected below you in the "
+                    "org — your reporting line, seats under yours, or a team you lead",
                 )
             assignees.append(assignee)
 

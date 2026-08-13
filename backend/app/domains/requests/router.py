@@ -63,8 +63,8 @@ def create_request(payload: RequestCreate, db: DB, user: CurrentUser) -> Request
     if not can_send_request(db, user, recipient):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "Requests go to staff members outside your own subtree — "
-            "assign a task directly to people below you",
+            "Requests go to staff you cannot task directly — "
+            "assign a task instead to people connected below you",
         )
     item = None
     if payload.item_id is not None:
@@ -117,7 +117,7 @@ def accept_request(
         if assignee is None or not can_assign_task(db, user, assignee):
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
-                "You can only delegate into your own subtree",
+                "You can only delegate to someone connected below you",
             )
 
     task = Task(
