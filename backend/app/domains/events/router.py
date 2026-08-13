@@ -193,19 +193,28 @@ def _counts(comp: Event) -> tuple[int, int]:
     return cats, teams
 
 
-def _member_count(comp: Event) -> int:
-    """Distinct people on the event's team roster — the `event_team_members`
-    rows shown in Data Tables. One source of truth: adding a member to a team
-    is what moves this number, so the count and that table always agree.
-    (Leads/role-holders are surfaced separately on the card's "Lead" line.)"""
-    return len({
-        m.user_id for cat in comp.categories for t in _active_teams(cat) for m in t.members
-    })
+def _member_count(db: DB, comp: Event) -> int:
+    """Distinct people involved in the event: everyone occupying an event- or
+    team-level role (however they were added — mirrored from another system,
+    automatic roles, etc.) plus anyone on a team's explicit roster."""
+    ids: set[int] = set()
+    for r in role_engine.entity_roles(
+        db, "event_created", "event", comp.id, _names(comp), comp.kind_id
+    ):
+        ids.update(u.id for u in r["occupants"])
+    for cat in comp.categories:
+        for t in _active_teams(cat):
+            ids.update(m.user_id for m in t.members)
+            for r in role_engine.entity_roles(
+                db, "team_created", "team", t.id, _names(comp, team=t.name), comp.kind_id
+            ):
+                ids.update(u.id for u in r["occupants"])
+    return len(ids)
 
 
 def _base_out(db: DB, comp: Event, manage: bool) -> dict:
     cats, teams = _counts(comp)
-    members = _member_count(comp)
+    members = _member_count(db, comp)
     alloc = db.scalar(
         select(func.count()).select_from(InventoryAllocation).where(
             InventoryAllocation.event_id == comp.id
