@@ -157,6 +157,7 @@ export interface ArchivedEvent {
   kind_label: string | null;
   start_date: string | null;
   end_date: string | null;
+  can_manage?: boolean;
 }
 
 export interface ArchivedTask {

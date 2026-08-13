@@ -170,9 +170,7 @@ function EventCard({ kind, c, onEdit, onStatus, onRemove, expanded, onToggle, on
         {c.can_manage && (
           <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
             <Button size="small" onClick={onEdit}>Edit</Button>
-            {active
-              ? <Button size="small" onClick={() => onStatus('archived')}>Archive</Button>
-              : <Button size="small" onClick={() => onStatus('active')}>Reactivate</Button>}
+            <Button size="small" onClick={() => onStatus('archived')}>Archive</Button>
             <Popconfirm
               title={c.allocation_count ? 'In use — archive it instead.' : 'Delete this?'}
               onConfirm={onRemove} disabled={!!c.allocation_count}>
@@ -201,7 +199,7 @@ function EventsList({ kind, canCreate }: { kind: EventKind; canCreate: boolean }
 
   const load = useCallback(() => {
     setLoading(true);
-    api.get<Event[]>(`/api/events?include_archived=true&kind_id=${kind.id}`)
+    api.get<Event[]>(`/api/events?kind_id=${kind.id}`)
       .then(setEvents)
       .catch((e) => message.error(e.message))
       .finally(() => setLoading(false));

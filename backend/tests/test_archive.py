@@ -74,6 +74,21 @@ def test_archive_detail_shows_only_own_outcomes(login, org):
     assert mech["tasks"][0]["outcome"] == "incomplete"
 
 
+def test_reactivate_is_manager_gated(login, org):
+    cid, _team = _team_with_members(login, org, ["sw_emp"])
+    login("cto").patch(f"/api/events/{cid}", json={"status": "archived"})
+
+    # a plain Member sees no manage affordance and cannot reactivate
+    row = next(e for e in login("comp_member").get("/api/archive/events").json() if e["id"] == cid)
+    assert row["can_manage"] is False
+    assert login("comp_member").post(f"/api/archive/events/{cid}/reactivate").status_code == 403
+
+    # a manager can, and the event leaves the archive back into active listing
+    assert login("cto").post(f"/api/archive/events/{cid}/reactivate").status_code == 200
+    assert not any(e["id"] == cid for e in login("cto").get("/api/archive/events").json())
+    assert any(e["id"] == cid for e in login("cto").get("/api/events").json())
+
+
 def test_archive_detail_empty_for_non_participant(login, org):
     cid, _team = _team_with_members(login, org, ["sw_emp"])
     login("cto").patch(f"/api/events/{cid}", json={"status": "archived"})
