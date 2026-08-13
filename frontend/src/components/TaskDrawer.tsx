@@ -258,6 +258,12 @@ export default function TaskDrawer({
           <Descriptions column={1} size="small" style={{ marginTop: 16 }}>
             <Descriptions.Item label="Assigned by">{task.assigner.full_name}</Descriptions.Item>
             <Descriptions.Item label="Assigned to">{task.assignee.full_name}</Descriptions.Item>
+            {task.event_team_name && (
+              <Descriptions.Item label="Team">
+                {task.event_team_name}
+                {task.team_visible ? ' · visible to the whole team' : ''}
+              </Descriptions.Item>
+            )}
             <Descriptions.Item label="Due date">
               {task.due_date ? dayjs(task.due_date).format('DD MMM YYYY') : '—'}
             </Descriptions.Item>

@@ -88,6 +88,57 @@ def test_assignable_list_is_the_team_scope(login, org):
     assert ids == {org["mech_lead"].id, org["mech_emp"].id, org["fin_emp"].id}
 
 
+def _options(login, who, *user_ids):
+    ids = ",".join(str(i) for i in user_ids)
+    r = login(who).get(f"/api/tasks/team-options?assignee_ids={ids}")
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_team_options_are_the_teams_every_assignee_shares(login, org):
+    one, two = _sumo(login, org)
+    # comp_member sits on both teams; fin_emp only on Sumo 1
+    login("cto").post(f"/api/events/teams/{one['id']}/members", json={"user_id": org["comp_member"].id})
+
+    both = _options(login, "cto", org["comp_member"].id)
+    assert {t["team_id"] for t in both} == {one["id"], two["id"]}
+    assert [t["name"] for t in both] == ["Sumo 1", "Sumo 2"]
+
+    # intersection across several assignees
+    shared = _options(login, "cto", org["comp_member"].id, org["fin_emp"].id)
+    assert [t["team_id"] for t in shared] == [one["id"]]
+
+    # nobody's teams in common -> no context to pick
+    assert _options(login, "cto", org["fin_emp"].id, org["sw_emp"].id) == []
+
+
+def test_task_carries_the_chosen_team_and_rejects_a_wrong_one(login, org):
+    one, two = _sumo(login, org)
+    login("cto").post(f"/api/events/teams/{one['id']}/members", json={"user_id": org["comp_member"].id})
+
+    r = login("cto").post("/api/tasks", json={
+        "title": "sumo 2 work", "assignee_ids": [org["comp_member"].id],
+        "event_team_id": two["id"], "team_visible": True,
+    })
+    assert r.status_code == 201, r.text
+    task = r.json()[0]
+    assert task["event_team_id"] == two["id"] and task["team_visible"] is True
+    assert task["event_team_name"] == "Sumo 2"  # the board shows which team it's for
+
+    # fin_emp is on Sumo 1 only — tagging their task to Sumo 2 is a lie
+    r = login("cto").post("/api/tasks", json={
+        "title": "x", "assignee_ids": [org["fin_emp"].id], "event_team_id": two["id"],
+    })
+    assert r.status_code == 400 and "not on that team" in r.json()["detail"]
+
+
+def test_whole_team_fan_out_still_works(login, org):
+    one, _ = _sumo(login, org)
+    r = login("cto").post("/api/tasks", json={"title": "all hands", "event_team_id": one["id"]})
+    assert r.status_code == 201, r.text
+    assert {t["assignee"]["id"] for t in r.json()} == {org["mech_lead"].id, org["fin_emp"].id}
+
+
 def test_assign_any_privilege_lifts_the_structural_limit(login, org):
     _sumo(login, org)
     assert _assign(login, org, "mech_lead", "comp_member").status_code == 403

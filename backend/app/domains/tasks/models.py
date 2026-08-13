@@ -63,6 +63,13 @@ class Task(Base):
 
     assigner = relationship("User", foreign_keys=[assigner_id], lazy="joined")
     assignee = relationship("User", foreign_keys=[assignee_id], lazy="joined")
+    # joined, not lazy: task lists would otherwise emit one query per task just
+    # to name the team the work belongs to
+    event_team = relationship("EventTeam", lazy="joined")
+
+    @property
+    def event_team_name(self) -> str | None:
+        return self.event_team.name if self.event_team is not None else None
     attachments: Mapped[list["TaskAttachment"]] = relationship(
         back_populates="task", lazy="selectin", cascade="all, delete-orphan"
     )
