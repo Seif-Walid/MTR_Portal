@@ -15,7 +15,7 @@ from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.auth.models import AuthSession
 from app.domains.auth.schemas import ChangePasswordIn, LoginIn, RegisterIn
-from app.domains.hierarchy.service import subtree_ids
+from app.domains.hierarchy.service import taskable_user_ids
 from app.domains.positions.models import Position, PositionOccupant
 from app.domains.users.models import User
 from app.domains.users.schemas import MeOut, MemberProfileOut
@@ -48,7 +48,9 @@ def _me_payload(db: Session, user: User) -> MeOut:
         manager_id=user.manager_id,
         level=level,
         privileges=sorted(access.privileges_of(db, level)),
-        has_team=len(subtree_ids(db, user.id)) > 0,
+        # "has_team" gates the UI's New-task button: anyone they may actually
+        # task, which now includes their event teams, not just direct reports
+        has_team=len(taskable_user_ids(db, user) - {user.id}) > 0,
         google_linked=user.google_linked,
         created_at=user.created_at,
         seats=list(seats),

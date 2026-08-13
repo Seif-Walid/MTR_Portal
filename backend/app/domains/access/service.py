@@ -28,6 +28,7 @@ PRIVILEGES: list[tuple[str, str]] = [
     ("events.manage_any", "Manage any event"),
     ("tasks.use", "Use tasks"),
     ("tasks.assign", "Assign tasks"),
+    ("tasks.assign_any", "Assign tasks to anyone"),
     ("org.view", "View organization"),
     ("org.edit", "Edit organization"),
     ("people.view", "View team & directory"),
