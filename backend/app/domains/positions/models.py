@@ -124,7 +124,16 @@ class RoleTemplate(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     title_template: Mapped[str] = mapped_column(String(255))
     event: Mapped[str] = mapped_column(String(30), index=True)
-    sort_order: Mapped[int] = mapped_column(Integer, unique=True)
+    # sort_order is NULL for an archived template: it's out of the chain
+    # numbering space entirely, so renumbering the live templates can never
+    # collide with it. Live templates always have a value (see _renumber).
+    sort_order: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
+    # Archiving replaces deletion: a deleted template would take its produced
+    # positions (and their occupants — real people's current seats) down with
+    # it. An archived template stops seating future entities and drops out of
+    # every chain/list, but its already-produced positions stay exactly as
+    # they are, still marked role_template-managed. See role_engine.archive_template.
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     access_level_id: Mapped[int | None] = mapped_column(
         ForeignKey("access_levels.id", ondelete="SET NULL"), nullable=True
     )

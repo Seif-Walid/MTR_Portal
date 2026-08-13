@@ -403,5 +403,29 @@ def test_deleting_a_template_splices_out_its_positions(login, org):
 
     assert login("admin").delete(f"/api/org/roles/templates/{coach['id']}").status_code == 204
     tree = _tree_by_title(login)
-    assert "Team Coach" not in tree
+    assert "Team Coach" not in tree  # vacant placeholder removed
     assert tree["Team Lead"]["parent_id"] == tree["Splice PM"]["id"]  # spliced up to the PM seat
+
+
+def test_deleting_a_template_keeps_its_occupied_seats(login, org):
+    """An automatic role governs only future events: deleting it must never
+    yank real people out of the seats they already hold, nor rewrite past org
+    structure. Occupied seats survive; only vacant placeholders and future
+    seating are removed."""
+    pm = _template(login, title="{event} PM", event="event_created", level="Lead")
+    root = ensure_position(login("admin"))
+    comp = _comp(login, root=root, name="Keep")
+    seat_role(login("admin"), comp, [org["cto"].id])
+
+    tree = _tree_by_title(login)
+    assert tree["Keep PM"]["occupants"][0]["id"] == org["cto"].id
+
+    # delete the template -> its occupied seat stays, occupant intact
+    assert login("admin").delete(f"/api/org/roles/templates/{pm['id']}").status_code == 204
+    tree = _tree_by_title(login)
+    assert tree["Keep PM"]["occupants"][0]["id"] == org["cto"].id  # not evicted
+
+    # ...but it no longer seats future events
+    fresh = _comp(login, root=root, name="Fresh")
+    assert fresh["roles"] == []
+    assert "Fresh PM" not in _tree_by_title(login)

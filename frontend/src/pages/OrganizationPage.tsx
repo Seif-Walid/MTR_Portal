@@ -234,7 +234,7 @@ export default function OrganizationPage() {
     canManage ? [
       <Button key="add" type="text" size="small" icon={<PlusOutlined />} title="Add role under" onClick={(e: React.MouseEvent) => { e.stopPropagation(); openModal({ mode: 'create-template-child', template: t }); }} />,
       <Button key="edit" type="text" size="small" icon={<EditOutlined />} title="Edit" onClick={(e: React.MouseEvent) => { e.stopPropagation(); openModal({ mode: 'edit-template', template: t }); }} />,
-      <Popconfirm key="del" title="Remove this role?" description="Every position it created is removed too." onConfirm={() => removeTemplate(t)} onPopupClick={(e) => e.stopPropagation()}>
+      <Popconfirm key="del" title="Remove this role?" description="Stops seating future events. People already in this role keep their seats." onConfirm={() => removeTemplate(t)} onPopupClick={(e) => e.stopPropagation()}>
         <Button type="text" size="small" danger icon={<DeleteOutlined />} title="Remove" onClick={(e) => e.stopPropagation()} />
       </Popconfirm>,
     ] : [], [canManage]);
