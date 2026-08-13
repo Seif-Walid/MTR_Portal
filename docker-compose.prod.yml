@@ -34,6 +34,10 @@ services:
   backend:
     environment:
       COOKIE_SECURE: "true"
+      # uvicorn worker processes. The free-tier VM has 2 vCPUs, so 2 workers
+      # saturate both cores under load. Bump only if you also grow RAM/swap —
+      # each worker is ~120-180 MB. Override per-deploy without a rebuild.
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
       FRONTEND_URL: "https://${SITE_ADDRESS}"
       # Must exactly match an Authorized redirect URI in Google Cloud Console.
       # Without this, the backend falls back to the localhost default and Google
