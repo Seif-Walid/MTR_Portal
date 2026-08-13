@@ -23,7 +23,6 @@ from app.domains.events.models import (
     EventKind,
     EventStatus,
     EventTeam,
-    EventTeamMember,
 )
 from app.domains.inventory.models import (
     Condition,
@@ -173,15 +172,10 @@ TABLES: dict[str, TableSpec] = {
             Column("name", "str", required=True),
         ],
     ),
-    "event_team_members": TableSpec(
-        key="event_team_members", label="Event Team Members", model=EventTeamMember,
-        privilege="events.manage_any", delete="hard",
-        columns=[
-            Column("id", "int", editable=False),
-            Column("team_id", "int", ref="event_team", required=True),
-            Column("user_id", "int", ref="user", required=True),
-        ],
-    ),
+    # NB: no "event_team_members" grid — that flat roster is unused; event
+    # membership is held as role/position occupants (see the Org Positions
+    # table and the event card's member count), so surfacing an always-empty
+    # roster here only confused it with real membership.
     "inventory_locations": TableSpec(
         key="inventory_locations", label="Inventory Locations", model=Location,
         privilege="inventory.edit", delete="hard",
