@@ -106,11 +106,21 @@ export interface Task {
   blocked_reason: string;
   batch_id: string | null;
   event_team_id: number | null;
+  event_team_name: string | null;
   team_visible: boolean;
   created_at: string;
   updated_at: string;
   attachments: Attachment[];
   comments: TaskComment[];
+}
+
+/** A team every selected assignee is on — the candidate context for a task. */
+export interface TeamOption {
+  team_id: number;
+  name: string;
+  event_name: string;
+  category_name: string;
+  shared_with_me: boolean;
 }
 
 export type RequestStatus = 'pending' | 'accepted' | 'declined';

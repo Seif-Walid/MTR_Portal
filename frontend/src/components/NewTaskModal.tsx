@@ -3,12 +3,13 @@ import type { Dayjs } from 'dayjs';
 import { useEffect, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
-import type { Task, TeamBlock, UserBrief } from '../api/types';
+import type { Task, TeamBlock, TeamOption, UserBrief } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 
 interface FormValues {
   assignee_ids?: number[];
   event_team_id?: number;
+  people_team_id?: number;
   team_visible?: boolean;
   title: string;
   description?: string;
@@ -33,11 +34,15 @@ export default function NewTaskModal({
   const [assignable, setAssignable] = useState<UserBrief[]>([]);
   const [teams, setTeams] = useState<TeamBlock[]>([]);
   const [target, setTarget] = useState<Target>('people');
+  const [teamOptions, setTeamOptions] = useState<TeamOption[]>([]);
   const [busy, setBusy] = useState(false);
+  const picked = Form.useWatch('assignee_ids', form);
+  const peopleTeamId = Form.useWatch('people_team_id', form);
 
   useEffect(() => {
     if (open) {
       setTarget('people');
+      setTeamOptions([]);
       api.get<UserBrief[]>('/api/users/assignable').then(setAssignable).catch(() => {});
       api
         .get<TeamBlock[]>('/api/team/mine')
@@ -45,6 +50,34 @@ export default function NewTaskModal({
         .catch(() => {});
     }
   }, [open]);
+
+  // Which team the task belongs to: the teams every selected assignee is on.
+  // One candidate is picked automatically ("we're on the same team, obviously
+  // that one"); several means the assigner says which, since the same person
+  // can sit on Sumo 1 and Sumo 2 at once.
+  useEffect(() => {
+    const ids = picked ?? [];
+    if (target !== 'people' || ids.length === 0) {
+      setTeamOptions([]);
+      form.setFieldValue('people_team_id', undefined);
+      return;
+    }
+    let stale = false;
+    api
+      .get<TeamOption[]>(`/api/tasks/team-options?assignee_ids=${ids.join(',')}`)
+      .then((options) => {
+        if (stale) return;
+        setTeamOptions(options);
+        const current = form.getFieldValue('people_team_id') as number | undefined;
+        if (options.length === 1) form.setFieldValue('people_team_id', options[0].team_id);
+        else if (!options.some((o) => o.team_id === current))
+          form.setFieldValue('people_team_id', undefined);
+      })
+      .catch(() => {});
+    return () => {
+      stale = true;
+    };
+  }, [picked, target, form]);
 
   const submit = async (values: FormValues) => {
     setBusy(true);
@@ -64,6 +97,8 @@ export default function NewTaskModal({
               title: values.title,
               description: values.description,
               assignee_ids: values.assignee_ids,
+              event_team_id: values.people_team_id ?? null,
+              team_visible: values.people_team_id ? (values.team_visible ?? false) : false,
               due_date: values.due_date?.format('YYYY-MM-DD') ?? null,
               priority: values.priority,
               category: values.category,
@@ -98,22 +133,60 @@ export default function NewTaskModal({
         </Form.Item>
 
         {target === 'people' ? (
-          <Form.Item
-            name="assignee_ids"
-            label="Yourself or people below you in the hierarchy — pick one or more to assign the same task"
-            rules={[{ required: true, message: 'Pick at least one assignee' }]}
-          >
-            <Select
-              mode="multiple"
-              showSearch
-              optionFilterProp="label"
-              placeholder={assignable.length ? 'Select one or more people' : 'No one to assign to'}
-              options={assignable.map((u) => ({
-                value: u.id,
-                label: `${u.full_name}${u.id === me?.id ? ' (you)' : ''} (${u.email})`,
-              }))}
-            />
-          </Form.Item>
+          <>
+            <Form.Item
+              name="assignee_ids"
+              label="Yourself or people connected below you — your reports, seats under yours, or a team you lead. Pick one or more to assign the same task"
+              rules={[{ required: true, message: 'Pick at least one assignee' }]}
+            >
+              <Select
+                mode="multiple"
+                showSearch
+                optionFilterProp="label"
+                placeholder={assignable.length ? 'Select one or more people' : 'No one to assign to'}
+                options={assignable.map((u) => ({
+                  value: u.id,
+                  label: `${u.full_name}${u.id === me?.id ? ' (you)' : ''} (${u.email})`,
+                }))}
+              />
+            </Form.Item>
+            {teamOptions.length > 0 && (
+              <Form.Item
+                name="people_team_id"
+                label={
+                  teamOptions.length === 1
+                    ? "Team — the only one they're all on, selected for you"
+                    : 'Which team is this task for? They are on more than one'
+                }
+                rules={[
+                  {
+                    required: teamOptions.length > 1,
+                    message: 'Pick which team this task belongs to',
+                  },
+                ]}
+              >
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="No team — a personal task"
+                  options={teamOptions.map((t) => ({
+                    value: t.team_id,
+                    label: `${t.name} · ${t.category_name} · ${t.event_name}${
+                      t.shared_with_me ? '' : ' (you are not on it)'
+                    }`,
+                  }))}
+                />
+              </Form.Item>
+            )}
+            {peopleTeamId !== undefined && peopleTeamId !== null && (
+              <Form.Item name="team_visible" valuePropName="checked">
+                <Checkbox>
+                  Visible to the whole team (a shared board, not just each assignee)
+                </Checkbox>
+              </Form.Item>
+            )}
+          </>
         ) : (
           <>
             <Form.Item

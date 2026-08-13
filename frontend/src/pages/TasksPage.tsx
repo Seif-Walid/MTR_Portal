@@ -73,6 +73,7 @@ export default function TasksPage() {
           },
           { title: 'Priority', dataIndex: 'priority', width: 110, render: (p: Task['priority']) => <PriorityTag priority={p} /> },
           { title: 'Assignee', width: 180, render: (_, t) => t.assignee.full_name },
+          { title: 'Team', width: 140, render: (_, t) => t.event_team_name ?? '—' },
           { title: 'Assigned by', width: 180, render: (_, t) => t.assigner.full_name },
           {
             title: 'Due', dataIndex: 'due_date', width: 120,

@@ -25,12 +25,14 @@ from app.domains.tasks.schemas import (
     TaskEdit,
     TaskHistoryEntryOut,
     TaskOut,
+    TeamOptionOut,
 )
 from app.domains.tasks.service import (
     add_comment,
     change_status,
     get_task_or_404,
     set_blocked,
+    shared_team_options,
     visible_tasks_query,
 )
 from app.domains.users.models import User
@@ -69,15 +71,22 @@ def create_task(payload: TaskCreate, db: DB, user: CurrentUser) -> list[TaskOut]
     assignment"), the resulting tasks share a batch_id so the assigner can
     track them together — each still moves through the workflow independently.
 
-    When event_team_id is set, the task targets a whole event team: it fans out
-    to the team's current members that the assigner may task (their subtree),
-    and every resulting task is stamped with the team link + team_visible."""
+    With event_team_id and no assignee_ids, the task targets a whole event
+    team: it fans out to the team's current members the assigner may task.
+    With both, the named people are assigned and the team is the task's
+    *context* — which team the work belongs to, since one person is often on
+    several (see GET /tasks/team-options). Either way every resulting task is
+    stamped with the team link + team_visible."""
     event_team_id: int | None = None
+    assignee_ids = list(dict.fromkeys(payload.assignee_ids))  # de-dupe, keep order
+    team: EventTeam | None = None
     if payload.event_team_id is not None:
         team = db.get(EventTeam, payload.event_team_id)
         if team is None or team.deleted_at is not None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Team not found")
         event_team_id = team.id
+
+    if team is not None and not assignee_ids:
         assignees = []
         for uid in sorted(team_member_user_ids(db, team.id)):
             member = db.get(User, uid)
@@ -89,9 +98,9 @@ def create_task(payload: TaskCreate, db: DB, user: CurrentUser) -> list[TaskOut]
                 "You are not connected above anyone on this team",
             )
     else:
-        assignee_ids = list(dict.fromkeys(payload.assignee_ids))  # de-dupe, keep order
         if not assignee_ids:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pick at least one assignee")
+        members = team_member_user_ids(db, team.id) if team is not None else set()
         assignees = []
         for assignee_id in assignee_ids:
             assignee = db.get(User, assignee_id)
@@ -104,6 +113,12 @@ def create_task(payload: TaskCreate, db: DB, user: CurrentUser) -> list[TaskOut]
                     status.HTTP_403_FORBIDDEN,
                     "You can only assign tasks to people connected below you in the "
                     "org — your reporting line, seats under yours, or a team you lead",
+                )
+            if team is not None and assignee.id not in members:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"{assignee.full_name} is not on that team — pick the team they "
+                    "are actually on, or none at all",
                 )
             assignees.append(assignee)
 
@@ -140,6 +155,19 @@ def create_task(payload: TaskCreate, db: DB, user: CurrentUser) -> list[TaskOut]
     for task in tasks:
         db.refresh(task)
     return [TaskOut.model_validate(t) for t in tasks]
+
+
+@router.get("/team-options")
+def team_options(db: DB, user: CurrentUser, assignee_ids: str = "") -> list[TeamOptionOut]:
+    """Which teams a task to these people could belong to — the live teams
+    every one of them is on. One option means the caller can select it
+    automatically; several means the assigner has to say which team the work is
+    for. Declared before /{task_id} so the literal path wins."""
+    try:
+        ids = [int(part) for part in assignee_ids.split(",") if part.strip()]
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "assignee_ids must be numeric")
+    return [TeamOptionOut(**row) for row in shared_team_options(db, user, ids)]
 
 
 @router.get("/{task_id}")

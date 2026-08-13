@@ -56,6 +56,49 @@ def my_team_ids(db: Session, user: User) -> set[int]:
     return user_event_team_ids(db, user.id)
 
 
+def shared_team_options(db: Session, user: User, assignee_ids: list[int]) -> list[dict]:
+    """Live event teams that *every* selected assignee is on — the teams a task
+    to those people could belong to.
+
+    A person is often on several teams, so the assigner picks which one the
+    task is for; exactly one option means the UI can pick it for them. Computed
+    from the assignees alone (not the assigner), so an admin tasking someone
+    they share no team with still gets that person's teams to choose from —
+    `shared_with_me` just marks the ones the assigner is on too."""
+    if not assignee_ids:
+        return []
+    from app.domains.events.service import user_event_team_ids
+
+    common: set[int] | None = None
+    for uid in assignee_ids:
+        teams = user_event_team_ids(db, uid)
+        common = teams if common is None else (common & teams)
+        if not common:
+            return []
+    assert common is not None
+    common -= archived_team_ids(db)
+    if not common:
+        return []
+    mine = my_team_ids(db, user)
+    rows = db.execute(
+        select(EventTeam.id, EventTeam.name, EventCategory.name, Event.name)
+        .join(EventCategory, EventTeam.category_id == EventCategory.id)
+        .join(Event, EventCategory.event_id == Event.id)
+        .where(EventTeam.id.in_(common))
+        .order_by(Event.name, EventCategory.name, EventTeam.name)
+    )
+    return [
+        {
+            "team_id": team_id,
+            "name": team_name,
+            "category_name": category_name,
+            "event_name": event_name,
+            "shared_with_me": team_id in mine,
+        }
+        for team_id, team_name, category_name, event_name in rows
+    ]
+
+
 def visible_tasks_query(db: Session, user: User, include_archived: bool = False):
     """Own tasks (assigned to or by me), everything in my subtree, tasks
     spawned by requests I sent (so requesters can track outcomes), plus
