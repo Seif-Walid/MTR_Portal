@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -30,11 +30,42 @@ from app.domains.bulk.registry import REFS, TABLES, Column, TableSpec
 
 
 # --- reads ------------------------------------------------------------------
+# Read-only auto-registered tables are capped so a huge table (audit log,
+# notifications) can't blow up one response.
+_READONLY_ROW_CAP = 2000
+
+
+def _cell(value: object) -> str:
+    """Stringify any DB value into the grid's string-cell convention."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return str(value)
+
+
+def _generic_export(db: Session, spec: TableSpec) -> tuple[list[str], list[list[str]]]:
+    """Reflect any mapped table into (header, rows) without a hand-written
+    exporter — used for the read-only 'every table' specs."""
+    model = spec.model
+    cols = [c.key for c in model.__table__.columns]
+    objs = db.scalars(select(model).limit(_READONLY_ROW_CAP))
+    rows = [[_cell(getattr(o, c)) for c in cols] for o in objs]
+    return cols, rows
+
+
+def _export_for(db: Session, spec: TableSpec) -> tuple[list[str], list[list[str]]]:
+    exporter = _EXPORTERS.get(spec.key)
+    return exporter(db) if exporter else _generic_export(db, spec)
+
+
 def read_table(db: Session, spec: TableSpec) -> dict:
     """Current DB rows for a table, plus the dropdown options every reference
     column needs. Row serialization is the exact same code the Sheets export
     uses, so grid / CSV / mirror never disagree."""
-    header, rows = _EXPORTERS[spec.key](db)
+    header, rows = _export_for(db, spec)
     columns = [_column_payload(c) for c in spec.columns]
     row_dicts = [dict(zip(header, r)) for r in rows]
     return {
@@ -45,6 +76,7 @@ def read_table(db: Session, spec: TableSpec) -> dict:
         "options": _ref_options(db, spec),
         "append_only": spec.append_only,
         "delete": spec.delete,
+        "read_only": spec.read_only,
     }
 
 
@@ -346,7 +378,7 @@ def workbook_bytes(db: Session, spec: TableSpec) -> bytes:
     from openpyxl.utils import get_column_letter
 
     header = [c.name for c in spec.columns]
-    _, rows = _EXPORTERS[spec.key](db)
+    _, rows = _export_for(db, spec)
 
     wb = Workbook()
     ws = wb.active
@@ -452,7 +484,7 @@ def push_to_sheet(db: Session, spec: TableSpec) -> dict:
         raise RuntimeError("Google Sheets isn't configured on the server.")
 
     header = [c.name for c in spec.columns]
-    _, rows = _EXPORTERS[spec.key](db)
+    _, rows = _export_for(db, spec)
     ss = gsheets.open_spreadsheet(sid)
     try:
         ws = ss.worksheet(spec.key)

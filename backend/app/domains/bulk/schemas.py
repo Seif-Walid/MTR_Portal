@@ -23,6 +23,7 @@ class TableSummary(BaseModel):
     label: str
     row_count: int
     append_only: bool
+    read_only: bool = False
 
 
 class SheetWebhookRequest(BaseModel):

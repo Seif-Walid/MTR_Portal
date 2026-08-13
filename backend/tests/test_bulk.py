@@ -30,6 +30,29 @@ def test_get_table_requires_privilege(login):
     assert login("ceo").get("/api/bulk/inventory_items").status_code == 200
 
 
+def test_readonly_tables_listed_for_admin_only(login):
+    # Every non-curated table is auto-registered read-only and gated on
+    # users.manage — so admins see them, Exec (no users.manage) does not.
+    admin = login("admin").get("/api/bulk/tables").json()
+    by_key = {t["key"]: t for t in admin}
+    assert by_key["position_occupants"]["read_only"] is True
+    assert by_key["role_templates"]["read_only"] is True
+    assert by_key["inventory_items"]["read_only"] is False
+
+    exec_keys = {t["key"] for t in login("ceo").get("/api/bulk/tables").json()}
+    assert "position_occupants" not in exec_keys
+
+
+def test_readonly_table_reads_but_refuses_writes(login):
+    admin = login("admin")
+    got = admin.get("/api/bulk/role_templates")
+    assert got.status_code == 200 and got.json()["read_only"] is True
+    # writes are refused with a 400, not applied
+    assert admin.post("/api/bulk/role_templates", json={"rows": [], "deletes": []}).status_code == 400
+    assert admin.post("/api/bulk/role_templates/validate", json={"rows": [], "deletes": []}).status_code == 400
+    assert admin.post("/api/bulk/role_templates/sheet/push").status_code == 400
+
+
 def test_unknown_table_404(login):
     assert login("admin").get("/api/bulk/nope").status_code == 404
 
