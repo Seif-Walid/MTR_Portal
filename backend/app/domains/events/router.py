@@ -186,16 +186,34 @@ def _active_teams(cat: EventCategory) -> list[EventTeam]:
     return [t for t in cat.teams if t.deleted_at is None]
 
 
-def _counts(comp: Event) -> tuple[int, int, int]:
+def _counts(comp: Event) -> tuple[int, int]:
     cats = len(comp.categories)
     active = [_active_teams(c) for c in comp.categories]
     teams = sum(len(ts) for ts in active)
-    members = sum(len(t.members) for ts in active for t in ts)
-    return cats, teams, members
+    return cats, teams
+
+
+def _member_count(db: DB, comp: Event) -> int:
+    """Distinct people in the event: explicit team members plus everyone who
+    occupies a role at the event or team level (leads etc.)."""
+    ids: set[int] = set()
+    for r in role_engine.entity_roles(
+        db, "event_created", "event", comp.id, _names(comp), comp.kind_id
+    ):
+        ids.update(u.id for u in r["occupants"])
+    for cat in comp.categories:
+        for t in _active_teams(cat):
+            ids.update(m.user_id for m in t.members)
+            for r in role_engine.entity_roles(
+                db, "team_created", "team", t.id, _names(comp, team=t.name), comp.kind_id
+            ):
+                ids.update(u.id for u in r["occupants"])
+    return len(ids)
 
 
 def _base_out(db: DB, comp: Event, manage: bool) -> dict:
-    cats, teams, members = _counts(comp)
+    cats, teams = _counts(comp)
+    members = _member_count(db, comp)
     alloc = db.scalar(
         select(func.count()).select_from(InventoryAllocation).where(
             InventoryAllocation.event_id == comp.id

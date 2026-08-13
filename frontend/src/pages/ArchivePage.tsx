@@ -1,8 +1,8 @@
-import { Empty, Table, Tag } from 'antd';
+import { Button, Empty, Table, Tag, message } from 'antd';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 import type { ArchivedEvent, ArchivedEventDetail, ArchivedTask } from '../api/types';
 import { StatusTag } from '../components/tags';
 import TaskDrawer from '../components/TaskDrawer';
@@ -24,6 +24,16 @@ function EventList() {
     api.get<ArchivedEvent[]>('/api/archive/events').then(setEvents).finally(() => setLoading(false));
   }, []);
 
+  const reactivate = async (id: number) => {
+    try {
+      await api.post(`/api/archive/events/${id}/reactivate`);
+      message.success('Reactivated');
+      setEvents((es) => es.filter((e) => e.id !== id));
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : 'Failed');
+    }
+  };
+
   if (!loading && events.length === 0) {
     return <Empty description="No archived events yet" style={{ marginTop: 40 }} />;
   }
@@ -36,9 +46,12 @@ function EventList() {
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
         {events.map((e) => (
-          <button
+          <div
             key={e.id}
+            role="button"
+            tabIndex={0}
             onClick={() => navigate(`/archive/${e.id}`)}
+            onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); navigate(`/archive/${e.id}`); } }}
             style={{
               textAlign: 'left', cursor: 'pointer', border: '1px solid rgba(120,170,230,.14)', borderRadius: 14,
               background: 'rgba(15,20,29,.55)', padding: '18px 18px 16px', color: 'inherit',
@@ -49,7 +62,16 @@ function EventList() {
             )}
             <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 16, color: '#eaf2ff', marginBottom: 10 }}>{e.name}</div>
             <div style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(224,236,252,.45)' }}>{fmtRange(e.start_date, e.end_date)}</div>
-          </button>
+            {e.can_manage && (
+              <Button
+                size="small"
+                style={{ marginTop: 12 }}
+                onClick={(ev) => { ev.stopPropagation(); reactivate(e.id); }}
+              >
+                Reactivate
+              </Button>
+            )}
+          </div>
         ))}
       </div>
     </>

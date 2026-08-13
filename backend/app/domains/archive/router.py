@@ -20,6 +20,7 @@ from app.domains.events.models import (
     EventTeam,
     EventTeamMember,
 )
+from app.domains.access import service as access
 from app.domains.tasks.models import Task, TaskStatus
 from app.domains.tasks.schemas import TaskOut
 
@@ -33,6 +34,7 @@ class ArchivedEventOut(BaseModel):
     kind_label: str | None
     start_date: date | None
     end_date: date | None
+    can_manage: bool = False  # for the current viewer — gates Reactivate
 
 
 class ArchivedTaskOut(BaseModel):
@@ -47,7 +49,7 @@ class ArchivedEventDetailOut(BaseModel):
     tasks: list[ArchivedTaskOut]
 
 
-def _event_out(event: Event) -> ArchivedEventOut:
+def _event_out(event: Event, can_manage: bool = False) -> ArchivedEventOut:
     return ArchivedEventOut(
         id=event.id,
         name=event.name,
@@ -55,6 +57,7 @@ def _event_out(event: Event) -> ArchivedEventOut:
         kind_label=event.kind.event_label if event.kind else None,
         start_date=event.start_date,
         end_date=event.end_date,
+        can_manage=can_manage,
     )
 
 
@@ -66,7 +69,31 @@ def list_archived_events(db: DB, user: CurrentUser) -> list[ArchivedEventOut]:
         .where(Event.status == EventStatus.ARCHIVED)
         .order_by(Event.start_date.desc().nullslast(), Event.name)
     ).all()
-    return [_event_out(e) for e in events]
+    can = _can_reactivate(db, user)
+    return [_event_out(e, can) for e in events]
+
+
+def _can_reactivate(db: DB, user: CurrentUser) -> bool:
+    """Archiving tears down every managing seat, so seat-based management no
+    longer applies. Reactivation is gated on the same privilege as creating an
+    event (or the blanket manage-any)."""
+    return access.has_privilege(db, user, "events.create") or access.has_privilege(
+        db, user, "events.manage_any"
+    )
+
+
+@router.post("/events/{event_id}/reactivate")
+def reactivate_event(event_id: int, db: DB, user: CurrentUser) -> ArchivedEventOut:
+    """Move an archived event back to active — managers only."""
+    event = db.get(Event, event_id)
+    if event is None or event.status != EventStatus.ARCHIVED:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Archived event not found")
+    if not _can_reactivate(db, user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not allowed")
+    event.status = EventStatus.ACTIVE
+    db.commit()
+    db.refresh(event)
+    return _event_out(event, True)
 
 
 @router.get("/events/{event_id}")
