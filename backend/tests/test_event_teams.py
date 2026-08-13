@@ -48,8 +48,8 @@ def test_full_nesting(login, org):
     assert {m["user"]["id"] for m in r.json()["members"]} == {org["student"].id, org["comp_member"].id}
 
     detail = login("cto").get(f"/api/events/{cid}").json()
-    # distinct people: event PM occupant + team-lead occupant + 2 explicit members = 4
-    assert detail["category_count"] == 1 and detail["team_count"] == 1 and detail["member_count"] == 4
+    # member_count is the team roster only (leads/role-holders are not members)
+    assert detail["category_count"] == 1 and detail["team_count"] == 1 and detail["member_count"] == 2
     team_out = detail["categories"][0]["teams"][0]
     assert team_out["name"] == "Team A"
     assert team_out["roles"][0]["occupants"][0]["id"] == org["team_lead"].id
