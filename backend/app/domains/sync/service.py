@@ -99,7 +99,11 @@ def _parse_int(v: str) -> int | None:
 def _export_people(db: Session) -> tuple[list[str], list[list[str]]]:
     header = ["id", "email", "full_name", "department", "access_level", "manager_id", "is_active"]
     rows = []
-    for u in db.scalars(select(User).order_by(User.id)):
+    # Deactivated users are the People table's soft-delete: they keep their row
+    # for FK integrity (manager_id, movement actor, ...) but drop out of the
+    # live mirror, so deleting a person in the grid/sheet actually makes them
+    # disappear from both sides — same contract as the deleted_at filters below.
+    for u in db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.id)):
         rows.append([
             _s(u.id), u.email, u.full_name, _s(u.department),
             u.access_level.name if u.access_level else "", _s(u.manager_id), _s(u.is_active),
@@ -259,6 +263,101 @@ def list_exports(db: Session) -> list[SheetExport]:
             existing[tab] = _get_or_create_tracking(db, tab)
     db.commit()
     return [existing[t] for t in TAB_ORDER]
+
+
+# --- live two-way reconcile -------------------------------------------------
+# The mirror is symmetric: edit/add/delete in the sheet OR in the app, and both
+# sides converge. One reconcile of a tab does, in order:
+#   1. read the sheet;
+#   2. pull it into the DB — inserts (blank id), updates, and the deletes that
+#      the sheet-side removed (ids that were present at the last sync but are
+#      now gone from the sheet);
+#   3. push the resulting DB state back over the tab, so app-side inserts,
+#      edits and deletes appear in the sheet too;
+#   4. snapshot the id set now in the tab, for the next diff.
+# Because the pull happens before the push, a row still being typed in the sheet
+# is captured into the DB first and then written back — the full rewrite never
+# eats an in-flight edit. A row created in the app (its id absent from the
+# previous snapshot) is pushed, never mistaken for a sheet-side deletion.
+def _visible_ids(db: Session, tab: str) -> set[int]:
+    """The ids the exporter actually emits for a tab (i.e. what is really in the
+    sheet after a push) — soft-deleted / deactivated rows are already filtered
+    out by the exporters, so this is the authoritative 'present in the mirror'
+    set."""
+    _, rows = _EXPORTERS[tab](db)
+    return {int(r[0]) for r in rows if r and str(r[0]).strip()}
+
+
+def reconcile_tab(
+    db: Session, spreadsheet_id: str, tab: str, actor_id: int | None = None
+) -> dict:
+    # Imported lazily: bulk.service imports this module, so a top-level import
+    # would be circular.
+    from app.domains.bulk import service as bulk
+    from app.domains.bulk.registry import TABLES
+
+    spec = TABLES.get(tab)
+    if spec is None:
+        return {"tab": tab, "ok": False, "error": f"unknown tab '{tab}'"}
+    tracking = _get_or_create_tracking(db, tab)
+    prev_ids = set(json.loads(tracking.synced_ids or "[]"))
+
+    try:
+        header, sheet_rows = gsheets.read_worksheet(spreadsheet_id, tab)
+    except Exception as exc:  # noqa: BLE001 — record, keep syncing the other tabs
+        tracking.last_error = f"read failed: {exc}"
+        db.commit()
+        return {"tab": tab, "ok": False, "error": str(exc)}
+
+    expected = [c.name for c in spec.columns]
+    if any(c not in header for c in expected):
+        # tab missing / columns dropped — (re)initialise it from the DB rather
+        # than trusting a malformed sheet.
+        export_tab(db, spreadsheet_id, tab)
+        _snapshot(db, tab)
+        return {"tab": tab, "ok": True, "repaired": True, "adds": 0, "updates": 0, "deletes": 0}
+
+    rows = [{name: r.get(name, "") for name in expected} for r in sheet_rows]
+
+    # Validate first: if the sheet has bad data, do NOT push over it (that would
+    # eat whatever the user is fixing) — surface the error and leave it be.
+    coerced, errors, _ = bulk.validate(db, spec, rows, [])
+    if errors:
+        tracking.last_error = "; ".join(e["message"] for e in errors[:5])
+        db.commit()
+        return {"tab": tab, "ok": False, "errors": errors}
+
+    sheet_ids = {c.id for c in coerced if c.id is not None}
+    can_delete = not (spec.append_only or spec.delete == "none")
+    existing = {r[0] for r in db.execute(select(spec.model.id)).all()}
+    # deleted in the sheet = was in the mirror last time, still in the DB, gone
+    # from the sheet now.
+    deletes = sorted((prev_ids - sheet_ids) & existing) if can_delete else []
+
+    result = bulk.apply(db, spec, rows, deletes, actor_id)
+    if not result["ok"]:
+        tracking.last_error = "; ".join(e["message"] for e in result["errors"][:5])
+        db.commit()
+        return {"tab": tab, "ok": False, "errors": result["errors"]}
+
+    # push DB -> sheet (reflects app-side adds/edits/deletes), then snapshot.
+    export_tab(db, spreadsheet_id, tab)
+    _snapshot(db, tab)
+    return {"tab": tab, "ok": True, **result["summary"]}
+
+
+def _snapshot(db: Session, tab: str) -> None:
+    """Record the tab's current mirror id set and clear its error, after a push."""
+    tracking = _get_or_create_tracking(db, tab)  # re-fetch: export_tab committed
+    tracking.synced_ids = json.dumps(sorted(_visible_ids(db, tab)))
+    tracking.last_error = ""
+    db.commit()
+
+
+def reconcile_all(db: Session, spreadsheet_id: str, actor_id: int | None = None) -> dict:
+    """Reconcile every tab in dependency order (people before the things that
+    reference them). Called on a timer by the sheet's Apps Script."""
+    return {tab: reconcile_tab(db, spreadsheet_id, tab, actor_id) for tab in TAB_ORDER}
 
 
 # --- import: sheet rows -> validated field dicts ----------------------------
