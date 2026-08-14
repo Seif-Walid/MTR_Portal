@@ -90,7 +90,6 @@ export default function InventoryPage() {
           <Button icon={<ReloadOutlined />} onClick={load} />
         </Space>
         <Space wrap>
-          <Input allowClear prefix={<SearchOutlined style={{ color: 'rgba(224,236,252,.4)' }} />} placeholder="Search components…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ width: 240 }} />
           {canManage && selectedIds.length > 0 && (
             <Button type="primary" ghost icon={<PlusOutlined />} onClick={() => setBulkOpen(true)}>
               Allocate {selectedIds.length} selected
@@ -105,6 +104,7 @@ export default function InventoryPage() {
             </Tooltip>
           )}
           {canManage && <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>Add item</Button>}
+          <Input allowClear prefix={<SearchOutlined style={{ color: 'rgba(224,236,252,.4)' }} />} placeholder="Search components…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ width: 240 }} />
         </Space>
       </div>
 
