@@ -20,6 +20,7 @@ from app.domains.inventory.models import (
 from app.domains.inventory.schemas import (
     AllocationCreate,
     AllocationEdit,
+    BulkAllocationCreate,
     FileImportPreviewOut,
     ImportPreviewOut,
     ImportPreviewRequest,
@@ -409,6 +410,36 @@ def delete_item(item_id: int, db: DB, user: CurrentUser, permanent: bool = False
 
 
 # --- allocations ----------------------------------------------------------
+@router.post("/allocations/bulk", status_code=status.HTTP_201_CREATED)
+def add_bulk_allocations(
+    payload: BulkAllocationCreate, db: DB, user: CurrentUser
+) -> list[ItemOut]:
+    """Allocate many items at once, all sharing one purpose/holder/event/label."""
+    require_manage(db, user)
+    event_id = _resolve_event(db, payload.event_id)
+    holder_id = _resolve_user(db, payload.holder_id, "Holder")
+    items = []
+    for line in payload.lines:
+        item = get_item_or_404(db, user, line.item_id)
+        assert_fits(item, line.quantity)
+        db.add(
+            InventoryAllocation(
+                item_id=item.id,
+                quantity=line.quantity,
+                purpose=payload.purpose,
+                label=payload.label,
+                event_id=event_id,
+                holder_id=holder_id,
+                notes=payload.notes,
+            )
+        )
+        items.append(item)
+    db.commit()
+    for item in items:
+        db.refresh(item)
+    return [ItemOut.model_validate(i) for i in items]
+
+
 @router.post("/{item_id}/allocations", status_code=status.HTTP_201_CREATED)
 def add_allocation(
     item_id: int, payload: AllocationCreate, db: DB, user: CurrentUser

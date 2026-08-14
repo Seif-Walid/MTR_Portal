@@ -1,11 +1,12 @@
-import { CloudUploadOutlined, EnvironmentOutlined, ImportOutlined, PlusOutlined, ReloadOutlined, SendOutlined } from '@ant-design/icons';
-import { Button, Popover, Space, Table, Tooltip, Typography, message } from 'antd';
-import { useCallback, useEffect, useState } from 'react';
+import { CloudUploadOutlined, EnvironmentOutlined, ImportOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SendOutlined } from '@ant-design/icons';
+import { Button, Input, Popover, Space, Table, Tooltip, Typography, message } from 'antd';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
 import type { InventoryItem, SheetsStatus } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
+import BulkAllocateModal from '../components/BulkAllocateModal';
 import ImportFromSheetModal from '../components/ImportFromSheetModal';
 import InventoryItemDrawer from '../components/InventoryItemDrawer';
 import InventoryRequestsDrawer from '../components/InventoryRequestsDrawer';
@@ -34,10 +35,27 @@ export default function InventoryPage() {
   const [requestsOpen, setRequestsOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [sheets, setSheets] = useState<SheetsStatus | null>(null);
+  const [query, setQuery] = useState('');
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const canManage = can(me, 'inventory.edit');
   const openItemId = searchParams.get('item') ? Number(searchParams.get('item')) : null;
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((i) =>
+      [i.name, i.category, i.asset_tag, i.location, i.team_lead?.full_name]
+        .some((f) => f?.toLowerCase().includes(q)),
+    );
+  }, [items, query]);
+
+  const selectedItems = useMemo(
+    () => items.filter((i) => selectedIds.includes(i.id)),
+    [items, selectedIds],
+  );
 
   const load = useCallback(() => {
     setLoading(true);
@@ -67,11 +85,17 @@ export default function InventoryPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
         <Space wrap align="center" size={12}>
           <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: '#eaf2ff' }}>Components</h2>
-          <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '.08em', color: 'rgba(224,236,252,.45)' }}>{items.length} SKU{items.length === 1 ? '' : 'S'}</span>
+          <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '.08em', color: 'rgba(224,236,252,.45)' }}>{filtered.length}{query ? `/${items.length}` : ''} SKU{filtered.length === 1 ? '' : 'S'}</span>
           {!canManage && <Chip text="Your team's equipment" tone="accent" />}
           <Button icon={<ReloadOutlined />} onClick={load} />
+          <Input allowClear prefix={<SearchOutlined style={{ color: 'rgba(224,236,252,.4)' }} />} placeholder="Search components…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ width: 240 }} />
         </Space>
         <Space wrap>
+          {canManage && selectedIds.length > 0 && (
+            <Button type="primary" ghost icon={<PlusOutlined />} onClick={() => setBulkOpen(true)}>
+              Allocate {selectedIds.length} selected
+            </Button>
+          )}
           <Button icon={<SendOutlined />} onClick={() => setRequestsOpen(true)}>Requests</Button>
           {canManage && <Button icon={<EnvironmentOutlined />} onClick={() => setLocationsOpen(true)}>Locations</Button>}
           {canManage && <Button icon={<ImportOutlined />} onClick={() => setImporting(true)}>Import components</Button>}
@@ -84,7 +108,8 @@ export default function InventoryPage() {
         </Space>
       </div>
 
-      <Table className="circuit-table" rowKey="id" loading={loading} dataSource={items}
+      <Table className="circuit-table" rowKey="id" loading={loading} dataSource={filtered}
+        rowSelection={canManage ? { selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as number[]) } : undefined}
         onRow={(i) => ({ onClick: () => setSearchParams({ item: String(i.id) }), style: { cursor: 'pointer' } })}
         pagination={{ defaultPageSize: 15, hideOnSinglePage: true }}
         columns={[
@@ -130,6 +155,15 @@ export default function InventoryPage() {
       <ImportFromSheetModal open={importing} onClose={() => setImporting(false)} onImported={load} />
       <LocationsModal open={locationsOpen} onClose={() => setLocationsOpen(false)} />
       <InventoryItemDrawer itemId={openItemId} onClose={() => setSearchParams({})} onChanged={load} />
+      <BulkAllocateModal
+        items={selectedItems}
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onAllocated={() => {
+          setSelectedIds([]);
+          load();
+        }}
+      />
     </>
   );
 }
