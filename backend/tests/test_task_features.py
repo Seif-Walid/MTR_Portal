@@ -164,8 +164,10 @@ def test_batch_not_found(login, org):
 
 # --- assign-to-a-team (event team) -----------------------------------------
 
-def test_assign_to_team_fans_out_to_subtree_members(login, org):
-    # fin_emp is under cfo, outside the CTO's subtree — excluded from the fan-out
+def test_assign_to_team_fans_out_to_whole_team_for_event_manager(login, org):
+    # the CTO holds the event's own seat, so they manage every team under it —
+    # fin_emp is on this team and therefore taskable here even though they sit
+    # under the CFO in the org tree
     _cid, team = _team_with_members(login, org, ["sw_emp", "mech_emp", "fin_emp"])
     r = login("cto").post(
         "/api/tasks",
@@ -173,7 +175,9 @@ def test_assign_to_team_fans_out_to_subtree_members(login, org):
     )
     assert r.status_code == 201, r.text
     tasks = r.json()
-    assert {t["assignee"]["id"] for t in tasks} == {org["sw_emp"].id, org["mech_emp"].id}
+    assert {t["assignee"]["id"] for t in tasks} == {
+        org["sw_emp"].id, org["mech_emp"].id, org["fin_emp"].id
+    }
     assert all(t["event_team_id"] == team["id"] for t in tasks)
     assert all(t["team_visible"] is True for t in tasks)
     assert tasks[0]["batch_id"] is not None
@@ -181,9 +185,10 @@ def test_assign_to_team_fans_out_to_subtree_members(login, org):
 
 
 def test_assign_to_team_with_no_subtree_members_fails(login, org):
-    # a team of only fin_emp, whom the CTO cannot task
+    # the event is the CTO's; mech_lead neither manages it nor sits above
+    # fin_emp, so there is nobody on the team they can task
     _cid, team = _team_with_members(login, org, ["fin_emp"])
-    r = login("cto").post("/api/tasks", json={"title": "x", "event_team_id": team["id"]})
+    r = login("mech_lead").post("/api/tasks", json={"title": "x", "event_team_id": team["id"]})
     assert r.status_code == 400
 
 
