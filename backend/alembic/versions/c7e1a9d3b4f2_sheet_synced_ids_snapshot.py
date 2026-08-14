@@ -7,7 +7,7 @@ list in this new column. Defaults to '[]' so existing rows behave as "nothing
 synced yet" (a safe first reconcile that deletes nothing).
 
 Revision ID: c7e1a9d3b4f2
-Revises: b2f4e6a8c1d0
+Revises: d1f3a5c7e9b2
 Create Date: 2026-08-11
 """
 from alembic import op
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 
 
 revision = "c7e1a9d3b4f2"
-down_revision = "b2f4e6a8c1d0"
+down_revision = "d1f3a5c7e9b2"
 branch_labels = None
 depends_on = None
 
