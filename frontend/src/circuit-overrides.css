@@ -222,6 +222,13 @@
   width:3px; height:58%; background:var(--c-accent); border-radius:2px; box-shadow:0 0 10px var(--c-accent);
 }
 .mtr-nav.active svg { opacity:1; color:var(--c-accent); }
+.mtr-nav-chevron {
+  display:flex; align-items:center; justify-content:center;
+  background:none; border:0; padding:2px; margin:-2px -4px -2px 0;
+  color:inherit; cursor:pointer; opacity:.55; border-radius:6px; transition:.15s;
+}
+.mtr-nav-chevron:hover { opacity:1; background:rgba(92,198,255,.12); }
+.mtr-nav-chevron svg { opacity:1 !important; }
 
 /* rail sub-item (event kinds) */
 .mtr-sub {

@@ -59,7 +59,7 @@ function TeamSection({ block, onOpenTask }: { block: TeamBlock; onOpenTask: (id:
 
       <Table className="circuit-table" rowKey={(m) => m.user.id} dataSource={block.members}
         pagination={{ defaultPageSize: 20, hideOnSinglePage: true }}
-        onRow={(m) => ({ onClick: () => setSelected(m), style: { cursor: 'pointer' } })}
+        onRow={(m) => ({ onClick: () => setSelected((prev) => (prev?.user.id === m.user.id ? null : m)), style: { cursor: 'pointer' } })}
         columns={[
           {
             title: 'Name',
