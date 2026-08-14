@@ -9,8 +9,9 @@ from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.hierarchy.service import taskable_user_ids
 from app.domains.positions.models import Position, PositionOccupant
-from app.domains.users.models import User
+from app.domains.users.models import MemberProfile, User
 from app.domains.users.schemas import (
+    MemberProfileIn,
     MemberProfileOut,
     UserAdminOut,
     UserBrief,
@@ -101,6 +102,33 @@ def _resolve_level(db: DB, level_id: int | None) -> None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown access level")
 
 
+def _apply_profile(db: DB, user: User, data: MemberProfileIn) -> None:
+    """Upsert the account's roster record. Only the fields the client actually
+    sent are touched; empty strings clear a field. The profile row is created
+    on demand so accounts that never had one (Google sign-ups, old-DB
+    carryovers) can be given member details."""
+    fields = data.model_dump(exclude_unset=True)
+    fields = {k: (v if v != "" else None) for k, v in fields.items()}
+    if not fields:
+        return
+    mtr_id = fields.get("mtr_id")
+    if mtr_id:
+        clash = db.scalar(
+            select(MemberProfile).where(
+                MemberProfile.mtr_id == mtr_id, MemberProfile.user_id != user.id
+            )
+        )
+        if clash is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "MTR ID already in use")
+    profile = user.profile
+    if profile is None:
+        profile = MemberProfile(user_id=user.id)
+        user.profile = profile
+        db.add(profile)
+    for field, value in fields.items():
+        setattr(profile, field, value)
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_user(payload: UserCreate, db: DB, actor: CurrentUser) -> UserAdminOut:
     access.require_privilege(db, actor, "users.manage")
@@ -116,6 +144,7 @@ def create_user(payload: UserCreate, db: DB, actor: CurrentUser) -> UserAdminOut
         full_name=payload.full_name,
         hashed_password=hash_password(payload.password),
         access_level_id=payload.access_level_id,
+        profile=MemberProfile(),  # every account is a member — roster row starts empty
     )
     db.add(user)
     db.commit()
@@ -165,6 +194,9 @@ def update_user(user_id: int, payload: UserUpdate, db: DB, actor: CurrentUser) -
                        "before": before.name if before else None,
                        "after": after.name if after else None})
             user.access_level_id = new_level_id
+
+    if payload.profile is not None:
+        _apply_profile(db, user, payload.profile)
 
     db.commit()
     db.refresh(user)

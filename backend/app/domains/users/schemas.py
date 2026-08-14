@@ -39,6 +39,24 @@ class MemberProfileOut(BaseModel):
     location: str | None = None
 
 
+class MemberProfileIn(BaseModel):
+    """Editable roster fields. Every field optional; only the ones the client
+    sends are touched (partial update). Sending null clears a field."""
+
+    mtr_id: str | None = None
+    national_id: str | None = None
+    birthday: date | None = None
+    university: str | None = None
+    college: str | None = None
+    major: str | None = None
+    graduating_year: int | None = None
+    phone: str | None = None
+    father_phone: str | None = None
+    mother_phone: str | None = None
+    uni_id: str | None = None
+    location: str | None = None
+
+
 class MeOut(UserBrief):
     manager_id: int | None
     level: LevelBrief | None  # effective level (strongest of seats + override)
@@ -79,3 +97,6 @@ class UserUpdate(BaseModel):
     is_active: bool | None = None
     access_level_id: int | None = None
     clear_access_level: bool = False
+    # Roster record. Present -> upsert the member profile (created on demand for
+    # accounts that never had one, e.g. Google sign-ups / old-DB carryovers).
+    profile: MemberProfileIn | None = None
