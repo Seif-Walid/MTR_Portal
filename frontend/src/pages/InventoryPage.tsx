@@ -88,9 +88,9 @@ export default function InventoryPage() {
           <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '.08em', color: 'rgba(224,236,252,.45)' }}>{filtered.length}{query ? `/${items.length}` : ''} SKU{filtered.length === 1 ? '' : 'S'}</span>
           {!canManage && <Chip text="Your team's equipment" tone="accent" />}
           <Button icon={<ReloadOutlined />} onClick={load} />
-          <Input allowClear prefix={<SearchOutlined style={{ color: 'rgba(224,236,252,.4)' }} />} placeholder="Search components…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ width: 240 }} />
         </Space>
         <Space wrap>
+          <Input allowClear prefix={<SearchOutlined style={{ color: 'rgba(224,236,252,.4)' }} />} placeholder="Search components…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ width: 240 }} />
           {canManage && selectedIds.length > 0 && (
             <Button type="primary" ghost icon={<PlusOutlined />} onClick={() => setBulkOpen(true)}>
               Allocate {selectedIds.length} selected
