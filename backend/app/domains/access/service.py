@@ -34,8 +34,6 @@ PRIVILEGES: list[tuple[str, str]] = [
     ("people.view", "View team & directory"),
     ("users.manage", "Manage users"),
     ("audit.view", "View audit log"),
-    ("sync.export", "Export to Sheets"),
-    ("sync.rebuild", "Rebuild from Sheets"),
 ]
 
 ALL_PRIVILEGE_KEYS: set[str] = {key for key, _ in PRIVILEGES}
@@ -46,7 +44,7 @@ ALL_PRIVILEGE_KEYS: set[str] = {key for key, _ in PRIVILEGES}
 # regardless.
 PRESET_LEVELS: list[tuple[int, str, list[str]]] = [
     (1, "Admin", sorted(ALL_PRIVILEGE_KEYS)),
-    (2, "Board", sorted(ALL_PRIVILEGE_KEYS - {"users.manage", "sync.rebuild"})),
+    (2, "Board", sorted(ALL_PRIVILEGE_KEYS - {"users.manage"})),
     (3, "Lead", [
         "inventory.view", "inventory.request", "inventory.approve", "inventory.edit",
         "events.view", "events.manage_seated", "events.create",
