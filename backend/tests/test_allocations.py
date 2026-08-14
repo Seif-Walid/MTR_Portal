@@ -63,6 +63,38 @@ def test_holder_breakdown_reports_who_has_what(login, org):
     assert by_purpose == {"research": 2, "event": 1}
 
 
+def test_bulk_allocate_many_items_at_once(login, org):
+    a = _item(login, quantity=10)
+    b = _item(login, quantity=5)
+    student_id = org["student"].id
+    r = login("cto").post(
+        "/api/inventory/allocations/bulk",
+        json={
+            "lines": [{"item_id": a, "quantity": 4}, {"item_id": b, "quantity": 2}],
+            "purpose": "research",
+            "label": "R&D batch",
+            "holder_id": student_id,
+        },
+    )
+    assert r.status_code == 201, r.text
+    out = {i["id"]: i for i in r.json()}
+    assert out[a]["in_use"] == 4 and out[b]["in_use"] == 2
+    # the shared holder/purpose landed on every line
+    assert all(al["holder"]["id"] == student_id for i in out.values() for al in i["allocations"])
+
+
+def test_bulk_allocate_is_all_or_nothing_when_a_line_overflows(login, org):
+    a = _item(login, quantity=10)
+    b = _item(login, quantity=5)
+    r = login("cto").post(
+        "/api/inventory/allocations/bulk",
+        json={"lines": [{"item_id": a, "quantity": 4}, {"item_id": b, "quantity": 99}]},
+    )
+    assert r.status_code == 400
+    # first line must not have been committed
+    assert login("cto").get(f"/api/inventory/{a}").json()["in_use"] == 0
+
+
 def test_delete_allocation_frees_capacity(login, org):
     item_id = _item(login, quantity=10)
     alloc_id = _alloc(login, item_id, 10, "training").json()["allocations"][0]["id"]

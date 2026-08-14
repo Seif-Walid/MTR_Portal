@@ -135,6 +135,22 @@ class AllocationCreate(BaseModel):
     notes: str = ""
 
 
+class BulkAllocationLine(BaseModel):
+    item_id: int
+    quantity: int = Field(ge=1)
+
+
+class BulkAllocationCreate(BaseModel):
+    """Allocate several items in one shot with a shared purpose/holder/event."""
+
+    lines: list[BulkAllocationLine] = Field(min_length=1)
+    purpose: AllocationPurpose = AllocationPurpose.OTHER
+    label: str = Field(default="", max_length=255)
+    event_id: int | None = None
+    holder_id: int | None = None
+    notes: str = ""
+
+
 class AllocationEdit(BaseModel):
     quantity: int | None = Field(default=None, ge=1)
     purpose: AllocationPurpose | None = None
