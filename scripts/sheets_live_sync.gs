@@ -6,19 +6,29 @@
  * that, every edit you make in any portal tab (people, inventory_items, ...)
  * saves straight to the database — no buttons, no "pull".
  *
- * How it works: an installable onEdit trigger fires on each edit, reads the
- * changed row, and POSTs it to the portal's /api/bulk/sheet-webhook endpoint,
- * which validates and upserts it through the same engine the in-app grid uses.
- * For a brand-new row (blank id) the portal returns the new id and the script
- * writes it back into the id cell, so re-editing that row updates instead of
- * creating a duplicate.
+ * How it works — two triggers, installed together by `setup`:
+ *
+ *  1. An installable onEdit trigger fires on each edit, reads the changed row,
+ *     and POSTs it to /api/bulk/sheet-webhook, which validates and upserts it
+ *     through the same engine the in-app grid uses. For a brand-new row (blank
+ *     id) the portal returns the new id and the script writes it back into the
+ *     id cell, so re-editing that row updates instead of duplicating. This is
+ *     the *instant* sheet -> DB path for edits and additions.
+ *
+ *  2. A time-driven trigger pings /api/sync/reconcile once a minute. That runs
+ *     the full two-way reconcile: it pulls the sheet (catching row DELETIONS,
+ *     which onEdit can't see) AND pushes the database back, so anything changed
+ *     in the app — new rows, edits, deletes — shows up in the sheet without a
+ *     button. This is what makes the sheet and the DB true mirrors of each other.
  *
  * Requirements / notes:
  *  - The tab name must match the portal table key (it does if you opened the
  *    sheet via the portal's "Open in Google Sheets" button).
  *  - Keep the header row and the `id` column.
  *  - A row that fails validation gets a red note on its id cell explaining why;
- *    fix the cell and it retries on the next edit.
+ *    fix the cell and it retries on the next edit / reconcile.
+ *  - Deleting a row: just delete the sheet row. The next reconcile (<= 1 min)
+ *    removes it from the database too. Deleting in the app removes it here.
  */
 
 // ---- CONFIG -----------------------------------------------------------------
@@ -28,16 +38,50 @@ var PORTAL_URL = 'https://mindtechrobotics.duckdns.org';
 var TOKEN = 'PASTE_YOUR_SHEETS_SYNC_TOKEN_HERE';
 // -----------------------------------------------------------------------------
 
-/** Run this ONCE to install the trigger (Apps Script will ask you to authorize). */
+// How often the two-way reconcile runs (catches deletions + app-side changes).
+// Apps Script time triggers allow a minimum of every 1 minute.
+var RECONCILE_EVERY_MINUTES = 1;
+
+/** Run this ONCE to install both triggers (Apps Script will ask you to authorize). */
 function setup() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'onEditInstallable') ScriptApp.deleteTrigger(t);
+    var fn = t.getHandlerFunction();
+    if (fn === 'onEditInstallable' || fn === 'reconcileTick') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('onEditInstallable')
     .forSpreadsheet(SpreadsheetApp.getActive())
     .onEdit()
     .create();
-  SpreadsheetApp.getActive().toast('MTR live sync installed — edits now save to the portal.');
+  ScriptApp.newTrigger('reconcileTick')
+    .timeBased()
+    .everyMinutes(RECONCILE_EVERY_MINUTES)
+    .create();
+  SpreadsheetApp.getActive().toast(
+    'MTR live sync installed — edits save instantly, deletes & app changes mirror within a minute.'
+  );
+}
+
+/**
+ * Time-driven two-way sync. Asks the portal to reconcile every tab: pulls the
+ * sheet (including deletions) into the DB, then pushes the DB back over the
+ * sheet. Safe to run on top of onEdit — the portal pulls before it pushes, so a
+ * row you're mid-editing is saved first, never overwritten.
+ */
+function reconcileTick() {
+  try {
+    var res = UrlFetchApp.fetch(PORTAL_URL + '/api/sync/reconcile', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'X-Sheet-Token': TOKEN },
+      payload: '{}',
+      muteHttpExceptions: true,
+    });
+    if (res.getResponseCode() >= 300) {
+      console.error('reconcile HTTP ' + res.getResponseCode() + ': ' + res.getContentText());
+    }
+  } catch (err) {
+    console.error(err); // never throw from a trigger
+  }
 }
 
 /** Installable onEdit handler — runs with full auth (can call the portal). */
