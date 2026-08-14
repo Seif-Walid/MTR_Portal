@@ -16,7 +16,27 @@ function Chip({ text, tone = 'muted' }: { text: string; tone?: 'accent' | 'gold'
 const dash = (v: string | number | null | undefined) =>
   v === null || v === undefined || v === '' ? <Typography.Text type="secondary">—</Typography.Text> : v;
 
-interface UserFormValues { email: string; full_name: string; password?: string; access_level_id?: number | null }
+interface ProfileFormValues {
+  mtr_id?: string | null; national_id?: string | null; birthday?: string | null;
+  university?: string | null; college?: string | null; major?: string | null;
+  graduating_year?: number | string | null; phone?: string | null;
+  father_phone?: string | null; mother_phone?: string | null;
+  uni_id?: string | null; location?: string | null;
+}
+interface UserFormValues { email: string; full_name: string; password?: string; access_level_id?: number | null; profile?: ProfileFormValues }
+
+// Roster fields rendered in the modal: [name, label, kind].
+const PROFILE_FIELDS: [keyof ProfileFormValues, string, 'text' | 'number'][] = [
+  ['mtr_id', 'MTR ID', 'text'], ['university', 'University', 'text'],
+  ['college', 'College', 'text'], ['major', 'Major', 'text'],
+  ['graduating_year', 'Grad year', 'number'], ['uni_id', 'UNI ID', 'text'],
+  ['national_id', 'National ID', 'text'], ['birthday', 'Birthday (YYYY-MM-DD)', 'text'],
+  ['phone', 'Phone', 'text'], ['location', 'Location', 'text'],
+  ['father_phone', "Dad's number", 'text'], ['mother_phone', "Mom's number", 'text'],
+];
+
+// '' -> null so blank fields clear the profile column rather than 422 on typed ones.
+const nn = (v: unknown) => (v === '' || v === undefined ? null : v);
 
 function UserModal({ user, levels, open, onClose, onSaved }: { user: AdminUser | null; levels: AccessLevel[]; open: boolean; onClose: () => void; onSaved: () => void }) {
   const [form] = Form.useForm<UserFormValues>();
@@ -25,22 +45,31 @@ function UserModal({ user, levels, open, onClose, onSaved }: { user: AdminUser |
   useEffect(() => {
     if (open) {
       form.resetFields();
-      if (user) form.setFieldsValue({ email: user.email, full_name: user.full_name, access_level_id: user.access_level_id });
+      if (user) form.setFieldsValue({ email: user.email, full_name: user.full_name, access_level_id: user.access_level_id, profile: user.profile ?? {} });
     }
   }, [open, user, form]);
 
   const submit = async (values: UserFormValues) => {
     setBusy(true);
     try {
+      const p = values.profile ?? {};
+      const profile = {
+        mtr_id: nn(p.mtr_id), national_id: nn(p.national_id), birthday: nn(p.birthday),
+        university: nn(p.university), college: nn(p.college), major: nn(p.major),
+        graduating_year: p.graduating_year ? Number(p.graduating_year) : null,
+        phone: nn(p.phone), father_phone: nn(p.father_phone), mother_phone: nn(p.mother_phone),
+        uni_id: nn(p.uni_id), location: nn(p.location),
+      };
       if (user) {
         await api.patch(`/api/users/${user.id}`, {
           full_name: values.full_name,
           ...(values.password ? { password: values.password } : {}),
           ...(values.access_level_id != null ? { access_level_id: values.access_level_id } : { clear_access_level: true }),
+          profile,
         });
         message.success('User updated');
       } else {
-        await api.post('/api/users', values);
+        await api.post('/api/users', { email: values.email, full_name: values.full_name, password: values.password, access_level_id: values.access_level_id });
         message.success('User created');
       }
       onSaved();
@@ -70,6 +99,21 @@ function UserModal({ user, levels, open, onClose, onSaved }: { user: AdminUser |
         <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
           Where this person sits (and who they report to, for task assignment) comes from the <strong>Organization</strong> chart — put them in a position there.
         </Typography.Paragraph>
+        {user && (
+          <>
+            <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>Member profile</Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: -2 }}>
+              The roster record — biographical and contact details. Independent of access level. Leave a field blank to clear it.
+            </Typography.Paragraph>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
+              {PROFILE_FIELDS.map(([name, label, kind]) => (
+                <Form.Item key={name} name={['profile', name]} label={label} style={{ marginBottom: 12 }}>
+                  <Input type={kind === 'number' ? 'number' : 'text'} />
+                </Form.Item>
+              ))}
+            </div>
+          </>
+        )}
         <Button type="primary" htmlType="submit" block loading={busy}>{user ? 'Save changes' : 'Create user'}</Button>
       </Form>
     </Modal>
@@ -230,7 +274,7 @@ export default function AdminUsersPage() {
               <Descriptions.Item label="Google-linked">{u.google_linked ? 'Yes' : 'No'}</Descriptions.Item>
             </Descriptions>
           ),
-          rowExpandable: (u) => u.profile !== null,
+          rowExpandable: () => true,
         }}
         columns={[
           {

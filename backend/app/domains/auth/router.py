@@ -17,7 +17,7 @@ from app.domains.auth.models import AuthSession
 from app.domains.auth.schemas import ChangePasswordIn, LoginIn, RegisterIn
 from app.domains.hierarchy.service import taskable_user_ids
 from app.domains.positions.models import Position, PositionOccupant
-from app.domains.users.models import User
+from app.domains.users.models import MemberProfile, User
 from app.domains.users.schemas import MeOut, MemberProfileOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -106,6 +106,7 @@ def register(payload: RegisterIn, response: Response, db: DB) -> MeOut:
         email=payload.email,
         full_name=payload.full_name,
         hashed_password=hash_password(payload.password),
+        profile=MemberProfile(),  # every login is a member — roster row starts empty
     )
     db.add(user)
     db.commit()
@@ -290,6 +291,7 @@ def google_callback(
             full_name=info.get("name") or email.split("@")[0],
             hashed_password=hash_password(secrets.token_urlsafe(32)),
             google_linked_at=datetime.now(timezone.utc),
+            profile=MemberProfile(),  # every login is a member — roster row starts empty
         )
         db.add(user)
         db.commit()
