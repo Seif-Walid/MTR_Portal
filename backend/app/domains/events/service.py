@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.domains.access import service as access
 from app.domains.access.models import AccessLevel
-from app.domains.events.models import EventTeam, EventTeamMember, EventKind
+from app.domains.events.models import EventCategory, EventTeam, EventTeamMember, EventKind
 from app.domains.positions.models import Position, PositionOccupant
 from app.domains.positions.role_engine import occupied_seat_level_ids
 from app.domains.users.models import User
@@ -44,24 +44,48 @@ def team_member_user_ids(db: Session, team_id: int) -> set[int]:
     return seat_users | membership_users
 
 
-def user_event_team_ids(db: Session, user_id: int) -> set[int]:
-    """Event teams the user is on — by occupying a team-scoped role seat or by
-    an explicit membership row."""
-    by_seat = set(
+def user_seat_entity_ids(db: Session, user_id: int, entity_type: str) -> set[int]:
+    """Ids of the entities of `entity_type` on which the user occupies a role
+    seat (e.g. every event they hold an event-scoped seat on)."""
+    return set(
         db.scalars(
             select(Position.entity_id)
             .join(PositionOccupant, PositionOccupant.position_id == Position.id)
             .where(
                 PositionOccupant.user_id == user_id,
-                Position.entity_type == "team",
+                Position.entity_type == entity_type,
                 Position.entity_id.is_not(None),
             )
         )
     )
+
+
+def user_event_team_ids(db: Session, user_id: int) -> set[int]:
+    """Event teams the user is on, from three sources:
+
+    - a team-scoped role seat (coach / assistant / lead / member),
+    - an explicit membership row, and
+    - an *event*-scoped seat (e.g. "{event} PM"), which outranks the team seats
+      chained beneath it: holding it puts the user on every team of that event.
+    """
+    by_seat = user_seat_entity_ids(db, user_id, "team")
     by_membership = set(
         db.scalars(select(EventTeamMember.team_id).where(EventTeamMember.user_id == user_id))
     )
-    return by_seat | by_membership
+    by_event = set()
+    event_ids = user_seat_entity_ids(db, user_id, "event")
+    if event_ids:
+        by_event = set(
+            db.scalars(
+                select(EventTeam.id)
+                .join(EventCategory, EventCategory.id == EventTeam.category_id)
+                .where(
+                    EventCategory.event_id.in_(event_ids),
+                    EventTeam.deleted_at.is_(None),
+                )
+            )
+        )
+    return by_seat | by_membership | by_event
 
 # Sample event kinds — used ONLY by the demo seed (`app.seed --demo`) and the
 # test fixtures. A clean install ships with NO event kinds: Events is empty

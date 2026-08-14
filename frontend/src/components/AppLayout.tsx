@@ -91,11 +91,6 @@ export default function AppLayout() {
     }
   }, [canViewEvents]);
 
-  const onEventsRoute = location.pathname.startsWith('/events');
-  useEffect(() => {
-    if (onEventsRoute) setEventsOpen(true);
-  }, [onEventsRoute]);
-
   useEffect(() => {
     if (searchParams.get('linked') === 'true') {
       message.success('Google account linked — you can now sign in with it.');
@@ -216,6 +211,21 @@ export default function AppLayout() {
                 <div className={`mtr-nav${isActive(it.key) ? ' active' : ''}`} onClick={() => navigate(it.key)}>
                   {ICONS[it.key]}
                   {it.label}
+                  {it.children && (
+                    <button
+                      type="button"
+                      aria-label={eventsOpen ? 'Collapse' : 'Expand'}
+                      aria-expanded={eventsOpen}
+                      onClick={(e) => { e.stopPropagation(); setEventsOpen((o) => !o); }}
+                      className="mtr-nav-chevron"
+                      style={{ marginInlineStart: 'auto' }}
+                    >
+                      <svg viewBox="0 0 20 20" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.7}
+                        style={{ transform: eventsOpen ? 'rotate(90deg)' : 'none', transition: 'transform .16s ease' }}>
+                        <path d="M7 5l6 5-6 5" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
                 {it.children && eventsOpen && it.children.map((c) => (
                   <div key={c.key} className={`mtr-sub${selected === c.key ? ' active' : ''}`} onClick={() => navigate(c.key)}>
