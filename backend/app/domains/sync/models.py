@@ -1,22 +1,15 @@
-from datetime import datetime, timezone
-from enum import StrEnum
+from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
 
-class RebuildStatus(StrEnum):
-    DRY_RUN = "dry_run"  # validated, not committed
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-
-
 class SheetExport(Base):
     """One row per mirrored tab: when it last pushed successfully, its last
-    error (if any), and whether it's currently stale (dirty). Surfaced in the
-    admin UI so a failed export is visible, never silent."""
+    error (if any), whether it's currently stale (dirty), and the id set present
+    at the last reconcile (the two-way mirror diffs against it)."""
 
     __tablename__ = "sheet_exports"
 
@@ -31,27 +24,3 @@ class SheetExport(Base):
     # row (id absent here, keep + push) from a sheet-deleted row (id present
     # here, now gone from the sheet -> delete in the DB). See sync.service.
     synced_ids: Mapped[str] = mapped_column(Text, default="[]")
-
-
-class RebuildBatch(Base):
-    """One row per Rebuild-from-Sheets attempt (dry-run or committed).
-    Append-only — this is the audit trail for the single most destructive
-    action in the portal."""
-
-    __tablename__ = "rebuild_batches"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    actor_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
-    )
-    status: Mapped[str] = mapped_column(String(20), index=True)
-    spreadsheet_id: Mapped[str] = mapped_column(String(255), default="")
-    tab_counts: Mapped[str] = mapped_column(Text, default="{}")  # JSON: tab -> row count
-    errors: Mapped[str] = mapped_column(Text, default="[]")  # JSON: list of error strings
-    snapshot_path: Mapped[str] = mapped_column(String(500), default="")
-    started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    actor = relationship("User", lazy="joined")

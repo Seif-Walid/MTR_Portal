@@ -89,6 +89,9 @@ export default function InventoryPage() {
           {!canManage && <Chip text="Your team's equipment" tone="accent" />}
           <Button icon={<ReloadOutlined />} onClick={load} />
         </Space>
+        <Input allowClear prefix={<SearchOutlined style={{ color: 'rgba(224,236,252,.4)' }} />} placeholder="Search components…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ width: 240 }} />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
         <Space wrap>
           {canManage && selectedIds.length > 0 && (
             <Button type="primary" ghost icon={<PlusOutlined />} onClick={() => setBulkOpen(true)}>
@@ -104,7 +107,6 @@ export default function InventoryPage() {
             </Tooltip>
           )}
           {canManage && <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>Add item</Button>}
-          <Input allowClear prefix={<SearchOutlined style={{ color: 'rgba(224,236,252,.4)' }} />} placeholder="Search components…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ width: 240 }} />
         </Space>
       </div>
 

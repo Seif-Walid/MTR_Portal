@@ -84,7 +84,7 @@ TEST_LEVELS: list[tuple[str, list[str]]] = [
         "inventory.view", "inventory.request", "inventory.approve", "inventory.edit",
         "events.view", "events.manage_seated", "events.create",
         "events.manage_any", "tasks.use", "tasks.assign", "org.view", "org.edit",
-        "people.view", "audit.view", "sync.export", "sync.rebuild",
+        "people.view", "audit.view",
     ]),
     ("Lead", [
         "inventory.view", "inventory.request", "inventory.approve", "inventory.edit",
