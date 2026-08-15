@@ -57,6 +57,24 @@ class MemberProfileIn(BaseModel):
     location: str | None = None
 
 
+class SelfProfileIn(BaseModel):
+    """Roster fields a member may edit about themselves from the profile page.
+    Excludes `mtr_id` on purpose — the org-assigned identifier is not
+    self-editable. Full replace of the sent fields (missing -> cleared)."""
+
+    national_id: str | None = None
+    birthday: date | None = None
+    university: str | None = None
+    college: str | None = None
+    major: str | None = None
+    graduating_year: int | None = None
+    phone: str | None = None
+    father_phone: str | None = None
+    mother_phone: str | None = None
+    uni_id: str | None = None
+    location: str | None = None
+
+
 class MeOut(UserBrief):
     manager_id: int | None
     level: LevelBrief | None  # effective level (strongest of seats + override)
