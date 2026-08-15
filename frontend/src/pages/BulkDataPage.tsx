@@ -1,14 +1,13 @@
 import {
   CheckCircleFilled,
-  CloudSyncOutlined,
   DeleteOutlined,
   DownloadOutlined,
   ExclamationCircleFilled,
-  GoogleOutlined,
   LoadingOutlined,
   LockOutlined,
   PlusOutlined,
   ReloadOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import {
   Alert,
@@ -19,6 +18,7 @@ import {
   Input,
   InputNumber,
   List,
+  Modal,
   Popconfirm,
   Select,
   Space,
@@ -70,9 +70,16 @@ interface ApplyResult {
   summary: { adds: number; updates: number; deletes: number };
 }
 
-interface SheetsStatus {
-  configured: boolean;
-  url: string;
+interface UploadPreview {
+  applied: boolean;
+  ok: boolean;
+  errors: { row: number | null; column: string | null; message: string }[];
+  new: number;
+  changed: number;
+  unchanged: number;
+  missing_ids: number[];
+  can_delete: boolean;
+  will_delete: number;
 }
 
 // One editable grid row. `_key` is a stable client id; `_new` marks a row that
@@ -110,9 +117,12 @@ export default function BulkDataPage() {
   // one-cell-at-a-time editing
   const [editing, setEditing] = useState<{ key: string; col: string } | null>(null);
 
-  // Google Sheets escape hatch
-  const [sheets, setSheets] = useState<SheetsStatus | null>(null);
-  const [sheetBusy, setSheetBusy] = useState<'push' | 'pull' | null>(null);
+  // Excel upload (download → edit → upload, diffed against the DB)
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState<UploadPreview | null>(null);
+  const pendingFile = useRef<File | null>(null);
+  const [alsoDelete, setAlsoDelete] = useState(false);
+  const fileInput = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     api
@@ -122,10 +132,6 @@ export default function BulkDataPage() {
         if (t.length) setActive((a) => a ?? t[0].key);
       })
       .catch((e) => message.error(e instanceof ApiError ? e.message : 'Failed to load tables'));
-    api
-      .get<SheetsStatus>('/api/bulk/sheets/status')
-      .then(setSheets)
-      .catch(() => setSheets({ configured: false, url: '' }));
   }, []);
 
   const applyPayload = useCallback((p: TablePayload, keepDrafts: Row[] = []) => {
@@ -312,48 +318,49 @@ export default function BulkDataPage() {
       .finally(() => setDownloading(false));
   };
 
-  const openInSheets = async () => {
-    if (!active) return;
-    setSheetBusy('push');
-    try {
-      const res = await api.post<{ url: string; rows: number }>(`/api/bulk/${active}/sheet/push`);
-      window.open(res.url, '_blank', 'noopener');
-      message.success(`Opened ${res.rows} row(s) in Google Sheets. Edit there, then Pull from Sheet.`);
-    } catch (e) {
-      message.error(e instanceof ApiError ? e.message : 'Could not open the sheet');
-    } finally {
-      setSheetBusy(null);
-    }
+  // Upload an edited .xlsx/.csv: first previews the diff against the DB
+  // (apply=false), then a confirm step commits it (apply=true).
+  const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // let the same file be re-picked later
+    if (!file || !active) return;
+    pendingFile.current = file;
+    setAlsoDelete(false);
+    setUploading(true);
+    const form = new FormData();
+    form.append('file', file);
+    api
+      .upload<UploadPreview>(`/api/bulk/${active}/upload`, form)
+      .then((p) => setPreview(p))
+      .catch((err) => message.error(err instanceof ApiError ? err.message : 'Could not read that file'))
+      .finally(() => setUploading(false));
   };
 
-  // Force the live two-way reconcile for this tab now (the Apps Script timer
-  // also does it every minute): pull the sheet's edits/adds/deletes into the DB,
-  // then push the DB back so both sides match.
-  const syncNow = async () => {
-    if (!active) return;
-    setSheetBusy('pull');
+  const applyUpload = async () => {
+    const file = pendingFile.current;
+    if (!active || !file) return;
+    setUploading(true);
+    const form = new FormData();
+    form.append('file', file);
     try {
-      const res = await api.post<{
-        ok: boolean;
-        adds?: number;
-        updates?: number;
-        deletes?: number;
-        errors?: { message: string }[];
-      }>(`/api/bulk/${active}/sheet/sync`);
-      if (res.ok) {
+      const res = await api.upload<UploadPreview>(
+        `/api/bulk/${active}/upload?apply=true&delete_missing=${alsoDelete}`,
+        form,
+      );
+      if (res.applied) {
         message.success(
-          `Synced with Google Sheets: ${res.adds ?? 0} added, ${res.updates ?? 0} updated, ${res.deletes ?? 0} deleted.`,
+          `Applied: ${res.new} added, ${res.changed} updated${res.will_delete ? `, ${res.will_delete} deleted` : ''}.`,
         );
+        setPreview(null);
+        pendingFile.current = null;
         loadTable(active);
       } else {
-        message.error(
-          res.errors?.[0]?.message ?? 'The sheet has invalid data — fix the flagged cells and retry.',
-        );
+        message.error(res.errors?.[0]?.message ?? 'The file has invalid data — fix it and re-upload.');
       }
     } catch (e) {
-      message.error(e instanceof ApiError ? e.message : 'Sync failed');
+      message.error(e instanceof ApiError ? e.message : 'Upload failed');
     } finally {
-      setSheetBusy(null);
+      setUploading(false);
     }
   };
 
@@ -608,39 +615,27 @@ export default function BulkDataPage() {
               <Button icon={<ReloadOutlined />} onClick={() => active && loadTable(active)}>
                 Refresh
               </Button>
-              {!payload.read_only && (
-                <>
-                  <Tooltip
-                    title={
-                      sheets?.configured
-                        ? 'Open this table as a live Google Sheet'
-                        : 'Google Sheets is not configured on the server'
-                    }
-                  >
-                    <Button
-                      icon={<GoogleOutlined />}
-                      loading={sheetBusy === 'push'}
-                      disabled={!sheets?.configured}
-                      onClick={openInSheets}
-                    >
-                      Open in Google Sheets
-                    </Button>
-                  </Tooltip>
-                  <Tooltip title="Reconcile with Google Sheets now (also runs automatically every minute)">
-                    <Button
-                      icon={<CloudSyncOutlined />}
-                      loading={sheetBusy === 'pull'}
-                      disabled={!sheets?.configured}
-                      onClick={syncNow}
-                    >
-                      Sync now
-                    </Button>
-                  </Tooltip>
-                </>
-              )}
               <Button icon={<DownloadOutlined />} loading={downloading} onClick={download}>
                 Download Excel
               </Button>
+              {!payload.read_only && (
+                <Tooltip title="Upload an edited .xlsx/.csv — it's diffed against the table and you confirm before anything changes">
+                  <Button
+                    icon={<UploadOutlined />}
+                    loading={uploading}
+                    onClick={() => fileInput.current?.click()}
+                  >
+                    Upload Excel
+                  </Button>
+                </Tooltip>
+              )}
+              <input
+                ref={fileInput}
+                type="file"
+                accept=".xlsx,.xlsm,.csv"
+                style={{ display: 'none' }}
+                onChange={onPickFile}
+              />
             </Space>
           )
         }
@@ -651,15 +646,15 @@ export default function BulkDataPage() {
               {payload.read_only ? (
                 <>
                   Read-only view of the <code>{payload.key}</code> table — shown
-                  for inspection only (no editing or Sheets sync). Download Excel
-                  to export it. Showing up to 2000 rows.
+                  for inspection only (no editing). Download Excel to export it.
+                  Showing up to 2000 rows.
                 </>
               ) : (
                 <>
-                  Click any cell to edit it — changes save automatically. This
-                  table is a live two-way mirror of its Google Sheet: edits,
-                  additions and deletions flow both ways (deletes reflect within a
-                  minute, or hit Sync now).
+                  Click any cell to edit it — changes save automatically. Or
+                  Download Excel, edit it offline, and Upload it back: the file is
+                  diffed against the table and you confirm the adds, updates and
+                  deletes before anything is written.
                 </>
               )}
               {!payload.read_only && payload.append_only && (
@@ -710,6 +705,70 @@ export default function BulkDataPage() {
           !loading && <Empty description="You have no editable tables." />
         )}
       </Card>
+
+      <Modal
+        open={preview != null}
+        title="Review upload"
+        okText={preview?.ok ? 'Apply changes' : 'OK'}
+        okButtonProps={{ disabled: !preview?.ok, loading: uploading }}
+        onOk={() => (preview?.ok ? applyUpload() : setPreview(null))}
+        onCancel={() => setPreview(null)}
+        confirmLoading={uploading}
+      >
+        {preview && (
+          <>
+            {preview.ok ? (
+              <>
+                <Typography.Paragraph>
+                  This file, diffed against the table:
+                </Typography.Paragraph>
+                <Space size={8} wrap style={{ marginBottom: 12 }}>
+                  <Tag color="success">{preview.new} new</Tag>
+                  <Tag color="processing">{preview.changed} changed</Tag>
+                  <Tag>{preview.unchanged} unchanged</Tag>
+                  {preview.can_delete && (
+                    <Tag color="error">{preview.missing_ids.length} missing from file</Tag>
+                  )}
+                </Space>
+                {preview.can_delete && preview.missing_ids.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Switch checked={alsoDelete} onChange={setAlsoDelete} />
+                    <span>
+                      Also delete the {preview.missing_ids.length} row(s) that are in the table
+                      but missing from this file.
+                    </span>
+                  </div>
+                )}
+                {preview.new === 0 && preview.changed === 0 && !alsoDelete && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginTop: 12 }}
+                    message="Nothing to apply — the file matches the table."
+                  />
+                )}
+              </>
+            ) : (
+              <Alert
+                type="error"
+                showIcon
+                message="The file has problems — nothing will be written"
+                description={
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {preview.errors.slice(0, 20).map((e, i) => (
+                      <li key={i}>
+                        {e.row != null ? `Row ${e.row + 1}: ` : ''}
+                        {e.column ? `${e.column} — ` : ''}
+                        {e.message}
+                      </li>
+                    ))}
+                  </ul>
+                }
+              />
+            )}
+          </>
+        )}
+      </Modal>
     </div>
   );
 }
