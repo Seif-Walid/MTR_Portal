@@ -233,7 +233,7 @@ def edit_role_template(
     if payload.set_event_kind:
         _resolve_kind(db, payload.event_kind_id)
     template = role_engine.update_template(
-        db, template_id, title_template=payload.title_template,
+        db, template_id, title_template=payload.title_template, event=payload.event,
         access_level_id=payload.access_level_id, clear_access_level=payload.clear_access_level,
         new_sort_order=payload.sort_order,
         event_kind_id=payload.event_kind_id, set_event_kind=payload.set_event_kind,

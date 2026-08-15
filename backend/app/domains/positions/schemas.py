@@ -58,6 +58,7 @@ class RoleTemplateCreate(BaseModel):
 
 class RoleTemplateEdit(BaseModel):
     title_template: str | None = Field(default=None, min_length=1, max_length=255)
+    event: str | None = None  # which trigger point fires it; None = leave unchanged
     access_level_id: int | None = None
     clear_access_level: bool = False
     sort_order: int | None = None
