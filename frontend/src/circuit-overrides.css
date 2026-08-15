@@ -100,6 +100,11 @@
 .circuit-table .ant-table-tbody > tr > td { border-bottom: 1px solid var(--c-hairline-row); }
 .circuit-table .ant-table-tbody > tr { cursor: pointer; }
 .circuit-table .ant-table-tbody > tr:hover > td { background: rgba(255, 255, 255, .02) !important; }
+/* Selected rows: subtle accent tint + left rail, keep text at full brightness.
+   Overrides AntD's bright colorPrimaryBg fill that washed out the light cell text. */
+.circuit-table .ant-table-tbody > tr.ant-table-row-selected > td { background: rgba(92, 198, 255, .09) !important; color: var(--c-text) !important; }
+.circuit-table .ant-table-tbody > tr.ant-table-row-selected:hover > td { background: rgba(92, 198, 255, .13) !important; }
+.circuit-table .ant-table-tbody > tr.ant-table-row-selected > td:first-child { box-shadow: inset 2px 0 0 var(--c-accent); }
 .circuit-table .ant-table-tbody > tr .row-chevron { opacity: 0; transition: opacity .15s; color: var(--c-accent); }
 .circuit-table .ant-table-tbody > tr:hover .row-chevron { opacity: .7; }
 .circuit-table .ant-table-placeholder:hover > td { background: transparent !important; }
