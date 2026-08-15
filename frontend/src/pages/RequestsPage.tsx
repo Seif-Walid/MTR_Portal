@@ -216,7 +216,7 @@ export default function RequestsPage() {
       </div>
 
       <Table className="circuit-table" rowKey="id" loading={loading} dataSource={rows}
-        pagination={{ defaultPageSize: 15, hideOnSinglePage: true }}
+        pagination={{ defaultPageSize: 15, hideOnSinglePage: true }} scroll={{ x: 'max-content' }}
         columns={[
           {
             title: 'Title', dataIndex: 'title', ellipsis: true,
