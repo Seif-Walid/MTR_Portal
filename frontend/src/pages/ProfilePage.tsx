@@ -2,6 +2,7 @@ import { GoogleOutlined, LockOutlined } from '@ant-design/icons';
 import {
   Button,
   Card,
+  DatePicker,
   Descriptions,
   Form,
   Input,
@@ -23,7 +24,7 @@ import { useAuth } from '../auth/AuthContext';
 const EDITABLE_FIELDS: {
   key: keyof MemberProfile;
   label: string;
-  type?: 'number';
+  type?: 'number' | 'date';
 }[] = [
   { key: 'university', label: 'University' },
   { key: 'college', label: 'College' },
@@ -31,6 +32,11 @@ const EDITABLE_FIELDS: {
   { key: 'graduating_year', label: 'Graduating year', type: 'number' },
   { key: 'phone', label: 'Phone' },
   { key: 'location', label: 'Location' },
+  { key: 'national_id', label: 'National ID' },
+  { key: 'birthday', label: 'Birthday', type: 'date' },
+  { key: 'uni_id', label: 'University ID' },
+  { key: 'father_phone', label: "Father's phone" },
+  { key: 'mother_phone', label: "Mother's phone" },
 ];
 
 export default function ProfilePage() {
@@ -44,7 +50,13 @@ export default function ProfilePage() {
   useEffect(() => {
     if (!me?.profile) return;
     profileForm.setFieldsValue(
-      Object.fromEntries(EDITABLE_FIELDS.map((f) => [f.key, me.profile![f.key] ?? undefined])),
+      Object.fromEntries(
+        EDITABLE_FIELDS.map((f) => {
+          const raw = me.profile![f.key];
+          if (f.type === 'date') return [f.key, raw ? dayjs(raw as string) : undefined];
+          return [f.key, raw ?? undefined];
+        }),
+      ),
     );
   }, [me, profileForm]);
 
@@ -77,13 +89,15 @@ export default function ProfilePage() {
     }
   };
 
-  const saveProfile = async (values: Record<string, string | number | undefined>) => {
+  const saveProfile = async (values: Record<string, string | number | dayjs.Dayjs | undefined>) => {
     setSavingProfile(true);
     try {
       const payload = Object.fromEntries(
         EDITABLE_FIELDS.map((f) => {
           const v = values[f.key];
-          return [f.key, v === '' || v === undefined ? null : v];
+          if (v === '' || v === undefined || v === null) return [f.key, null];
+          if (f.type === 'date') return [f.key, dayjs(v).format('YYYY-MM-DD')];
+          return [f.key, v];
         }),
       );
       const updated = await api.put<Me>('/api/auth/me/profile', payload);
@@ -154,6 +168,8 @@ export default function ProfilePage() {
             <Form.Item key={f.key} name={f.key} label={f.label} style={{ marginBottom: 12 }}>
               {f.type === 'number' ? (
                 <InputNumber style={{ width: '100%' }} controls={false} />
+              ) : f.type === 'date' ? (
+                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
               ) : (
                 <Input />
               )}
