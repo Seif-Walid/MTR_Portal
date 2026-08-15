@@ -145,6 +145,44 @@
 .ant-select-dropdown, .ant-picker-panel-container { background: var(--c-elev); border: 1px solid var(--c-hairline); }
 .ant-select-item-option-selected:not(.ant-select-item-option-disabled) { background: rgba(92, 198, 255, .12); }
 
+/* ---- DatePicker calendar cells -----------------------------------------
+   AntD's default in-range band is a near-white fill = unreadable on the dark
+   panel. Retint range/hover/selected to the accent, dim out-of-view cells. */
+.ant-picker-panel { color: var(--c-text); }
+.ant-picker-header, .ant-picker-header button,
+.ant-picker-content th { color: var(--c-muted); }
+.ant-picker-header button:hover { color: var(--c-text); }
+.ant-picker-cell { color: var(--c-faint); }
+.ant-picker-cell-in-view { color: var(--c-text); }
+.ant-picker-cell:hover:not(.ant-picker-cell-selected):not(.ant-picker-cell-range-start):not(.ant-picker-cell-range-end):not(.ant-picker-cell-range-hover):not(.ant-picker-cell-range-hover-start):not(.ant-picker-cell-range-hover-end) .ant-picker-cell-inner {
+  background: rgba(92, 198, 255, .12) !important;
+}
+/* In-range band (dates between start and end) */
+.ant-picker-cell-in-range::before,
+.ant-picker-cell-range-hover::before,
+.ant-picker-cell-range-hover-start::before,
+.ant-picker-cell-range-hover-end::before {
+  background: rgba(92, 198, 255, .14) !important;
+}
+/* Start / end / single-selected caps = solid accent */
+.ant-picker-cell-selected .ant-picker-cell-inner,
+.ant-picker-cell-range-start .ant-picker-cell-inner,
+.ant-picker-cell-range-end .ant-picker-cell-inner {
+  background: var(--c-accent) !important;
+  color: var(--c-void) !important;
+  font-weight: 600;
+}
+/* Today marker */
+.ant-picker-cell-today .ant-picker-cell-inner::before {
+  border-color: var(--c-accent) !important;
+}
+/* Dashed hover-range edges */
+.ant-picker-cell-range-hover-start .ant-picker-cell-inner::after,
+.ant-picker-cell-range-hover-end .ant-picker-cell-inner::after,
+.ant-picker-cell-range-hover::after {
+  border-color: rgba(92, 198, 255, .4) !important;
+}
+
 /* ---- Segmented (Month/Week, Received/Sent, etc.) ------------------------- */
 .ant-segmented { background: rgba(8, 11, 17, .6); border: 1px solid var(--c-hairline); border-radius: 10px; padding: 3px; }
 .ant-segmented .ant-segmented-item-selected {
