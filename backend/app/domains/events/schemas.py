@@ -114,6 +114,10 @@ class CategoryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 
+class CategoryEdit(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+
+
 class TeamCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     role_root_position_id: int | None = None

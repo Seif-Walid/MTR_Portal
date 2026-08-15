@@ -89,7 +89,21 @@ function TeamCard({ team, dir, canManageComp, isAdmin, onChanged }: {
     <Card
       size="small"
       style={{ marginTop: 8 }}
-      title={<Typography.Text strong>{team.name}</Typography.Text>}
+      title={
+        <Typography.Text
+          strong
+          editable={canManageComp ? {
+            tooltip: 'Rename',
+            onChange: (val) => {
+              const name = val.trim();
+              if (!name || name === team.name) return;
+              run(api.patch(`/api/events/teams/${team.id}`, { name }), 'Team renamed', onChanged);
+            },
+          } : false}
+        >
+          {team.name}
+        </Typography.Text>
+      }
       extra={
         canManageComp && (
           <Space>
@@ -203,7 +217,21 @@ export default function EventDetailPanel({ eventId, onChanged }: {
       )}
       {detail.categories.map((cat) => (
         <Card key={cat.id} size="small" style={{ marginBottom: 10 }}
-          title={<Typography.Text strong>{cat.name}</Typography.Text>}
+          title={
+            <Typography.Text
+              strong
+              editable={canManage ? {
+                tooltip: 'Rename',
+                onChange: (val) => {
+                  const name = val.trim();
+                  if (!name || name === cat.name) return;
+                  run(api.patch(`/api/events/categories/${cat.id}`, { name }), 'Category renamed', refresh);
+                },
+              } : false}
+            >
+              {cat.name}
+            </Typography.Text>
+          }
           extra={canManage && (
             <Button size="small" danger icon={<DeleteOutlined />}
               onClick={() => run(api.delete(`/api/events/categories/${cat.id}`), 'Category removed', refresh)} />
