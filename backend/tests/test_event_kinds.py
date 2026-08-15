@@ -93,6 +93,35 @@ def test_roles_fire_only_for_their_kind(login, org):
     assert "Bootcamp PM" not in titles
 
 
+def test_edit_template_can_change_its_kind(login, org):
+    tpl = _template(login, title="{event} PM", event="event_created", kind_slug="competition")
+    comp_id = _kinds(login)["competition"]["id"]
+    assert tpl["event_kind_id"] == comp_id
+
+    training_id = _kinds(login)["training"]["id"]
+    # switch to training
+    r = login("admin").patch(f"/api/org/roles/templates/{tpl['id']}",
+                             json={"event_kind_id": training_id, "set_event_kind": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["event_kind_id"] == training_id
+
+    # widen to all kinds
+    r = login("admin").patch(f"/api/org/roles/templates/{tpl['id']}",
+                             json={"event_kind_id": None, "set_event_kind": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["event_kind_id"] is None
+
+
+def test_edit_without_set_event_kind_leaves_kind_untouched(login, org):
+    comp_id = _kinds(login)["competition"]["id"]
+    tpl = _template(login, title="{event} PM", event="event_created", kind_slug="competition")
+    # a title-only edit (no set_event_kind) must not wipe the kind to "all"
+    r = login("admin").patch(f"/api/org/roles/templates/{tpl['id']}",
+                             json={"title_template": "{event} Lead"})
+    assert r.status_code == 200, r.text
+    assert r.json()["event_kind_id"] == comp_id
+
+
 def test_chain_stays_within_a_kind(login, org):
     """A training team role chains under the training top role, never under a
     event role, even though both react to the same event triggers."""
