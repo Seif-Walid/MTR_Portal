@@ -21,6 +21,7 @@ from app.domains.events.role_sync import (
 )
 from app.domains.events.schemas import (
     CategoryCreate,
+    CategoryEdit,
     CategoryOut,
     EventCreate,
     EventDetailOut,
@@ -279,6 +280,23 @@ def delete_category(category_id: int, db: DB, user: CurrentUser) -> None:
         )
     db.delete(cat)
     db.commit()
+
+
+@router.patch("/categories/{category_id}")
+def edit_category(category_id: int, payload: CategoryEdit, db: DB, user: CurrentUser) -> CategoryOut:
+    cat = db.get(EventCategory, category_id)
+    if cat is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
+    require_manage_event(db, user, cat.event_id)
+    if payload.name is not None:
+        cat.name = payload.name
+    db.commit()
+    db.refresh(cat)
+    comp = cat.event
+    return CategoryOut(
+        id=cat.id, name=cat.name,
+        teams=[_team_out(db, comp, t, True, user) for t in _active_teams(cat)],
+    )
 
 
 @router.post("/categories/{category_id}/teams", status_code=status.HTTP_201_CREATED)
