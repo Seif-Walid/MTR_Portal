@@ -1,5 +1,6 @@
 import { EnvironmentOutlined, ImportOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SendOutlined } from '@ant-design/icons';
 import { Button, Input, Popover, Space, Table, Typography, message } from 'antd';
+import type React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -25,6 +26,63 @@ function Chip({ text, tone = 'muted' }: { text: string; tone?: 'accent' | 'dange
   return <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.06em', textTransform: 'uppercase', color: c, border: `1px solid ${c}55`, background: `${c}14`, padding: '2px 8px', borderRadius: 5, whiteSpace: 'nowrap' }}>{text}</span>;
 }
 
+function useIsMobile(bp = 768) {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${bp}px)`).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${bp}px)`);
+    const apply = () => setMobile(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, [bp]);
+  return mobile;
+}
+
+function Stat({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(224,236,252,.4)' }}>{label}</span>
+      <span style={{ fontFamily: MONO, fontSize: 13 }}>{children}</span>
+    </div>
+  );
+}
+
+function ItemCard({ item, onOpen }: { item: InventoryItem; onOpen: () => void }) {
+  const low = item.quantity <= item.low_stock_threshold;
+  return (
+    <div
+      onClick={onOpen}
+      style={{
+        border: '1px solid var(--c-hairline-row, rgba(255,255,255,.08))', borderRadius: 10,
+        background: 'rgba(255,255,255,.015)', padding: '12px 14px', cursor: 'pointer',
+        display: 'flex', flexDirection: 'column', gap: 10,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <Typography.Text strong style={{ color: '#eaf2ff', fontSize: 15 }}>{item.name}</Typography.Text>
+            {low && <Chip text="Low" tone="danger" />}
+          </div>
+          {item.category && (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>{item.category}{item.asset_tag ? ` · ${item.asset_tag}` : ''}</Typography.Text>
+          )}
+        </div>
+        <ConditionTag condition={item.condition} />
+      </div>
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+        <Stat label="Total">{item.quantity} {item.unit}</Stat>
+        <Stat label="In use">{item.in_use}</Stat>
+        <Stat label="Free"><span style={{ fontWeight: 600, color: item.free > 0 ? TEAL : DANGER }}>{item.free}</span></Stat>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        {item.team_lead ? <Chip text={item.team_lead.full_name} tone="accent" /> : <Typography.Text type="secondary" style={{ fontSize: 12 }}>General</Typography.Text>}
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>{item.location || '—'}</Typography.Text>
+      </div>
+    </div>
+  );
+}
+
 export default function InventoryPage() {
   const { me } = useAuth();
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -39,6 +97,7 @@ export default function InventoryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const canManage = can(me, 'inventory.edit');
+  const isMobile = useIsMobile();
   const openItemId = searchParams.get('item') ? Number(searchParams.get('item')) : null;
 
   const filtered = useMemo(() => {
@@ -71,7 +130,7 @@ export default function InventoryPage() {
           {!canManage && <Chip text="Your team's equipment" tone="accent" />}
           <Button icon={<ReloadOutlined />} onClick={load} />
         </Space>
-        <Input allowClear prefix={<SearchOutlined style={{ color: 'rgba(224,236,252,.4)' }} />} placeholder="Search components…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ width: 240 }} />
+        <Input allowClear prefix={<SearchOutlined style={{ color: 'rgba(224,236,252,.4)' }} />} placeholder="Search components…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ width: isMobile ? '100%' : 240 }} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
         <Space wrap>
@@ -87,7 +146,18 @@ export default function InventoryPage() {
         </Space>
       </div>
 
+      {isMobile ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: 10 }}>
+          {filtered.length === 0 && !loading && (
+            <Typography.Text type="secondary" style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '32px 0' }}>No components</Typography.Text>
+          )}
+          {filtered.map((i) => (
+            <ItemCard key={i.id} item={i} onOpen={() => setSearchParams({ item: String(i.id) })} />
+          ))}
+        </div>
+      ) : (
       <Table className="circuit-table" rowKey="id" loading={loading} dataSource={filtered}
+        scroll={{ x: 'max-content' }}
         rowSelection={canManage ? { selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as number[]) } : undefined}
         onRow={(i) => ({ onClick: () => setSearchParams({ item: String(i.id) }), style: { cursor: 'pointer' } })}
         pagination={{ defaultPageSize: 15, hideOnSinglePage: true }}
@@ -128,6 +198,7 @@ export default function InventoryPage() {
           { title: 'Condition', width: 120, render: (_, i) => <ConditionTag condition={i.condition} /> },
           { title: 'Location', dataIndex: 'location', ellipsis: true, render: (l: string | null) => l || '—' },
         ]} />
+      )}
 
       <NewInventoryItemModal open={creating} onClose={() => setCreating(false)} onCreated={load} />
       <InventoryRequestsDrawer open={requestsOpen} onClose={() => setRequestsOpen(false)} />
