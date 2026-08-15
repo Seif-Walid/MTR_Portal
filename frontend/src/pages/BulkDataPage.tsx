@@ -244,6 +244,12 @@ export default function BulkDataPage() {
 
   const commit = useCallback(
     (record: Row, col: ColumnMeta, value: string) => {
+      // No-op if the value didn't change (e.g. click a cell then click away).
+      // Don't mark dirty or schedule a save for that.
+      if ((record[col.name] ?? '') === value) {
+        setEditing(null);
+        return;
+      }
       setRows((rs) =>
         rs.map((r) => (r._key === record._key ? { ...r, [col.name]: value } : r)),
       );
