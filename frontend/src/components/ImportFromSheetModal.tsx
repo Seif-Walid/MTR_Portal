@@ -1,13 +1,10 @@
 import { InboxOutlined } from '@ant-design/icons';
 import {
-  Alert,
   Button,
   Divider,
   Form,
-  Input,
   Modal,
   Result,
-  Segmented,
   Select,
   Space,
   Switch,
@@ -20,7 +17,7 @@ import type { UploadFile } from 'antd/es/upload/interface';
 import { useEffect, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
-import type { FileImportPreview, ImportPreview, ImportResult, UserBrief } from '../api/types';
+import type { FileImportPreview, ImportResult, UserBrief } from '../api/types';
 
 // target item field -> friendly label; name is required
 const FIELDS: { key: string; label: string; required?: boolean }[] = [
@@ -57,14 +54,7 @@ export default function ImportFromSheetModal({
   onClose: () => void;
   onImported: () => void;
 }) {
-  const [source_, setSourceMode] = useState<'sheet' | 'file'>('sheet');
-
-  // Google Sheet mode
-  const [source, setSource] = useState('');
-  const [worksheet, setWorksheet] = useState('');
-  const [preview, setPreview] = useState<ImportPreview | null>(null);
-
-  // Local file mode
+  // Local file only (Google Sheet import was removed)
   const [file, setFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<FileImportPreview | null>(null);
 
@@ -77,10 +67,6 @@ export default function ImportFromSheetModal({
 
   useEffect(() => {
     if (open) {
-      setSourceMode('sheet');
-      setSource('');
-      setWorksheet('');
-      setPreview(null);
       setFile(null);
       setFilePreview(null);
       setMapping({});
@@ -93,22 +79,6 @@ export default function ImportFromSheetModal({
     const seeded: Record<string, string | undefined> = {};
     FIELDS.forEach((f) => (seeded[f.key] = guess(headers, f.key)));
     setMapping(seeded);
-  };
-
-  const runPreview = async () => {
-    setBusy(true);
-    try {
-      const p = await api.post<ImportPreview>('/api/inventory/import/preview', {
-        source,
-        worksheet: worksheet || null,
-      });
-      setPreview(p);
-      seedMapping(p.headers);
-    } catch (e) {
-      message.error(e instanceof ApiError ? e.message : 'Could not read the sheet');
-    } finally {
-      setBusy(false);
-    }
   };
 
   const runFilePreview = async (f: File, sheet?: string) => {
@@ -133,31 +103,19 @@ export default function ImportFromSheetModal({
       message.error('Map a column to the item name.');
       return;
     }
+    if (!file || !filePreview) return;
     setBusy(true);
     try {
       const cleaned = Object.fromEntries(
         Object.entries(mapping).filter(([, v]) => v),
       ) as Record<string, string>;
-      let res: ImportResult;
-      if (source_ === 'sheet') {
-        if (!preview) return;
-        res = await api.post<ImportResult>('/api/inventory/import', {
-          spreadsheet_id: preview.spreadsheet_id,
-          worksheet: preview.worksheet,
-          mapping: cleaned,
-          team_lead_id: teamLeadId ?? null,
-          upsert,
-        });
-      } else {
-        if (!file || !filePreview) return;
-        const form = new FormData();
-        form.append('file', file);
-        if (filePreview.sheet) form.append('sheet', filePreview.sheet);
-        form.append('mapping', JSON.stringify(cleaned));
-        if (teamLeadId) form.append('team_lead_id', String(teamLeadId));
-        form.append('upsert', String(upsert));
-        res = await api.upload<ImportResult>('/api/inventory/import/file', form);
-      }
+      const form = new FormData();
+      form.append('file', file);
+      if (filePreview.sheet) form.append('sheet', filePreview.sheet);
+      form.append('mapping', JSON.stringify(cleaned));
+      if (teamLeadId) form.append('team_lead_id', String(teamLeadId));
+      form.append('upsert', String(upsert));
+      const res = await api.upload<ImportResult>('/api/inventory/import/file', form);
       setResult(res);
       onImported();
     } catch (e) {
@@ -167,7 +125,7 @@ export default function ImportFromSheetModal({
     }
   };
 
-  const active = source_ === 'sheet' ? preview : filePreview;
+  const active = filePreview;
   const headerOptions = (active?.headers ?? []).map((h) => ({ value: h, label: h }));
 
   return (
@@ -188,77 +146,37 @@ export default function ImportFromSheetModal({
         />
       ) : (
         <>
-          <Segmented
-            style={{ marginBottom: 16 }}
-            value={source_}
-            onChange={(v) => setSourceMode(v as 'sheet' | 'file')}
-            options={[
-              { label: 'Upload a file', value: 'file' },
-              { label: 'Google Sheet link', value: 'sheet' },
-            ]}
-          />
+          <Upload.Dragger
+            accept=".xlsx,.xlsm,.csv"
+            showUploadList={false}
+            maxCount={1}
+            customRequest={() => {}}
+            beforeUpload={(f: UploadFile | File) => {
+              const realFile = f as File;
+              setFile(realFile);
+              setFilePreview(null);
+              runFilePreview(realFile);
+              return false;
+            }}
+          >
+            <p className="ant-upload-drag-icon">
+              <InboxOutlined />
+            </p>
+            <p className="ant-upload-text">
+              {file ? file.name : 'Click or drag a .xlsx or .csv file here'}
+            </p>
+            <p className="ant-upload-hint">Import components from a spreadsheet — the file is read once and discarded.</p>
+          </Upload.Dragger>
 
-          {source_ === 'sheet' ? (
-            <>
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 16 }}
-                message="Share the sheet with the service account"
-                description="The Google Sheet must be shared (viewer is enough) with the portal's service-account email for the import to read it."
+          {filePreview?.sheets && filePreview.sheets.length > 1 && (
+            <Form.Item label="Tab" style={{ marginTop: 12, marginBottom: 0 }}>
+              <Select
+                value={filePreview.sheet ?? undefined}
+                style={{ maxWidth: 360 }}
+                options={filePreview.sheets.map((s) => ({ value: s, label: s }))}
+                onChange={(s) => file && runFilePreview(file, s)}
               />
-              <Space.Compact style={{ width: '100%' }}>
-                <Input
-                  placeholder="Paste the Google Sheet link or ID"
-                  value={source}
-                  onChange={(e) => setSource(e.target.value)}
-                />
-                <Input
-                  placeholder="Worksheet (optional)"
-                  style={{ maxWidth: 200 }}
-                  value={worksheet}
-                  onChange={(e) => setWorksheet(e.target.value)}
-                />
-                <Button type="primary" loading={busy} disabled={!source} onClick={runPreview}>
-                  Preview
-                </Button>
-              </Space.Compact>
-            </>
-          ) : (
-            <>
-              <Upload.Dragger
-                accept=".xlsx,.xlsm,.csv"
-                showUploadList={false}
-                maxCount={1}
-                customRequest={() => {}}
-                beforeUpload={(f: UploadFile | File) => {
-                  const realFile = f as File;
-                  setFile(realFile);
-                  setFilePreview(null);
-                  runFilePreview(realFile);
-                  return false;
-                }}
-              >
-                <p className="ant-upload-drag-icon">
-                  <InboxOutlined />
-                </p>
-                <p className="ant-upload-text">
-                  {file ? file.name : 'Click or drag a .xlsx or .csv file here'}
-                </p>
-                <p className="ant-upload-hint">No Google account needed — the file is read once and discarded.</p>
-              </Upload.Dragger>
-
-              {filePreview?.sheets && filePreview.sheets.length > 1 && (
-                <Form.Item label="Tab" style={{ marginTop: 12, marginBottom: 0 }}>
-                  <Select
-                    value={filePreview.sheet ?? undefined}
-                    style={{ maxWidth: 360 }}
-                    options={filePreview.sheets.map((s) => ({ value: s, label: s }))}
-                    onChange={(s) => file && runFilePreview(file, s)}
-                  />
-                </Form.Item>
-              )}
-            </>
+            </Form.Item>
           )}
 
           {active && (

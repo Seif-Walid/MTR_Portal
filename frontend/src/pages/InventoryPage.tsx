@@ -1,10 +1,10 @@
-import { CloudUploadOutlined, EnvironmentOutlined, ImportOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SendOutlined } from '@ant-design/icons';
-import { Button, Input, Popover, Space, Table, Tooltip, Typography, message } from 'antd';
+import { EnvironmentOutlined, ImportOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SendOutlined } from '@ant-design/icons';
+import { Button, Input, Popover, Space, Table, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import { api, ApiError } from '../api/client';
-import type { InventoryItem, SheetsStatus } from '../api/types';
+import { api } from '../api/client';
+import type { InventoryItem } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
 import BulkAllocateModal from '../components/BulkAllocateModal';
 import ImportFromSheetModal from '../components/ImportFromSheetModal';
@@ -33,8 +33,6 @@ export default function InventoryPage() {
   const [importing, setImporting] = useState(false);
   const [locationsOpen, setLocationsOpen] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [sheets, setSheets] = useState<SheetsStatus | null>(null);
   const [query, setQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -64,22 +62,6 @@ export default function InventoryPage() {
 
   useEffect(load, [load]);
 
-  useEffect(() => {
-    if (canManage) api.get<SheetsStatus>('/api/inventory/sheets/status').then(setSheets).catch(() => {});
-  }, [canManage]);
-
-  const sync = async () => {
-    setSyncing(true);
-    try {
-      const res = await api.post<{ synced: number }>('/api/inventory/sync');
-      message.success(`Synced ${res.synced} items to Google Sheets`);
-    } catch (e) {
-      message.error(e instanceof ApiError ? e.message : 'Sync failed');
-    } finally {
-      setSyncing(false);
-    }
-  };
-
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
@@ -101,11 +83,6 @@ export default function InventoryPage() {
           <Button icon={<SendOutlined />} onClick={() => setRequestsOpen(true)}>Requests</Button>
           {canManage && <Button icon={<EnvironmentOutlined />} onClick={() => setLocationsOpen(true)}>Locations</Button>}
           {canManage && <Button icon={<ImportOutlined />} onClick={() => setImporting(true)}>Import components</Button>}
-          {canManage && (
-            <Tooltip title={sheets && !sheets.configured ? 'Google Sheets sync is not configured on the server' : 'Push the whole inventory into the linked Google Sheet (overwrites it)'}>
-              <Button icon={<CloudUploadOutlined />} loading={syncing} disabled={!sheets?.configured} onClick={sync}>Sync to Sheets</Button>
-            </Tooltip>
-          )}
           {canManage && <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>Add item</Button>}
         </Space>
       </div>

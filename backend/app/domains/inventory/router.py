@@ -41,6 +41,7 @@ from app.domains.inventory.service import (
     assert_fits,
     assert_quantity_covers_allocations,
     can_manage_inventory,
+    can_view_inventory,
     get_allocation_or_404,
     get_item_or_404,
     require_manage,
@@ -332,7 +333,8 @@ def list_items(
 @router.get("/low-stock")
 def low_stock_items(db: DB, user: CurrentUser) -> list[ItemOut]:
     """Items whose owned quantity has dropped to (or below) their threshold."""
-    access.require_privilege(db, user, "inventory.view")
+    if not can_view_inventory(db, user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Your access level does not allow this")
     items = db.scalars(visible_items_query(db, user).order_by(InventoryItem.name)).unique()
     return [ItemOut.model_validate(i) for i in items if i.quantity <= i.low_stock_threshold]
 
