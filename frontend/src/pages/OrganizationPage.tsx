@@ -68,7 +68,7 @@ function PositionModal({ target, holders, levels, kinds, open, onClose, onSaved 
       if (target?.mode === 'edit' && target.node) {
         await api.patch(`/api/org/positions/${target.node.id}`, { title: values.title, is_technical: values.is_technical, occupant_ids: values.occupant_ids ?? [], access_level_id: values.access_level_id ?? null, clear_access_level: values.access_level_id == null });
       } else if (target?.mode === 'edit-template' && target.template) {
-        await api.patch(`/api/org/roles/templates/${target.template.id}`, { title_template: values.title_template, access_level_id: values.access_level_id ?? null, clear_access_level: values.access_level_id == null });
+        await api.patch(`/api/org/roles/templates/${target.template.id}`, { title_template: values.title_template, access_level_id: values.access_level_id ?? null, clear_access_level: values.access_level_id == null, event_kind_id: values.event_kind_id ?? null, set_event_kind: true });
       } else if (target?.mode === 'create-template-child' && target.template) {
         await api.post('/api/org/roles/templates', { title_template: values.title_template, event: automatic && values.event ? values.event : target.template.event, access_level_id: automatic ? values.access_level_id ?? null : null, insert_after_id: target.template.id });
       } else if (automatic) {
@@ -137,11 +137,9 @@ function PositionModal({ target, holders, levels, kinds, open, onClose, onSaved 
                 <Select options={Object.entries(EVENT_LABELS).map(([value, label]) => ({ value, label }))} />
               </Form.Item>
             )}
-            {showWhenField && (
-              <Form.Item name="event_kind_id" label="Fires for" extra="Which kind of event triggers this role — or every kind">
-                <Select allowClear placeholder="Every event kind" options={kinds.map((k) => ({ value: k.id, label: k.name }))} />
-              </Form.Item>
-            )}
+            <Form.Item name="event_kind_id" label="Fires for" extra="Which kind of event triggers this role — or every kind">
+              <Select allowClear placeholder="Every event kind" options={kinds.map((k) => ({ value: k.id, label: k.name }))} />
+            </Form.Item>
             <Form.Item name="access_level_id" label="Access level" extra="The power this seat gives whoever occupies it — none by default">
               <Select allowClear placeholder="No level — confers nothing" options={levels.map((l) => ({ value: l.id, label: `${l.rank}. ${l.name}` }))} />
             </Form.Item>

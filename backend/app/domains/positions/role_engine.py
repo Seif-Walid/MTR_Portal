@@ -137,12 +137,15 @@ def update_template(
     db: Session, template_id: int, *, title_template: str | None = None,
     access_level_id: int | None = None, clear_access_level: bool = False,
     new_sort_order: int | None = None,
+    event_kind_id: int | None = None, set_event_kind: bool = False,
 ) -> RoleTemplate:
     template = db.get(RoleTemplate, template_id)
     if template is None:
         raise HTTPException(http_status.HTTP_404_NOT_FOUND, "Role not found")
     if title_template is not None:
         template.title_template = title_template
+    if set_event_kind:
+        template.event_kind_id = event_kind_id
     if clear_access_level or access_level_id is not None:
         template.access_level_id = None if clear_access_level else access_level_id
         # produced positions carry a copy of the template's level (so the

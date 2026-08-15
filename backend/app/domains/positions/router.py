@@ -230,10 +230,13 @@ def edit_role_template(
     _require_org_manager(db, user)
     if not payload.clear_access_level:
         _resolve_level(db, payload.access_level_id)
+    if payload.set_event_kind:
+        _resolve_kind(db, payload.event_kind_id)
     template = role_engine.update_template(
         db, template_id, title_template=payload.title_template,
         access_level_id=payload.access_level_id, clear_access_level=payload.clear_access_level,
         new_sort_order=payload.sort_order,
+        event_kind_id=payload.event_kind_id, set_event_kind=payload.set_event_kind,
     )
     if payload.sort_order is not None:
         resync_all_role_positions(db)
