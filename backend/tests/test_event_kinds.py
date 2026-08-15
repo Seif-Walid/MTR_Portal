@@ -112,6 +112,28 @@ def test_edit_template_can_change_its_kind(login, org):
     assert r.json()["event_kind_id"] is None
 
 
+def test_edit_template_can_change_its_when_event(login, org):
+    tpl = _template(login, title="{team} Lead", event="team_created")
+    assert tpl["event"] == "team_created"
+
+    r = login("admin").patch(f"/api/org/roles/templates/{tpl['id']}",
+                             json={"event": "event_created"})
+    assert r.status_code == 200, r.text
+    assert r.json()["event"] == "event_created"
+
+    r = login("admin").patch(f"/api/org/roles/templates/{tpl['id']}",
+                             json={"event": "nonsense"})
+    assert r.status_code == 400, r.text
+
+
+def test_edit_without_event_leaves_when_untouched(login, org):
+    tpl = _template(login, title="{team} Lead", event="team_created")
+    r = login("admin").patch(f"/api/org/roles/templates/{tpl['id']}",
+                             json={"title_template": "{team} Boss"})
+    assert r.status_code == 200, r.text
+    assert r.json()["event"] == "team_created"
+
+
 def test_edit_without_set_event_kind_leaves_kind_untouched(login, org):
     comp_id = _kinds(login)["competition"]["id"]
     tpl = _template(login, title="{event} PM", event="event_created", kind_slug="competition")

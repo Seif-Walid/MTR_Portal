@@ -135,6 +135,7 @@ def create_template(
 
 def update_template(
     db: Session, template_id: int, *, title_template: str | None = None,
+    event: str | None = None,
     access_level_id: int | None = None, clear_access_level: bool = False,
     new_sort_order: int | None = None,
     event_kind_id: int | None = None, set_event_kind: bool = False,
@@ -144,6 +145,10 @@ def update_template(
         raise HTTPException(http_status.HTTP_404_NOT_FOUND, "Role not found")
     if title_template is not None:
         template.title_template = title_template
+    if event is not None:
+        if event not in EVENT_ENTITY_TYPE:
+            raise HTTPException(http_status.HTTP_400_BAD_REQUEST, f"Unknown event '{event}'")
+        template.event = event
     if set_event_kind:
         template.event_kind_id = event_kind_id
     if clear_access_level or access_level_id is not None:
