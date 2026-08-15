@@ -11,6 +11,18 @@ export const circuitTheme: ThemeConfig = {
     colorWarning: '#ffb26b',
     colorError: '#ff5a6e',
 
+    // Dark-tinted status backgrounds. Without these, AntD keeps its light-mode
+    // pastel fills (e.g. error #fff2f0) while text inherits the near-white
+    // colorText above — making Alert/message/Tag copy invisible. See BulkDataPage.
+    colorErrorBg: 'rgba(255,90,110,.12)',
+    colorErrorBorder: 'rgba(255,90,110,.35)',
+    colorSuccessBg: 'rgba(79,214,196,.12)',
+    colorSuccessBorder: 'rgba(79,214,196,.35)',
+    colorWarningBg: 'rgba(255,178,107,.12)',
+    colorWarningBorder: 'rgba(255,178,107,.35)',
+    colorInfoBg: 'rgba(92,198,255,.12)',
+    colorInfoBorder: 'rgba(92,198,255,.35)',
+
     colorBgBase: '#06080c',
     colorBgLayout: '#06080c',
     colorBgContainer: 'rgba(15,20,29,.55)',
