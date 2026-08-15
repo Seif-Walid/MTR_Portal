@@ -12,11 +12,22 @@ def can_manage_inventory(db: Session, user: User) -> bool:
     return access.has_privilege(db, user, "inventory.edit")
 
 
+def can_view_inventory(db: Session, user: User) -> bool:
+    """Who may list/read the storage. `inventory.view` is the explicit grant, but
+    anyone who can edit or move stock necessarily sees it too — you can't manage
+    what you can't list, and every preset level bundles view with those. Guards
+    against an access level that got edit but not view."""
+    return any(
+        access.has_privilege(db, user, key)
+        for key in ("inventory.view", "inventory.edit", "inventory.approve")
+    )
+
+
 def visible_items_query(db: Session, user: User):
-    """inventory.view sees the full storage; anyone without it sees nothing.
+    """Viewers see the full storage; anyone without view access sees nothing.
     Soft-deleted items never appear through the normal API."""
     base = select(InventoryItem).where(InventoryItem.deleted_at.is_(None))
-    if access.has_privilege(db, user, "inventory.view"):
+    if can_view_inventory(db, user):
         return base
     return base.where(InventoryItem.id.is_(None))
 
@@ -24,7 +35,7 @@ def visible_items_query(db: Session, user: User):
 def can_view_item(db: Session, user: User, item: InventoryItem) -> bool:
     if item.deleted_at is not None:
         return False
-    return access.has_privilege(db, user, "inventory.view")
+    return can_view_inventory(db, user)
 
 
 def get_item_or_404(db: Session, user: User, item_id: int) -> InventoryItem:
