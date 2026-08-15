@@ -61,6 +61,8 @@ class RoleTemplateEdit(BaseModel):
     access_level_id: int | None = None
     clear_access_level: bool = False
     sort_order: int | None = None
+    event_kind_id: int | None = None  # None = fires for every event kind
+    set_event_kind: bool = False  # only apply event_kind_id when true (distinguishes "all kinds" from "untouched")
 
 
 class RoleRootOut(BaseModel):
