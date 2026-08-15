@@ -76,6 +76,7 @@ export default function AppLayout() {
   const location = useLocation();
   const clock = useClock();
   const [collapsed, setCollapsed] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [eventKinds, setEventKinds] = useState<{ slug: string; name: string }[]>([]);
   const [eventsOpen, setEventsOpen] = useState(true);
@@ -103,10 +104,10 @@ export default function AppLayout() {
     }
   }, [searchParams, setSearchParams]);
 
-  // collapse rail on small screens
+  // collapse rail on small screens; below 992px the rail overlays content
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 991px)');
-    const apply = () => setCollapsed(mq.matches);
+    const apply = () => { setCollapsed(mq.matches); setIsMobile(mq.matches); };
     apply();
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
@@ -172,9 +173,20 @@ export default function AppLayout() {
   };
 
   const railW = collapsed ? 0 : 222;
+  // On mobile the rail floats over the content instead of pushing it aside.
+  const contentInset = isMobile ? 0 : railW;
+  const go = (key: string) => { navigate(key); if (isMobile) setCollapsed(true); };
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
+      {isMobile && !collapsed && (
+        <button
+          type="button"
+          aria-label="Close menu"
+          className="mtr-nav-backdrop"
+          onClick={() => setCollapsed(true)}
+        />
+      )}
       {/* NAV RAIL */}
       <aside
         className="mtr-scroll"
@@ -209,7 +221,7 @@ export default function AppLayout() {
             return (
               <div key={it.key}>
                 {groupBreak && <div style={{ height: 1, background: 'rgba(120,170,230,.08)', margin: '10px 20px' }} />}
-                <div className={`mtr-nav${isActive(it.key) ? ' active' : ''}`} onClick={() => navigate(it.key)}>
+                <div className={`mtr-nav${isActive(it.key) ? ' active' : ''}`} onClick={() => go(it.key)}>
                   {ICONS[it.key]}
                   {it.label}
                   {it.children && (
@@ -229,7 +241,7 @@ export default function AppLayout() {
                   )}
                 </div>
                 {it.children && eventsOpen && it.children.map((c) => (
-                  <div key={c.key} className={`mtr-sub${selected === c.key ? ' active' : ''}`} onClick={() => navigate(c.key)}>
+                  <div key={c.key} className={`mtr-sub${selected === c.key ? ' active' : ''}`} onClick={() => go(c.key)}>
                     {c.label}
                   </div>
                 ))}
@@ -245,9 +257,10 @@ export default function AppLayout() {
       </aside>
 
       {/* CONTENT COLUMN */}
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', marginInlineStart: railW, transition: 'margin .18s ease' }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', marginInlineStart: contentInset, transition: 'margin .18s ease' }}>
         {/* HEADER */}
         <header
+          className="mtr-header"
           style={{
             position: 'sticky',
             top: 0,
@@ -292,7 +305,7 @@ export default function AppLayout() {
         </header>
 
         {/* MAIN */}
-        <main className="mtr-scroll" style={{ flex: 1, minWidth: 0, padding: '28px 28px 60px' }}>
+        <main className="mtr-scroll mtr-main" style={{ flex: 1, minWidth: 0, padding: '28px 28px 60px' }}>
           <Outlet />
         </main>
       </div>

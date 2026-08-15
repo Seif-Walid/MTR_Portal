@@ -305,6 +305,62 @@
 }
 @media (prefers-reduced-motion:reduce) { .mtr-online-dot { animation:none; } }
 
+/* ==========================================================================
+   RESPONSIVE — global safety nets so no surface overflows on narrow screens.
+   Applies app-wide; individual pages add scroll props / flex-wrap on top.
+   ========================================================================== */
+
+/* Modals & Drawers ship fixed px widths (width={720} etc.). Cap them to the
+   viewport so they never force horizontal page scroll on phones. */
+.ant-modal { max-width: calc(100vw - 24px); }
+.ant-drawer-content-wrapper { max-width: 100vw; }
+
+/* AntD tables: horizontal scroll fallback even when a page forgets scroll={{x}}. */
+.circuit-table .ant-table-content,
+.circuit-table .ant-table-body { overflow-x: auto; }
+
+/* Segmented toggles don't wrap; long option sets overflow narrow headers.
+   Cap to the container and let them scroll horizontally instead. */
+.ant-segmented { max-width: 100%; overflow-x: auto; }
+
+/* Space items are flex children with min-width:auto, so a wide control inside
+   (Segmented, long Select) can't shrink and pushes the page wider than the
+   viewport. Allow both the Space and its items to shrink; each control's own
+   overflow (or wrap) then handles the rest. */
+.ant-space { min-width: 0; }
+.ant-space-item { min-width: 0; }
+/* Fixed-width Selects/Inputs in toolbars can't fit the narrowest phones;
+   cap them to the row so they shrink instead of overflowing. */
+@media (max-width: 420px) {
+  .ant-space-item > .ant-select,
+  .ant-space-item > .ant-picker,
+  .ant-space-item > .ant-input-number { max-width: 100%; }
+}
+
+/* Card headers put title + extra on one no-wrap row; a toolbar in `extra`
+   overflows narrow cards. Let extra drop below the title on small screens. */
+@media (max-width: 560px) {
+  .ant-card-head-wrapper { flex-wrap: wrap; row-gap: 8px; }
+  .ant-card-extra { margin-inline-start: 0; }
+}
+
+/* App shell content padding tightens as the screen narrows. */
+@media (max-width: 768px) {
+  .mtr-main { padding: 18px 16px 48px !important; }
+}
+@media (max-width: 480px) {
+  .mtr-main { padding: 14px 12px 40px !important; }
+  /* header gets snug on phones */
+  .mtr-header { padding: 0 14px !important; gap: 10px !important; }
+}
+
+/* Backdrop shown behind the nav rail when it overlays content on mobile. */
+.mtr-nav-backdrop {
+  position: fixed; inset: 0; z-index: 25;
+  background: rgba(4, 6, 10, .55); backdrop-filter: blur(2px);
+  border: 0; padding: 0; cursor: pointer;
+}
+
 /* ---- Login screen (bespoke, outside the app shell) ----------------------- */
 @keyframes mtr-dash { to { stroke-dashoffset:-40 } }
 .mtr-trace { stroke-dasharray:5 7; animation:mtr-dash 3.4s linear infinite; }

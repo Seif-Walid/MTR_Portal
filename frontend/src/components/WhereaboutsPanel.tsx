@@ -107,17 +107,17 @@ export default function WhereaboutsPanel({ item, canManage }: { item: InventoryI
           <Divider plain>Record a movement</Divider>
           <Form form={form} layout="vertical" onFinish={submit} initialValues={{ from: 'none', to: 'none' }}>
             <Row gutter={8}>
-              <Col span={6}>
+              <Col xs={24} sm={6}>
                 <Form.Item name="quantity" label="Qty" rules={[{ required: true }]}>
                   <InputNumber min={1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
-              <Col span={9}>
+              <Col xs={12} sm={9}>
                 <Form.Item name="from" label="From">
                   <Select options={placeOptions} showSearch optionFilterProp="label" />
                 </Form.Item>
               </Col>
-              <Col span={9}>
+              <Col xs={12} sm={9}>
                 <Form.Item name="to" label="To">
                   <Select options={placeOptions} showSearch optionFilterProp="label" />
                 </Form.Item>

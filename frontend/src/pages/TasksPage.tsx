@@ -59,7 +59,7 @@ export default function TasksPage() {
 
       <Table className="circuit-table" rowKey="id" loading={loading} dataSource={tasks}
         onRow={(t) => ({ onClick: () => setSearchParams({ task: String(t.id) }), style: { cursor: 'pointer' } })}
-        pagination={{ defaultPageSize: 15, hideOnSinglePage: true }}
+        pagination={{ defaultPageSize: 15, hideOnSinglePage: true }} scroll={{ x: 'max-content' }}
         columns={[
           { title: 'Title', dataIndex: 'title', ellipsis: true },
           {

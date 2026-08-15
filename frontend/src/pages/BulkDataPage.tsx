@@ -572,8 +572,8 @@ export default function BulkDataPage() {
   };
 
   return (
-    <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-      <Card size="small" style={{ width: 240, flexShrink: 0 }} title="Data Tables">
+    <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <Card size="small" style={{ flex: '1 1 200px', minWidth: 180, maxWidth: 240 }} title="Data Tables">
         <List
           size="small"
           dataSource={tables}

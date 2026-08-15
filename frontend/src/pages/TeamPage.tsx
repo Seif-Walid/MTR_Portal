@@ -50,7 +50,7 @@ function TeamSection({ block, onOpenTask }: { block: TeamBlock; onOpenTask: (id:
         )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Object.keys(STATUS_META).length + 1}, minmax(0,1fr))`, gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginBottom: 16 }}>
         <StatCard label="People" value={block.members.length} accent />
         {Object.entries(STATUS_META).map(([status, meta]) => (
           <StatCard key={status} label={meta.label} value={totals[status] ?? 0} />
@@ -58,7 +58,7 @@ function TeamSection({ block, onOpenTask }: { block: TeamBlock; onOpenTask: (id:
       </div>
 
       <Table className="circuit-table" rowKey={(m) => m.user.id} dataSource={block.members}
-        pagination={{ defaultPageSize: 20, hideOnSinglePage: true }}
+        pagination={{ defaultPageSize: 20, hideOnSinglePage: true }} scroll={{ x: 'max-content' }}
         onRow={(m) => ({ onClick: () => setSelected((prev) => (prev?.user.id === m.user.id ? null : m)), style: { cursor: 'pointer' } })}
         columns={[
           {
@@ -91,7 +91,7 @@ function TeamSection({ block, onOpenTask }: { block: TeamBlock; onOpenTask: (id:
       {selected && (
         <Card size="small" title={`Tasks — ${selected.user.full_name}`} style={{ marginTop: 16 }}>
           <Table className="circuit-table" rowKey="id" size="small" dataSource={memberTasks}
-            pagination={{ defaultPageSize: 10, hideOnSinglePage: true }}
+            pagination={{ defaultPageSize: 10, hideOnSinglePage: true }} scroll={{ x: 'max-content' }}
             onRow={(t) => ({ onClick: () => onOpenTask(t.id), style: { cursor: 'pointer' } })}
             columns={[
               { title: 'Title', dataIndex: 'title', ellipsis: true },

@@ -70,7 +70,7 @@ export default function AuditLogPage() {
         rowKey="id"
         loading={loading}
         dataSource={entries}
-        pagination={{ defaultPageSize: 20, hideOnSinglePage: true }}
+        pagination={{ defaultPageSize: 20, hideOnSinglePage: true }} scroll={{ x: 'max-content' }}
         columns={[
           {
             title: 'When',

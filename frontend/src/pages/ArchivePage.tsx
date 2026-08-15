@@ -122,7 +122,7 @@ function EventDetail({ eventId }: { eventId: number }) {
                 You accomplished <span style={{ color: '#5cc6ff', fontWeight: 600 }}>{done}</span> of {total} task{total > 1 ? 's' : ''}.
               </p>
               <Table<ArchivedTask> className="circuit-table" rowKey={(r) => r.task.id} loading={loading} dataSource={detail.tasks}
-                pagination={{ defaultPageSize: 15, hideOnSinglePage: true }}
+                pagination={{ defaultPageSize: 15, hideOnSinglePage: true }} scroll={{ x: 'max-content' }}
                 onRow={(r) => ({ onClick: () => setOpenTask(r.task.id), style: { cursor: 'pointer' } })}
                 columns={[
                   { title: 'Title', render: (_, r) => r.task.title, ellipsis: true },
