@@ -143,9 +143,12 @@ export default function ProfilePage() {
         )}
         <Form
           form={profileForm}
-          layout="vertical"
+          layout="horizontal"
+          labelCol={{ flex: '140px' }}
+          labelAlign="left"
+          wrapperCol={{ flex: 'auto' }}
           onFinish={saveProfile}
-          style={{ maxWidth: 380 }}
+          style={{ maxWidth: 520 }}
         >
           {EDITABLE_FIELDS.map((f) => (
             <Form.Item key={f.key} name={f.key} label={f.label} style={{ marginBottom: 12 }}>
@@ -156,7 +159,7 @@ export default function ProfilePage() {
               )}
             </Form.Item>
           ))}
-          <Form.Item style={{ marginBottom: 0 }}>
+          <Form.Item wrapperCol={{ offset: 0 }} style={{ marginBottom: 0 }}>
             <Button type="primary" htmlType="submit" loading={savingProfile}>
               Save changes
             </Button>
