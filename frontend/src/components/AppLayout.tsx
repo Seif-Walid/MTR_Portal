@@ -36,6 +36,7 @@ const ICONS: Record<string, React.ReactNode> = {
   '/organization': <Ic><rect x="8" y="3" width="4" height="4" rx=".5" /><rect x="3" y="13" width="4" height="4" rx=".5" /><rect x="13" y="13" width="4" height="4" rx=".5" /><path d="M10 7v3M5 13v-1.5h10V13M10 10.5V11.5" /></Ic>,
   '/admin/users': <Ic><circle cx="10" cy="10" r="2.5" /><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.4 1.4M13.6 13.6L15 15M15 5l-1.4 1.4M6.4 13.6L5 15" /></Ic>,
   '/admin/audit': <Ic><rect x="4.5" y="3" width="11" height="14" rx="1.5" /><path d="M7.5 7.5h5M7.5 10.5h5M7.5 13.5h3" /></Ic>,
+  '/admin/data': <Ic><rect x="3" y="4" width="14" height="12" rx="1.5" /><path d="M3 8h14M3 12h14M8.5 4v12" /></Ic>,
 };
 
 // --- header eyebrow + title per route ---------------------------------------
