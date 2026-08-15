@@ -14,6 +14,7 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, fullName: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  applyMe: (me: Me) => void;
 }
 
 const AuthContext = createContext<AuthState>(null!);
@@ -46,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ me, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ me, loading, login, register, logout, applyMe: setMe }}>
       {children}
     </AuthContext.Provider>
   );

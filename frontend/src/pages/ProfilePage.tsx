@@ -5,6 +5,7 @@ import {
   Descriptions,
   Form,
   Input,
+  InputNumber,
   Space,
   Tag,
   Typography,
@@ -14,24 +15,38 @@ import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
-import type { MemberProfile } from '../api/types';
+import type { Me, MemberProfile } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 
-const PROFILE_FIELDS: { key: keyof MemberProfile; label: string }[] = [
-  { key: 'mtr_id', label: 'MTR ID' },
+// Roster fields the member can edit about themselves. `mtr_id` is shown
+// read-only (org-assigned) and intentionally absent here.
+const EDITABLE_FIELDS: {
+  key: keyof MemberProfile;
+  label: string;
+  type?: 'number';
+}[] = [
   { key: 'university', label: 'University' },
   { key: 'college', label: 'College' },
   { key: 'major', label: 'Major' },
-  { key: 'graduating_year', label: 'Graduating year' },
+  { key: 'graduating_year', label: 'Graduating year', type: 'number' },
   { key: 'phone', label: 'Phone' },
   { key: 'location', label: 'Location' },
 ];
 
 export default function ProfilePage() {
-  const { me } = useAuth();
+  const { me, applyMe } = useAuth();
   const [form] = Form.useForm();
+  const [profileForm] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
+
+  useEffect(() => {
+    if (!me?.profile) return;
+    profileForm.setFieldsValue(
+      Object.fromEntries(EDITABLE_FIELDS.map((f) => [f.key, me.profile![f.key] ?? undefined])),
+    );
+  }, [me, profileForm]);
 
   useEffect(() => {
     api
@@ -62,12 +77,24 @@ export default function ProfilePage() {
     }
   };
 
-  const profileRows = me.profile
-    ? PROFILE_FIELDS.filter((f) => me.profile![f.key] != null).map((f) => ({
-        label: f.label,
-        value: String(me.profile![f.key]),
-      }))
-    : [];
+  const saveProfile = async (values: Record<string, string | number | undefined>) => {
+    setSavingProfile(true);
+    try {
+      const payload = Object.fromEntries(
+        EDITABLE_FIELDS.map((f) => {
+          const v = values[f.key];
+          return [f.key, v === '' || v === undefined ? null : v];
+        }),
+      );
+      const updated = await api.put<Me>('/api/auth/me/profile', payload);
+      applyMe(updated);
+      message.success('Profile saved.');
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : 'Could not save profile');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   return (
     <div style={{ maxWidth: 720 }}>
@@ -108,17 +135,34 @@ export default function ProfilePage() {
         </Descriptions>
       </Card>
 
-      {profileRows.length > 0 && (
-        <Card title="Personal data" style={{ marginTop: 16 }}>
-          <Descriptions column={1} size="small">
-            {profileRows.map((r) => (
-              <Descriptions.Item key={r.label} label={r.label}>
-                {r.value}
-              </Descriptions.Item>
-            ))}
+      <Card title="Personal data" style={{ marginTop: 16 }}>
+        {me.profile?.mtr_id && (
+          <Descriptions column={1} size="small" style={{ marginBottom: 8 }}>
+            <Descriptions.Item label="MTR ID">{me.profile.mtr_id}</Descriptions.Item>
           </Descriptions>
-        </Card>
-      )}
+        )}
+        <Form
+          form={profileForm}
+          layout="vertical"
+          onFinish={saveProfile}
+          style={{ maxWidth: 380 }}
+        >
+          {EDITABLE_FIELDS.map((f) => (
+            <Form.Item key={f.key} name={f.key} label={f.label} style={{ marginBottom: 12 }}>
+              {f.type === 'number' ? (
+                <InputNumber style={{ width: '100%' }} controls={false} />
+              ) : (
+                <Input />
+              )}
+            </Form.Item>
+          ))}
+          <Form.Item style={{ marginBottom: 0 }}>
+            <Button type="primary" htmlType="submit" loading={savingProfile}>
+              Save changes
+            </Button>
+          </Form.Item>
+        </Form>
+      </Card>
 
       <Card title="Change password" style={{ marginTop: 16 }}>
         <Form form={form} layout="vertical" onFinish={changePassword} style={{ maxWidth: 380 }}>

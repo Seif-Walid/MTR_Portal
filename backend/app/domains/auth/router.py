@@ -18,7 +18,7 @@ from app.domains.auth.schemas import ChangePasswordIn, LoginIn, RegisterIn
 from app.domains.hierarchy.service import taskable_user_ids
 from app.domains.positions.models import Position, PositionOccupant
 from app.domains.users.models import MemberProfile, User
-from app.domains.users.schemas import MeOut, MemberProfileOut
+from app.domains.users.schemas import MeOut, MemberProfileOut, SelfProfileIn
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -130,6 +130,21 @@ def logout(response: Response, db: DB, user: CurrentUser) -> None:
 
 @router.get("/me")
 def me(db: DB, user: CurrentUser) -> MeOut:
+    return _me_payload(db, user)
+
+
+@router.put("/me/profile")
+def update_my_profile(payload: SelfProfileIn, db: DB, user: CurrentUser) -> MeOut:
+    """Self-service edit of the signed-in member's own roster fields. The
+    org-assigned `mtr_id` is not in the payload, so it can never be changed
+    here. Only fields the client actually sends are touched (partial update);
+    sending an explicit null clears one. Creates the roster row on demand for
+    accounts that never had one."""
+    if user.profile is None:
+        user.profile = MemberProfile()
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(user.profile, field, value)
+    db.commit()
     return _me_payload(db, user)
 
 
