@@ -25,9 +25,11 @@ from app.domains.positions.models import Position, PositionOccupant
 from app.domains.requests.models import WorkRequest
 from app.domains.tasks.models import Task
 from app.domains.tasks.service import visible_tasks_query
+from app.domains.timeblocks import service as timeblocks
+from app.domains.timeblocks.models import TimeBlock
 from app.domains.users.models import User
 
-SOURCES = ("tasks", "events", "inventory", "requests")
+SOURCES = ("tasks", "events", "inventory", "requests", "teams")
 
 
 def _in_window(d: date | None, start: date | None, end: date | None) -> bool:
@@ -172,11 +174,55 @@ def _requests(db: Session, user: User, scope: str, start, end) -> list[CalendarI
     return out
 
 
+def _teams(db: Session, user: User, scope: str, start, end) -> list[CalendarItem]:
+    """Team time blocks (app/domains/timeblocks) expanded onto the calendar.
+    Event-team blocks need events.view; org-unit blocks need people.view; a
+    caller may hold one and not the other. 'me' scope narrows to teams the user
+    is on."""
+    from app.domains.events.service import user_event_team_ids
+
+    can_events = access.has_privilege(db, user, "events.view")
+    can_people = access.has_privilege(db, user, "people.view")
+    if not can_events and not can_people:
+        return []
+    my_event_teams = user_event_team_ids(db, user.id) if scope == "me" else set()
+    out = []
+    for block in db.scalars(select(TimeBlock)):
+        if block.team_type == "event":
+            if not can_events:
+                continue
+            team = db.get(EventTeam, block.event_team_id) if block.event_team_id else None
+            if team is None or team.deleted_at is not None:
+                continue
+            if not team.category or not team.category.event:
+                continue
+            if team.category.event.status != EventStatus.ACTIVE:
+                continue
+            if scope == "me" and block.event_team_id not in my_event_teams:
+                continue
+        else:  # org
+            if not can_people or block.position_id is None:
+                continue
+            if scope == "me" and not timeblocks.user_in_org_position(
+                db, user.id, block.position_id
+            ):
+                continue
+        title, detail = timeblocks.block_display(db, block)
+        for s, e in timeblocks.expand_block(block, start, end):
+            out.append(CalendarItem(
+                source="team", id=block.id, title=title,
+                start=s, end=e if e and e != s else None,
+                kind=block.team_type, detail=detail,
+            ))
+    return out
+
+
 _FETCHERS = {
     "tasks": _tasks,
     "events": _events,
     "inventory": _inventory,
     "requests": _requests,
+    "teams": _teams,
 }
 
 

@@ -5,6 +5,7 @@ import { api } from '../api/client';
 import type { Task, TeamBlock, TeamMember } from '../api/types';
 import { STATUS_META, StatusTag } from '../components/tags';
 import TaskDrawer from '../components/TaskDrawer';
+import TimeBlockPanel from '../components/TimeBlockPanel';
 
 const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
 const DISPLAY = "'Space Grotesk Variable', 'Space Grotesk', sans-serif";
@@ -56,6 +57,8 @@ function TeamSection({ block, onOpenTask }: { block: TeamBlock; onOpenTask: (id:
           <StatCard key={status} label={meta.label} value={totals[status] ?? 0} />
         ))}
       </div>
+
+      <TimeBlockPanel block={block} />
 
       <Table className="circuit-table" rowKey={(m) => m.user.id} dataSource={block.members}
         pagination={{ defaultPageSize: 20, hideOnSinglePage: true }} scroll={{ x: 'max-content' }}

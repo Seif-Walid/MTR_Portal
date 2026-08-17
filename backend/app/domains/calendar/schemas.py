@@ -8,7 +8,7 @@ class CalendarItem(BaseModel):
     filter it belongs to and how to link it; `start`/`end` bound it (end is
     None for single-day items, set only for multi-day event spans)."""
 
-    source: str  # "task" | "event" | "inventory" | "request"
+    source: str  # "task" | "event" | "inventory" | "request" | "team"
     id: int
     title: str
     start: date

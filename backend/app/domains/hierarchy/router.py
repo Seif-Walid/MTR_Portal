@@ -7,10 +7,15 @@ from sqlalchemy import func, select
 from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.events.models import Event, EventCategory, EventStatus, EventTeam
-from app.domains.events.service import team_member_user_ids, user_event_team_ids
+from app.domains.events.service import (
+    can_manage_team,
+    team_member_user_ids,
+    user_event_team_ids,
+)
 from app.domains.hierarchy.service import subtree_ids
 from app.domains.positions.models import Position, PositionOccupant
 from app.domains.tasks.models import Task
+from app.domains.timeblocks import service as timeblocks
 from app.domains.users.models import User
 from app.domains.users.schemas import UserBrief
 
@@ -122,6 +127,10 @@ class TeamBlockOut(BaseModel):
     event_name: str | None = None
     event_id: int | None = None
     members: list[TeamMemberOut]
+    # calendar time-block scheduling: which org unit this block anchors to (org
+    # kind only) and whether the viewer may create/edit its time blocks.
+    position_id: int | None = None
+    can_schedule: bool = False
 
 
 def _task_counts_for(db, member_ids: set[int], team_id: int | None) -> dict[int, dict[str, int]]:
@@ -220,12 +229,15 @@ def my_teams(db: DB, user: CurrentUser) -> list[TeamBlockOut]:
     org_members = db.scalars(
         select(User).where(User.id.in_(org_ids)).order_by(User.full_name)
     ).all()
+    org_position_id, org_can_schedule = timeblocks.org_root_position(db, user)
     blocks.append(
         TeamBlockOut(
             kind="org",
             team_id=None,
             name="My Team",
             members=_members_out(org_members, _task_counts_for(db, org_ids, None), user.id),
+            position_id=org_position_id,
+            can_schedule=org_can_schedule,
         )
     )
 
@@ -254,6 +266,7 @@ def my_teams(db: DB, user: CurrentUser) -> list[TeamBlockOut]:
                 members=_members_out(
                     team_members, _task_counts_for(db, member_ids, team.id), user.id
                 ),
+                can_schedule=can_manage_team(db, user, team),
             )
         )
 
