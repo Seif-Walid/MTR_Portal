@@ -43,8 +43,10 @@ HEADER_TO_FIELD = {
     "major": "major",
     "graduating year": "graduating_year",
     "phone number": "phone",
-    "dad's number": "father_phone",
-    "mom's number": "mother_phone",
+    # Both parent columns fold into the single multi-value guardian field.
+    "dad's number": "guardian_dad",
+    "mom's number": "guardian_mom",
+    "guardian number": "guardian_phone",
     "uni id": "uni_id",
     "location": "location",
 }
@@ -61,6 +63,22 @@ def _text(value) -> str | None:
         value = int(value)
     text = str(value).strip()
     return text or None
+
+
+def _guardian(raw: dict) -> str | None:
+    """Merge guardian numbers into one comma-separated cell. Accepts a combined
+    `guardian number` column if present, else folds the legacy dad/mom columns.
+    Order preserved, blanks and duplicates dropped."""
+    parts: list[str] = []
+    for key in ("guardian_phone", "guardian_dad", "guardian_mom"):
+        val = _text(raw.get(key))
+        if not val:
+            continue
+        for piece in val.split(","):
+            piece = piece.strip()
+            if piece and piece not in parts:
+                parts.append(piece)
+    return ", ".join(parts) or None
 
 
 def _year(value) -> int | None:
@@ -141,8 +159,7 @@ def run(path: str, commit: bool) -> int:
             "major": _text(raw.get("major")),
             "graduating_year": _year(raw.get("graduating_year")),
             "phone": _text(raw.get("phone")),
-            "father_phone": _text(raw.get("father_phone")),
-            "mother_phone": _text(raw.get("mother_phone")),
+            "guardian_phone": _guardian(raw),
             "uni_id": _text(raw.get("uni_id")),
             "location": _text(raw.get("location")),
         }

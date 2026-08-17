@@ -33,8 +33,7 @@ class MemberProfileOut(BaseModel):
     major: str | None = None
     graduating_year: int | None = None
     phone: str | None = None
-    father_phone: str | None = None
-    mother_phone: str | None = None
+    guardian_phone: str | None = None
     uni_id: str | None = None
     location: str | None = None
 
@@ -51,8 +50,7 @@ class MemberProfileIn(BaseModel):
     major: str | None = None
     graduating_year: int | None = None
     phone: str | None = None
-    father_phone: str | None = None
-    mother_phone: str | None = None
+    guardian_phone: str | None = None
     uni_id: str | None = None
     location: str | None = None
 
@@ -69,8 +67,7 @@ class SelfProfileIn(BaseModel):
     major: str | None = None
     graduating_year: int | None = None
     phone: str | None = None
-    father_phone: str | None = None
-    mother_phone: str | None = None
+    guardian_phone: str | None = None
     uni_id: str | None = None
     location: str | None = None
 

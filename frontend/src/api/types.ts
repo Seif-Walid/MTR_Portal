@@ -14,8 +14,7 @@ export interface MemberProfile {
   major: string | null;
   graduating_year: number | null;
   phone: string | null;
-  father_phone: string | null;
-  mother_phone: string | null;
+  guardian_phone: string | null; // comma-separated; one or more numbers
   uni_id: string | null;
   location: string | null;
 }
