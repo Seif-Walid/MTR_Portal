@@ -46,11 +46,25 @@ def resync_managers(db: Session) -> None:
     Those are an extra "hat" on top of someone's real place in the
     hierarchy, not a hierarchy position in their own right — see
     app/domains/positions/role_engine.py."""
-    # manager_id is derived *solely* from the position tree, so start from a
-    # clean slate: anyone who no longer occupies a real position (e.g. their
-    # last real seat was just removed) must lose their stale manager_id. The
-    # loop below re-derives it for everyone still holding a real seat.
-    db.execute(update(User).values(manager_id=None).execution_options(synchronize_session=False))
+    # Clear the slate for position-derived reporting lines before re-deriving,
+    # so that removing someone's real seat actually detaches them (the loop
+    # below only ever *sets* manager_id for current real occupants, never
+    # clears a stale one). A position-derived manager_id always points at the
+    # earliest occupant of a *real* ancestor position, so reset exactly the
+    # rows whose manager is such an occupant. Reporting lines seeded/imported
+    # without any position point at a non-occupant and are deliberately left
+    # untouched.
+    real_occupant_ids = (
+        select(PositionOccupant.user_id)
+        .join(Position, PositionOccupant.position_id == Position.id)
+        .where(Position.role_template_id.is_(None))
+    )
+    db.execute(
+        update(User)
+        .where(User.manager_id.in_(real_occupant_ids))
+        .values(manager_id=None)
+        .execution_options(synchronize_session=False)
+    )
 
     positions = all_positions(db)
     by_id = {p.id: p for p in positions}
