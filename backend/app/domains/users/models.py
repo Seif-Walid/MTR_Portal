@@ -81,8 +81,10 @@ class MemberProfile(Base):
     major: Mapped[str | None] = mapped_column(String(255), nullable=True)
     graduating_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    father_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    mother_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # One or more guardian phone numbers, stored comma-separated in a single
+    # column so the flat-text consumers (bulk editor, Sheets mirror, roster
+    # import) keep treating it as an ordinary text cell.
+    guardian_phone: Mapped[str | None] = mapped_column(String(255), nullable=True)
     uni_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
 

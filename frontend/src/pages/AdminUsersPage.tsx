@@ -20,7 +20,7 @@ interface ProfileFormValues {
   mtr_id?: string | null; national_id?: string | null; birthday?: string | null;
   university?: string | null; college?: string | null; major?: string | null;
   graduating_year?: number | string | null; phone?: string | null;
-  father_phone?: string | null; mother_phone?: string | null;
+  guardian_phone?: string | null;
   uni_id?: string | null; location?: string | null;
 }
 interface UserFormValues { email: string; full_name: string; password?: string; access_level_id?: number | null; profile?: ProfileFormValues }
@@ -32,7 +32,7 @@ const PROFILE_FIELDS: [keyof ProfileFormValues, string, 'text' | 'number'][] = [
   ['graduating_year', 'Grad year', 'number'], ['uni_id', 'UNI ID', 'text'],
   ['national_id', 'National ID', 'text'], ['birthday', 'Birthday (YYYY-MM-DD)', 'text'],
   ['phone', 'Phone', 'text'], ['location', 'Location', 'text'],
-  ['father_phone', "Dad's number", 'text'], ['mother_phone', "Mom's number", 'text'],
+  ['guardian_phone', 'Guardian number(s)', 'text'],
 ];
 
 // '' -> null so blank fields clear the profile column rather than 422 on typed ones.
@@ -57,7 +57,7 @@ function UserModal({ user, levels, open, onClose, onSaved }: { user: AdminUser |
         mtr_id: nn(p.mtr_id), national_id: nn(p.national_id), birthday: nn(p.birthday),
         university: nn(p.university), college: nn(p.college), major: nn(p.major),
         graduating_year: p.graduating_year ? Number(p.graduating_year) : null,
-        phone: nn(p.phone), father_phone: nn(p.father_phone), mother_phone: nn(p.mother_phone),
+        phone: nn(p.phone), guardian_phone: nn(p.guardian_phone),
         uni_id: nn(p.uni_id), location: nn(p.location),
       };
       if (user) {
@@ -269,8 +269,7 @@ export default function AdminUsersPage() {
               <Descriptions.Item label="National ID">{dash(u.profile?.national_id)}</Descriptions.Item>
               <Descriptions.Item label="Birthday">{dash(u.profile?.birthday)}</Descriptions.Item>
               <Descriptions.Item label="UNI ID">{dash(u.profile?.uni_id)}</Descriptions.Item>
-              <Descriptions.Item label="Dad's number">{dash(u.profile?.father_phone)}</Descriptions.Item>
-              <Descriptions.Item label="Mom's number">{dash(u.profile?.mother_phone)}</Descriptions.Item>
+              <Descriptions.Item label="Guardian number(s)">{dash(u.profile?.guardian_phone)}</Descriptions.Item>
               <Descriptions.Item label="Google-linked">{u.google_linked ? 'Yes' : 'No'}</Descriptions.Item>
             </Descriptions>
           ),
