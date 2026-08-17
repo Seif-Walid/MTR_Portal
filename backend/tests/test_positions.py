@@ -64,6 +64,21 @@ def test_manager_is_derived_from_positions(login, org, db_session):
     assert db_session.get(User, org["sw_emp"].id).manager_id == org["cfo"].id
 
 
+def test_removing_last_seat_clears_manager(login, org, db_session):
+    # placing sw_emp under the CFO derives their manager...
+    root = _pos(login, "ceo", title="CEO", occupant_id=org["ceo"].id).json()
+    cfo = _pos(login, "ceo", title="CFO", parent_id=root["id"], occupant_id=org["cfo"].id).json()
+    member = _pos(
+        login, "ceo", title="Finance Member", parent_id=cfo["id"], occupant_id=org["sw_emp"].id
+    ).json()
+    db_session.expire_all()
+    assert db_session.get(User, org["sw_emp"].id).manager_id == org["cfo"].id
+    # ...and vacating that seat must clear it, not leave it stale
+    login("ceo").patch(f"/api/org/positions/{member['id']}", json={"occupant_ids": []})
+    db_session.expire_all()
+    assert db_session.get(User, org["sw_emp"].id).manager_id is None
+
+
 def test_vacant_seat_is_skipped_in_derivation(login, org, db_session):
     root = _pos(login, "ceo", title="CEO", occupant_id=org["ceo"].id).json()
     cto = _pos(login, "ceo", title="CTO", parent_id=root["id"], occupant_id=org["cto"].id).json()
