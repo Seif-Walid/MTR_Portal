@@ -1,4 +1,4 @@
-import { GoogleOutlined, LockOutlined } from '@ant-design/icons';
+import { DeleteOutlined, GoogleOutlined, LockOutlined, PlusOutlined } from '@ant-design/icons';
 import {
   Button,
   Card,
@@ -19,13 +19,19 @@ import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import type { Me, MemberProfile } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
+import {
+  encodeGuardians,
+  KIND_OPTIONS,
+  parseGuardians,
+  type Guardian,
+} from '../lib/guardians';
 
 // Roster fields the member can edit about themselves. `mtr_id` is shown
 // read-only (org-assigned) and intentionally absent here.
 const EDITABLE_FIELDS: {
   key: keyof MemberProfile;
   label: string;
-  type?: 'number' | 'date' | 'tags';
+  type?: 'number' | 'date';
 }[] = [
   { key: 'university', label: 'University' },
   { key: 'college', label: 'College' },
@@ -36,7 +42,6 @@ const EDITABLE_FIELDS: {
   { key: 'national_id', label: 'National ID' },
   { key: 'birthday', label: 'Birthday', type: 'date' },
   { key: 'uni_id', label: 'University ID' },
-  { key: 'guardian_phone', label: 'Guardian number(s)', type: 'tags' },
 ];
 
 export default function ProfilePage() {
@@ -46,6 +51,7 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [guardians, setGuardians] = useState<Guardian[]>([]);
 
   useEffect(() => {
     if (!me?.profile) return;
@@ -54,15 +60,11 @@ export default function ProfilePage() {
         EDITABLE_FIELDS.map((f) => {
           const raw = me.profile![f.key];
           if (f.type === 'date') return [f.key, raw ? dayjs(raw as string) : undefined];
-          if (f.type === 'tags')
-            return [
-              f.key,
-              raw ? String(raw).split(',').map((s) => s.trim()).filter(Boolean) : [],
-            ];
           return [f.key, raw ?? undefined];
         }),
       ),
     );
+    setGuardians(parseGuardians(me.profile.guardian_phone));
   }, [me, profileForm]);
 
   useEffect(() => {
@@ -94,24 +96,24 @@ export default function ProfilePage() {
     }
   };
 
+  const patchGuardian = (index: number, patch: Partial<Guardian>) =>
+    setGuardians((gs) => gs.map((g, i) => (i === index ? { ...g, ...patch } : g)));
+
   const saveProfile = async (
-    values: Record<string, string | number | string[] | dayjs.Dayjs | undefined>,
+    values: Record<string, string | number | dayjs.Dayjs | undefined>,
   ) => {
     setSavingProfile(true);
     try {
-      const payload = Object.fromEntries(
+      const payload: Record<string, unknown> = Object.fromEntries(
         EDITABLE_FIELDS.map((f) => {
           const v = values[f.key];
-          if (f.type === 'tags') {
-            const nums = Array.isArray(v) ? v.map((s) => s.trim()).filter(Boolean) : [];
-            return [f.key, nums.length ? nums.join(', ') : null];
-          }
           if (v === '' || v === undefined || v === null) return [f.key, null];
           if (f.type === 'date')
             return [f.key, dayjs(v as string | dayjs.Dayjs).format('YYYY-MM-DD')];
           return [f.key, v];
         }),
       );
+      payload.guardian_phone = encodeGuardians(guardians);
       const updated = await api.put<Me>('/api/auth/me/profile', payload);
       applyMe(updated);
       message.success('Profile saved.');
@@ -182,19 +184,53 @@ export default function ProfilePage() {
                 <InputNumber style={{ width: '100%' }} controls={false} />
               ) : f.type === 'date' ? (
                 <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
-              ) : f.type === 'tags' ? (
-                <Select
-                  mode="tags"
-                  style={{ width: '100%' }}
-                  tokenSeparators={[',']}
-                  open={false}
-                  placeholder="Type a number, press Enter"
-                />
               ) : (
                 <Input />
               )}
             </Form.Item>
           ))}
+          <Form.Item label="Guardian number(s)" style={{ marginBottom: 12 }}>
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              {guardians.map((g, i) => (
+                <Space key={i} align="start" wrap style={{ width: '100%' }}>
+                  <Input
+                    style={{ width: 160 }}
+                    placeholder="Phone number"
+                    value={g.number}
+                    onChange={(e) => patchGuardian(i, { number: e.target.value })}
+                  />
+                  <Select
+                    style={{ width: 120 }}
+                    placeholder="Kinship"
+                    allowClear
+                    options={KIND_OPTIONS as unknown as { value: string; label: string }[]}
+                    value={g.kind || undefined}
+                    onChange={(v) => patchGuardian(i, { kind: (v ?? '') as Guardian['kind'] })}
+                  />
+                  {g.kind === 'other' && (
+                    <Input
+                      style={{ width: 140 }}
+                      placeholder="Relation (optional)"
+                      value={g.other}
+                      onChange={(e) => patchGuardian(i, { other: e.target.value })}
+                    />
+                  )}
+                  <Button
+                    type="text"
+                    icon={<DeleteOutlined />}
+                    onClick={() => setGuardians((gs) => gs.filter((_, j) => j !== i))}
+                  />
+                </Space>
+              ))}
+              <Button
+                type="dashed"
+                icon={<PlusOutlined />}
+                onClick={() => setGuardians((gs) => [...gs, { number: '', kind: '', other: '' }])}
+              >
+                Add guardian
+              </Button>
+            </Space>
+          </Form.Item>
           <Form.Item wrapperCol={{ offset: 0 }} style={{ marginBottom: 0 }}>
             <Button type="primary" htmlType="submit" loading={savingProfile}>
               Save changes
