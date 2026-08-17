@@ -214,20 +214,20 @@ def my_teams(db: DB, user: CurrentUser) -> list[TeamBlockOut]:
     access.require_privilege(db, user, "people.view")
     blocks: list[TeamBlockOut] = []
 
-    # Org block — the permanent org team.
-    org_ids = _org_team_ids(db, user.id)
-    if org_ids:
-        org_members = db.scalars(
-            select(User).where(User.id.in_(org_ids)).order_by(User.full_name)
-        ).all()
-        blocks.append(
-            TeamBlockOut(
-                kind="org",
-                team_id=None,
-                name="My Team",
-                members=_members_out(org_members, _task_counts_for(db, org_ids, None), user.id),
-            )
+    # Org block — the permanent org team. Always rendered with the viewer in
+    # it, even when they have no reports/peers (a team of one is still a team).
+    org_ids = _org_team_ids(db, user.id) | {user.id}
+    org_members = db.scalars(
+        select(User).where(User.id.in_(org_ids)).order_by(User.full_name)
+    ).all()
+    blocks.append(
+        TeamBlockOut(
+            kind="org",
+            team_id=None,
+            name="My Team",
+            members=_members_out(org_members, _task_counts_for(db, org_ids, None), user.id),
         )
+    )
 
     # Event blocks — active teams (not soft-deleted) on active events.
     for team_id in user_event_team_ids(db, user.id):
