@@ -157,6 +157,19 @@ export interface TeamBlock {
   event_name: string | null;
   event_id: number | null;
   members: TeamMember[];
+  position_id: number | null; // org unit this block schedules (org kind only)
+  can_schedule: boolean; // viewer may create/edit this team's time blocks
+}
+
+export interface TimeBlock {
+  id: number;
+  team_type: 'event' | 'org';
+  event_team_id: number | null;
+  position_id: number | null;
+  title: string;
+  start_date: string; // ISO date
+  end_date: string; // ISO date
+  weekday_mask: number; // 0 = whole span; else bit i (Mon=0..Sun=6)
 }
 
 export interface ArchivedEvent {
@@ -498,7 +511,7 @@ export interface Dashboard {
   sections: DashboardSection[];
 }
 
-export type CalendarSource = 'task' | 'event' | 'inventory' | 'request';
+export type CalendarSource = 'task' | 'event' | 'inventory' | 'request' | 'team';
 
 export interface CalendarItem {
   source: CalendarSource;

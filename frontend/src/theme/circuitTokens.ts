@@ -26,10 +26,10 @@ export const hexA = (h: string, a: number): string => {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 };
 
-export type CalSource = 'tasks' | 'events' | 'inventory' | 'requests';
+export type CalSource = 'tasks' | 'events' | 'inventory' | 'requests' | 'teams';
 export const SOURCE_COLOR: Record<CalSource, string> = {
-  tasks: C.accent, events: C.violet, inventory: C.steel, requests: C.teal,
+  tasks: C.accent, events: C.violet, inventory: C.steel, requests: C.teal, teams: C.amber,
 };
 export const SOURCE_LABEL: Record<CalSource, string> = {
-  tasks: 'Tasks', events: 'Events', inventory: 'Inventory', requests: 'Requests',
+  tasks: 'Tasks', events: 'Events', inventory: 'Inventory', requests: 'Requests', teams: 'Teams',
 };

@@ -18,6 +18,7 @@ from app.domains.positions.router import router as positions_router
 from app.domains.requests.router import router as requests_router
 from app.domains.sync.router import router as sync_router
 from app.domains.tasks.router import router as tasks_router
+from app.domains.timeblocks.router import router as timeblocks_router
 from app.domains.users.router import router as users_router
 
 app = FastAPI(title="Organization Operations Portal", version="1.0.0")
@@ -54,6 +55,7 @@ for domain_router in (
     calendar_router,
     dashboard_router,
     archive_router,
+    timeblocks_router,
 ):
     app.include_router(domain_router, prefix="/api")
 

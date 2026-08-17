@@ -11,8 +11,8 @@ import type { CalSource } from '../theme/circuitTokens';
 const DISPLAY = "'Space Grotesk Variable', 'Space Grotesk', sans-serif";
 const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
 
-const SRC: Record<CalendarItem['source'], CalSource> = { task: 'tasks', event: 'events', inventory: 'inventory', request: 'requests' };
-const ALL_SOURCES = 'tasks,events,inventory,requests';
+const SRC: Record<CalendarItem['source'], CalSource> = { task: 'tasks', event: 'events', inventory: 'inventory', request: 'requests', team: 'teams' };
+const ALL_SOURCES = 'tasks,events,inventory,requests,teams';
 
 export default function CalendarPage() {
   const [cursor, setCursor] = useState<Dayjs>(dayjs());
@@ -29,7 +29,7 @@ export default function CalendarPage() {
 
   const events = useMemo<CalEvent[]>(
     () => items.map((it) => ({
-      id: `${it.source}-${it.id}-${it.kind ?? ''}`,
+      id: `${it.source}-${it.id}-${it.kind ?? ''}-${it.start}`,
       title: it.title,
       source: SRC[it.source],
       start: it.start,
