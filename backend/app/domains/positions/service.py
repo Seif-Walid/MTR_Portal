@@ -1,7 +1,7 @@
 import json
 
 from fastapi import HTTPException, status as http_status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.domains.positions.models import OrgAuditLog, Position, PositionOccupant
@@ -46,6 +46,12 @@ def resync_managers(db: Session) -> None:
     Those are an extra "hat" on top of someone's real place in the
     hierarchy, not a hierarchy position in their own right — see
     app/domains/positions/role_engine.py."""
+    # manager_id is derived *solely* from the position tree, so start from a
+    # clean slate: anyone who no longer occupies a real position (e.g. their
+    # last real seat was just removed) must lose their stale manager_id. The
+    # loop below re-derives it for everyone still holding a real seat.
+    db.execute(update(User).values(manager_id=None).execution_options(synchronize_session=False))
+
     positions = all_positions(db)
     by_id = {p.id: p for p in positions}
 
