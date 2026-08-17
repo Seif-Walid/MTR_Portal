@@ -1,4 +1,4 @@
-import { CalendarOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { CalendarOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import { Button, Checkbox, DatePicker, Form, Input, Modal, Popconfirm, Radio, Space, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useCallback, useEffect, useState } from 'react';
@@ -33,6 +33,7 @@ export default function TimeBlockPanel({ block }: { block: TeamBlock }) {
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
   const [mode, setMode] = useState<'span' | 'weekly'>('span');
+  const [editing, setEditing] = useState<TimeBlock | null>(null);
 
   const query = anchorQuery(block);
 
@@ -53,6 +54,26 @@ export default function TimeBlockPanel({ block }: { block: TeamBlock }) {
     return false;
   };
 
+  const openCreate = () => {
+    setEditing(null);
+    form.resetFields();
+    setMode('span');
+    setOpen(true);
+  };
+
+  const openEdit = (b: TimeBlock) => {
+    setEditing(b);
+    setMode(b.weekday_mask === 0 ? 'span' : 'weekly');
+    form.setFieldsValue({
+      title: b.title,
+      range: [dayjs(b.start_date), dayjs(b.end_date)],
+      weekdays: WEEKDAYS.filter((w) => b.weekday_mask & (1 << w.bit)).map((w) => w.bit),
+    });
+    setOpen(true);
+  };
+
+  const close = () => { setOpen(false); setEditing(null); form.resetFields(); setMode('span'); };
+
   const submit = async () => {
     const v = await form.validateFields();
     const [start, end] = v.range as [Dayjs, Dayjs];
@@ -62,19 +83,27 @@ export default function TimeBlockPanel({ block }: { block: TeamBlock }) {
     if (mode === 'weekly' && mask === 0) { message.error('Pick at least one weekday'); return; }
     setSaving(true);
     try {
-      await api.post<TimeBlock>('/api/timeblocks', {
-        team_type: block.kind,
-        event_team_id: block.kind === 'event' ? block.team_id : null,
-        position_id: block.kind === 'org' ? block.position_id : null,
-        title: v.title?.trim() ?? '',
-        start_date: start.format('YYYY-MM-DD'),
-        end_date: end.format('YYYY-MM-DD'),
-        weekday_mask: mask,
-      });
-      message.success('Time block added');
-      setOpen(false);
-      form.resetFields();
-      setMode('span');
+      if (editing) {
+        await api.patch<TimeBlock>(`/api/timeblocks/${editing.id}`, {
+          title: v.title?.trim() ?? '',
+          start_date: start.format('YYYY-MM-DD'),
+          end_date: end.format('YYYY-MM-DD'),
+          weekday_mask: mask,
+        });
+        message.success('Time block updated');
+      } else {
+        await api.post<TimeBlock>('/api/timeblocks', {
+          team_type: block.kind,
+          event_team_id: block.kind === 'event' ? block.team_id : null,
+          position_id: block.kind === 'org' ? block.position_id : null,
+          title: v.title?.trim() ?? '',
+          start_date: start.format('YYYY-MM-DD'),
+          end_date: end.format('YYYY-MM-DD'),
+          weekday_mask: mask,
+        });
+        message.success('Time block added');
+      }
+      close();
       load();
     } catch (e) {
       message.error(e instanceof Error ? e.message : 'Failed');
@@ -95,7 +124,7 @@ export default function TimeBlockPanel({ block }: { block: TeamBlock }) {
           <CalendarOutlined style={{ marginRight: 6, color: AMBER }} />Calendar time
         </span>
         {block.can_schedule && (
-          <Button size="small" icon={<PlusOutlined />} onClick={() => setOpen(true)}>Schedule time</Button>
+          <Button size="small" icon={<PlusOutlined />} onClick={openCreate}>Schedule time</Button>
         )}
       </div>
 
@@ -111,16 +140,19 @@ export default function TimeBlockPanel({ block }: { block: TeamBlock }) {
             </span>
             <span style={{ flex: 1 }} />
             {block.can_schedule && (
-              <Popconfirm title="Remove this time block?" onConfirm={() => remove(b.id)} okText="Remove" okButtonProps={{ danger: true }}>
-                <Button size="small" type="text" danger icon={<DeleteOutlined />} />
-              </Popconfirm>
+              <>
+                <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(b)} />
+                <Popconfirm title="Remove this time block?" onConfirm={() => remove(b.id)} okText="Remove" okButtonProps={{ danger: true }}>
+                  <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                </Popconfirm>
+              </>
             )}
           </div>
         ))}
       </Space>
 
-      <Modal title={`Schedule time — ${block.name}`} open={open} onOk={submit} confirmLoading={saving}
-        okText="Add block" onCancel={() => { setOpen(false); form.resetFields(); setMode('span'); }} destroyOnClose>
+      <Modal title={`${editing ? 'Edit time' : 'Schedule time'} — ${block.name}`} open={open} onOk={submit} confirmLoading={saving}
+        okText={editing ? 'Save changes' : 'Add block'} onCancel={close} destroyOnClose>
         <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
           <Form.Item name="title" label="Label (optional)">
             <Input placeholder={block.name} maxLength={255} />
