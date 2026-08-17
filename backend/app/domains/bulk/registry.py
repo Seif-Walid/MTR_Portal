@@ -32,7 +32,7 @@ from app.domains.inventory.models import (
     StockMovement,
 )
 from app.domains.positions.models import Position
-from app.domains.users.models import Department, User
+from app.domains.users.models import Department, MemberProfile, User
 
 ColType = Literal["int", "str", "bool", "date", "datetime"]
 
@@ -119,6 +119,31 @@ TABLES: dict[str, TableSpec] = {
             Column("access_level", ref="access_level", attr="access_level_id"),
             Column("manager_id", "int", ref="user"),
             Column("is_active", "bool"),
+        ],
+    ),
+    "member_profiles": TableSpec(
+        # The roster record behind an account (mtr_id, contact, biographical
+        # fields). Gated at users.manage since it holds member PII (national_id).
+        # delete="none": a roster row is bound 1:1 to an account, so it is
+        # removed by deactivating the person on the People tab — never deleted
+        # on its own — which keeps a stray sheet-side row deletion from wiping
+        # roster data (the push just re-adds it).
+        key="member_profiles", label="Member Profiles", model=MemberProfile,
+        privilege="users.manage", delete="none",
+        columns=[
+            Column("id", "int", editable=False),
+            Column("user_id", "int", ref="user", required=True),
+            Column("mtr_id", "str"),
+            Column("national_id", "str"),
+            Column("birthday", "date"),
+            Column("university", "str"),
+            Column("college", "str"),
+            Column("major", "str"),
+            Column("graduating_year", "int"),
+            Column("phone", "str"),
+            Column("guardian_phone", "str"),
+            Column("uni_id", "str"),
+            Column("location", "str"),
         ],
     ),
     "positions": TableSpec(

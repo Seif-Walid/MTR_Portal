@@ -32,7 +32,7 @@ from app.domains.events.models import (
 from app.domains.inventory.models import InventoryItem, Location, StockMovement
 from app.domains.positions.models import Position
 from app.domains.sync.models import SheetExport
-from app.domains.users.models import User
+from app.domains.users.models import MemberProfile, User
 
 MIRROR_BANNER = (
     "[ MIRROR — EDITS HERE ARE NOT READ BACK. Rebuild from Sheets to make this authoritative. ]"
@@ -42,6 +42,7 @@ MIRROR_BANNER = (
 # list (plus itself, for the self-referential manager_id / parent_id cases).
 TAB_ORDER = [
     "people",
+    "member_profiles",
     "positions",
     "event_kinds",
     "events",
@@ -85,6 +86,27 @@ def _export_people(db: Session) -> tuple[list[str], list[list[str]]]:
             _s(u.id), u.email, u.full_name, _s(u.department),
             u.access_level.name if u.access_level else "", _s(u.manager_id), _s(u.is_active),
         ])
+    return header, rows
+
+
+def _export_member_profiles(db: Session) -> tuple[list[str], list[list[str]]]:
+    # The roster row behind each account. Kept in step with the people tab: only
+    # active accounts' profiles are mirrored, so deactivating a person drops both
+    # their people row and their roster row from the sheet together.
+    header = ["id", "user_id", "mtr_id", "national_id", "birthday", "university",
+              "college", "major", "graduating_year", "phone", "guardian_phone",
+              "uni_id", "location"]
+    rows = [
+        [_s(p.id), _s(p.user_id), _s(p.mtr_id), _s(p.national_id), _s(p.birthday),
+         _s(p.university), _s(p.college), _s(p.major), _s(p.graduating_year),
+         _s(p.phone), _s(p.guardian_phone), _s(p.uni_id), _s(p.location)]
+        for p in db.scalars(
+            select(MemberProfile)
+            .join(User, MemberProfile.user_id == User.id)
+            .where(User.is_active.is_(True))
+            .order_by(MemberProfile.id)
+        )
+    ]
     return header, rows
 
 
@@ -180,6 +202,7 @@ def _export_movements(db: Session) -> tuple[list[str], list[list[str]]]:
 
 _EXPORTERS = {
     "people": _export_people,
+    "member_profiles": _export_member_profiles,
     "positions": _export_positions,
     "event_kinds": _export_event_kinds,
     "events": _export_events,
