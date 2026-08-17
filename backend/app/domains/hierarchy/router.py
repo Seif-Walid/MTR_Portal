@@ -198,7 +198,7 @@ def _org_team_ids(db, user_id: int) -> set[int]:
 
     for pid in my_real:
         below = [u for d in descendants(pid) for u in occ_of.get(d, [])]
-        if not below and parent_of.get(pid) is not None:
+        if not children.get(pid) and parent_of.get(pid) is not None:
             # a leaf seat (a member): show the unit under their parent
             below = [u for d in descendants(parent_of[pid]) for u in occ_of.get(d, [])]
         ids.update(below)
