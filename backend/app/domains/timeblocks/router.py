@@ -53,6 +53,10 @@ def create_block(body: TimeBlockCreate, db: DB, user: CurrentUser) -> TimeBlockO
     service.require_manage_target(
         db, user, body.team_type, body.event_team_id, body.position_id
     )
+    if body.team_type == "event":
+        service.require_within_event(
+            db, body.event_team_id, body.start_date, body.end_date
+        )
     block = TimeBlock(
         team_type=body.team_type,
         event_team_id=body.event_team_id if body.team_type == "event" else None,
@@ -89,6 +93,10 @@ def edit_block(
         block.weekday_mask = body.weekday_mask
     if block.end_date < block.start_date:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "End date is before start.")
+    if block.team_type == "event":
+        service.require_within_event(
+            db, block.event_team_id, block.start_date, block.end_date
+        )
     db.commit()
     db.refresh(block)
     return TimeBlockOut.model_validate(block)

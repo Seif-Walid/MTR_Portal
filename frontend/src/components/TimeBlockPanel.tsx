@@ -1,6 +1,6 @@
 import { CalendarOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { Button, Checkbox, DatePicker, Form, Input, Modal, Popconfirm, Radio, Space, message } from 'antd';
-import { type Dayjs } from 'dayjs';
+import dayjs, { type Dayjs } from 'dayjs';
 import { useCallback, useEffect, useState } from 'react';
 
 import { api } from '../api/client';
@@ -44,6 +44,14 @@ export default function TimeBlockPanel({ block }: { block: TeamBlock }) {
   useEffect(load, [load]);
 
   if (!query) return null; // org unit with no schedulable anchor
+
+  // event teams: can't schedule outside the event's own span; org units: no bound
+  const disabledDate = (d: Dayjs): boolean => {
+    if (block.kind !== 'event') return false;
+    if (block.event_start && d.isBefore(dayjs(block.event_start), 'day')) return true;
+    if (block.event_end && d.isAfter(dayjs(block.event_end), 'day')) return true;
+    return false;
+  };
 
   const submit = async () => {
     const v = await form.validateFields();
@@ -117,8 +125,12 @@ export default function TimeBlockPanel({ block }: { block: TeamBlock }) {
           <Form.Item name="title" label="Label (optional)">
             <Input placeholder={block.name} maxLength={255} />
           </Form.Item>
-          <Form.Item name="range" label="Date range" rules={[{ required: true, message: 'Pick a start and end date' }]}>
-            <DatePicker.RangePicker style={{ width: '100%' }} />
+          <Form.Item name="range"
+            label={block.kind === 'event' && (block.event_start || block.event_end)
+              ? `Date range (event: ${block.event_start ?? '…'} → ${block.event_end ?? '…'})`
+              : 'Date range'}
+            rules={[{ required: true, message: 'Pick a start and end date' }]}>
+            <DatePicker.RangePicker style={{ width: '100%' }} disabledDate={disabledDate} />
           </Form.Item>
           <Form.Item label="Occupies">
             <Radio.Group value={mode} onChange={(e) => setMode(e.target.value)}>

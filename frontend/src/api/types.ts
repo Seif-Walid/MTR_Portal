@@ -159,6 +159,8 @@ export interface TeamBlock {
   members: TeamMember[];
   position_id: number | null; // org unit this block schedules (org kind only)
   can_schedule: boolean; // viewer may create/edit this team's time blocks
+  event_start: string | null; // event span (event kind only) — blocks stay inside it
+  event_end: string | null;
 }
 
 export interface TimeBlock {
