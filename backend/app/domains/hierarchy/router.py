@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import date
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -131,6 +132,9 @@ class TeamBlockOut(BaseModel):
     # kind only) and whether the viewer may create/edit its time blocks.
     position_id: int | None = None
     can_schedule: bool = False
+    # event span (event kind only) — time blocks can't fall outside it
+    event_start: date | None = None
+    event_end: date | None = None
 
 
 def _task_counts_for(db, member_ids: set[int], team_id: int | None) -> dict[int, dict[str, int]]:
@@ -267,6 +271,8 @@ def my_teams(db: DB, user: CurrentUser) -> list[TeamBlockOut]:
                     team_members, _task_counts_for(db, member_ids, team.id), user.id
                 ),
                 can_schedule=can_manage_team(db, user, team),
+                event_start=event.start_date,
+                event_end=event.end_date,
             )
         )
 

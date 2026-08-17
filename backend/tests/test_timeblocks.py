@@ -94,6 +94,28 @@ def test_block_create_requires_manage(login, org):
     assert r.status_code == 403, r.text
 
 
+def test_event_block_cannot_leave_event_span(login, org):
+    # event runs 2026-09-01 .. 2027-04-24 (see _team_with_member)
+    team = _team_with_member(login, org)
+    before = login("cto").post("/api/timeblocks", json={
+        "team_type": "event", "event_team_id": team["id"],
+        "start_date": "2026-08-20", "end_date": "2026-09-05", "weekday_mask": 0,
+    })
+    assert before.status_code == 400 and "before the event" in before.json()["detail"]
+
+    after = login("cto").post("/api/timeblocks", json={
+        "team_type": "event", "event_team_id": team["id"],
+        "start_date": "2027-04-20", "end_date": "2027-05-10", "weekday_mask": 0,
+    })
+    assert after.status_code == 400 and "past the event" in after.json()["detail"]
+
+    ok = login("cto").post("/api/timeblocks", json={
+        "team_type": "event", "event_team_id": team["id"],
+        "start_date": "2026-09-07", "end_date": "2026-09-13", "weekday_mask": 0,
+    })
+    assert ok.status_code == 201, ok.text
+
+
 def test_delete_block(login, org):
     team = _team_with_member(login, org)
     block = login("cto").post("/api/timeblocks", json={

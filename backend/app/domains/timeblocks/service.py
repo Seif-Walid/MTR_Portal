@@ -149,6 +149,28 @@ def require_manage_target(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid team_type.")
 
 
+def require_within_event(
+    db: Session, event_team_id: int | None, start: date, end: date
+) -> None:
+    """An event team's time can't spill outside its event's own span. Only the
+    bounds the event actually has are enforced (a dateless edge stays open).
+    Org units have no event and no bound — never call this for them."""
+    team = db.get(EventTeam, event_team_id) if event_team_id else None
+    event = team.category.event if team and team.category else None
+    if event is None:
+        return
+    if event.start_date is not None and start < event.start_date:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Time can't start before the event ({event.start_date}).",
+        )
+    if event.end_date is not None and end > event.end_date:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Time can't run past the event ({event.end_date}).",
+        )
+
+
 def block_display(db: Session, block: TimeBlock) -> tuple[str, str | None]:
     """(title, detail) for a calendar mark. title falls back to the team name;
     detail is the event name (event teams) or 'Org' (org units)."""
