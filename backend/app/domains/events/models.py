@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from enum import StrEnum
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -54,6 +54,12 @@ class Event(Base):
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default=EventStatus.ACTIVE, index=True)
+    # Competition-wide placements/awards shown in the public Hall of Fame, e.g.
+    # ["🥇 1st Place — Sumo 1", "🏆 Best Documentation Award"]. A JSON list so
+    # one event can carry several placements across its sub-challenges. NULL/[]
+    # for events that have no overall award (or per-team awards instead, see
+    # EventTeam.award). Public API surfaces this verbatim.
+    awards: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -93,6 +99,10 @@ class EventTeam(Base):
         ForeignKey("event_categories.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str] = mapped_column(String(255))
+    # Per-team placement shown in the public Hall of Fame, e.g. "🥇 1st Place".
+    # NULL when the event records its results at the event level instead
+    # (Event.awards). Only one of the two levels is typically populated.
+    award: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Soft delete: a team is historical context (who competed, allocation
     # linkage, task history) — removing the row would lose that. A genuine
     # hard delete is a separate admin-only escape hatch.
