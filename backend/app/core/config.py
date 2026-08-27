@@ -14,7 +14,17 @@ class Settings(BaseSettings):
     cookie_secure: bool = False  # set True behind HTTPS
     upload_dir: Path = BASE_DIR / "uploads"
     max_upload_mb: int = 25
-    cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    # The portal frontend (5173) plus the public marketing website, which reads
+    # the /api/public/* Hall of Fame endpoint. The website's production origins
+    # are included so a browser-side fetch is allowed; server-side fetches from
+    # Next.js aren't subject to CORS but cost nothing to permit.
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "https://mindtechrobotics.com",
+        "https://www.mindtechrobotics.com",
+    ]
     frontend_url: str = "http://localhost:5173"
 
     # Confirmation phrase for the destructive Rebuild-from-Sheets action — the
