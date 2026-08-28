@@ -9,6 +9,8 @@ user id or email. Treat this router as published-to-the-world.
 The Hall of Fame is the public projection of the portal's *archived competition*
 events: the same records the internal Archive is built from, shaped exactly like
 the website's existing `CompetitionRecord` so the site can consume it directly.
+The record shape itself lives in app/domains/events/hall_of_fame.py, shared with
+the Archive so the two views can never drift.
 """
 
 from fastapi import APIRouter
@@ -16,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.core.database import DB
+from app.domains.events.hall_of_fame import record_out
 from app.domains.events.models import (
     Event,
     EventCategory,
@@ -29,20 +32,6 @@ router = APIRouter(prefix="/public", tags=["public"])
 # The kind whose archived events make up the Hall of Fame. Training seasons and
 # R&D topics are internal — only competitions are shown publicly.
 COMPETITION_KIND_SLUG = "competition"
-
-
-def _member_out(name: str, role: str | None) -> dict:
-    # Only the two public fields. `role` is the member's verbatim competition
-    # role (EventTeamMember.role), NOT their department — competition credit is
-    # per-event and free-form. Everything else on the user/profile stays server-side.
-    return {"name": name, "role": role}
-
-
-def _year_of(event: Event) -> int | None:
-    for d in (event.start_date, event.end_date):
-        if d is not None:
-            return d.year
-    return None
 
 
 @router.get("/hall-of-fame")
@@ -65,36 +54,4 @@ def hall_of_fame(db: DB) -> list[dict]:
         )
     ).all()
 
-    records: list[dict] = []
-    for event in events:
-        groups: list[dict] = []
-        for category in event.categories:
-            for team in category.teams:
-                if team.deleted_at is not None:
-                    continue
-                # Groups seeded from a discipline-less roster live under a
-                # category named the same as the team; surface that as no
-                # sublabel rather than a redundant repeat of the team name.
-                sublabel = None if category.name == team.name else category.name
-                groups.append(
-                    {
-                        "label": team.name,
-                        "sublabel": sublabel,
-                        "award": team.award,
-                        "members": [
-                            _member_out(m.user.full_name, m.role)
-                            for m in team.members
-                        ],
-                    }
-                )
-        records.append(
-            {
-                "id": str(event.id),
-                "event": event.name,
-                "fullName": None,
-                "year": _year_of(event),
-                "awards": event.awards or None,
-                "groups": groups,
-            }
-        )
-    return records
+    return [record_out(event) for event in events]

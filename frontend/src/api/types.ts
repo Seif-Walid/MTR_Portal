@@ -177,10 +177,12 @@ export interface TimeBlock {
 export interface ArchivedEvent {
   id: number;
   name: string;
+  full_name?: string | null; // official long-form title, e.g. "MATE ROV Competition"
   kind_name: string | null;
   kind_label: string | null;
   start_date: string | null;
   end_date: string | null;
+  awards?: string[] | null; // event-wide placements shown in the public Hall of Fame
   can_manage?: boolean;
 }
 
@@ -190,8 +192,24 @@ export interface ArchivedTask {
   task: Task;
 }
 
+export interface ArchivedMember {
+  id: number; // membership row id
+  name: string;
+  role?: string | null;
+}
+
+/** One team of an archived event, in the same shape the public website reads. */
+export interface ArchivedGroup {
+  id: number; // team row id
+  label: string;
+  sublabel?: string | null;
+  award?: string | null;
+  members: ArchivedMember[];
+}
+
 export interface ArchivedEventDetail {
   event: ArchivedEvent;
+  groups: ArchivedGroup[]; // the whole roster — what the public site publishes
   teams: string[]; // the viewer's teams within this event
   tasks: ArchivedTask[];
 }
@@ -253,6 +271,7 @@ export interface EventCategory {
 }
 
 export interface Event extends EventBrief {
+  full_name?: string | null; // official long-form title, e.g. "MATE ROV Competition"
   description: string;
   start_date: string | null;
   end_date: string | null;

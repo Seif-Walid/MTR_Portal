@@ -130,9 +130,9 @@ def _export_event_kinds(db: Session) -> tuple[list[str], list[list[str]]]:
 
 
 def _export_events(db: Session) -> tuple[list[str], list[list[str]]]:
-    header = ["id", "name", "kind", "description", "start_date", "end_date", "status"]
+    header = ["id", "name", "full_name", "kind", "description", "start_date", "end_date", "status"]
     rows = [
-        [_s(c.id), c.name, c.kind.slug if c.kind else "", c.description, _s(c.start_date), _s(c.end_date), c.status]
+        [_s(c.id), c.name, c.full_name or "", c.kind.slug if c.kind else "", c.description, _s(c.start_date), _s(c.end_date), c.status]
         for c in db.scalars(select(Event).order_by(Event.id))
     ]
     return header, rows
@@ -148,9 +148,9 @@ def _export_categories(db: Session) -> tuple[list[str], list[list[str]]]:
 
 
 def _export_teams(db: Session) -> tuple[list[str], list[list[str]]]:
-    header = ["id", "category_id", "name"]
+    header = ["id", "category_id", "name", "award"]
     rows = [
-        [_s(t.id), _s(t.category_id), t.name]
+        [_s(t.id), _s(t.category_id), t.name, t.award or ""]
         for t in db.scalars(
             select(EventTeam).where(EventTeam.deleted_at.is_(None)).order_by(EventTeam.id)
         )
@@ -159,9 +159,9 @@ def _export_teams(db: Session) -> tuple[list[str], list[list[str]]]:
 
 
 def _export_team_members(db: Session) -> tuple[list[str], list[list[str]]]:
-    header = ["id", "team_id", "user_id"]
+    header = ["id", "team_id", "user_id", "role"]
     rows = [
-        [_s(m.id), _s(m.team_id), _s(m.user_id)]
+        [_s(m.id), _s(m.team_id), _s(m.user_id), m.role or ""]
         for m in db.scalars(select(EventTeamMember).order_by(EventTeamMember.id))
     ]
     return header, rows

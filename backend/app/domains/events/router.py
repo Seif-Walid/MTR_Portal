@@ -227,7 +227,8 @@ def _base_out(db: DB, comp: Event, manage: bool) -> dict:
         )
     ) or 0
     return dict(
-        id=comp.id, name=comp.name, status=comp.status, description=comp.description,
+        id=comp.id, name=comp.name, full_name=comp.full_name, status=comp.status,
+        description=comp.description,
         start_date=comp.start_date, end_date=comp.end_date, created_at=comp.created_at,
         awards=comp.awards,
         kind=_kind_out(comp),
@@ -481,6 +482,7 @@ def create_event(payload: EventCreate, db: DB, user: CurrentUser) -> EventDetail
     kind_id = _resolve_kind(db, payload.kind_id)
     comp = Event(
         name=payload.name,
+        full_name=payload.full_name,
         kind_id=kind_id,
         description=payload.description,
         start_date=payload.start_date,
@@ -524,6 +526,10 @@ def edit_event(
                     role_engine.retitle_positions_for_entity(
                         db, "membership", member.id, {**names, "member": member.user.full_name}
                     )
+    if payload.clear_full_name:
+        comp.full_name = None
+    elif payload.full_name is not None:
+        comp.full_name = payload.full_name
     if payload.description is not None:
         comp.description = payload.description
     if payload.clear_awards:

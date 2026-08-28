@@ -47,6 +47,11 @@ class Event(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    # The official long-form title, e.g. "MATE ROV Competition" for the event
+    # named "MATE ROV 2026". `name` stays the short internal handle everyone
+    # types; this is what the public Hall of Fame heads each record with when
+    # present. NULL means the short name is the only name.
+    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     kind_id: Mapped[int | None] = mapped_column(
         ForeignKey("event_kinds.id", ondelete="SET NULL"), nullable=True, index=True
     )

@@ -21,6 +21,38 @@ async function run(p: Promise<unknown>, ok: string, after: () => void) {
   }
 }
 
+/** The official long-form title (event.full_name) the public Hall of Fame heads
+ * this record with — "MATE ROV Competition" for an event named "MATE ROV 2026". */
+function FullNameField({ value, canManage, onSave }: {
+  value: string | null | undefined;
+  canManage: boolean;
+  onSave: (fullName: string) => void;
+}) {
+  if (!canManage) {
+    return value ? <Typography.Paragraph type="secondary">{value}</Typography.Paragraph> : null;
+  }
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        Official full name
+      </Typography.Text>
+      <div>
+        <Typography.Text
+          type={value ? undefined : 'secondary'}
+          style={{ fontSize: 13 }}
+          editable={{
+            tooltip: 'Set the official full name',
+            text: value ?? '',
+            onChange: (val) => onSave(val.trim()),
+          }}
+        >
+          {value || 'e.g. MATE ROV Competition'}
+        </Typography.Text>
+      </div>
+    </div>
+  );
+}
+
 /** Competition-wide placements (event.awards) shown in the public Hall of Fame.
  * Free-form chips — type a placement and press enter; ✕ removes one. */
 function AwardsEditor({ awards, canManage, onSave }: {
@@ -302,6 +334,19 @@ export default function EventDetailPanel({ eventId, onChanged }: {
   return (
     <div style={{ padding: '4px 8px' }}>
       {detail.description && <Typography.Paragraph type="secondary">{detail.description}</Typography.Paragraph>}
+
+      <FullNameField
+        value={detail.full_name}
+        canManage={canManage}
+        onSave={(fullName) => {
+          if (fullName === (detail.full_name ?? '')) return;
+          run(
+            api.patch(`/api/events/${eventId}`, fullName ? { full_name: fullName } : { clear_full_name: true }),
+            'Full name updated',
+            refresh,
+          );
+        }}
+      />
 
       <AwardsEditor
         awards={detail.awards}

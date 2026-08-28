@@ -76,6 +76,9 @@ class EventBrief(BaseModel):
 
 
 class EventOut(EventBrief):
+    # Official long-form title ("MATE ROV Competition"); NULL when `name` is the
+    # only name. Heads the record in the public Hall of Fame.
+    full_name: str | None = None
     description: str
     start_date: date | None
     end_date: date | None
@@ -97,6 +100,7 @@ class EventDetailOut(EventOut):
 
 class EventCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
+    full_name: str | None = Field(default=None, max_length=255)
     kind_id: int | None = None  # which event kind; defaults to Event
     description: str = ""
     start_date: date | None = None
@@ -110,6 +114,9 @@ class EventCreate(BaseModel):
 
 class EventEdit(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
+    # Official long-form title. `full_name` sets it; `clear_full_name` blanks it.
+    full_name: str | None = Field(default=None, max_length=255)
+    clear_full_name: bool = False
     description: str | None = None
     start_date: date | None = None
     end_date: date | None = None

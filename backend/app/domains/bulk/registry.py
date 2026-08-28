@@ -175,6 +175,9 @@ TABLES: dict[str, TableSpec] = {
         columns=[
             Column("id", "int", editable=False),
             Column("name", "str", required=True),
+            # The official long-form title the public Hall of Fame heads the
+            # record with; blank when `name` is the only name.
+            Column("full_name", "str"),
             Column("kind", ref="event_kind", attr="kind_id"),
             Column("description", "str"),
             Column("start_date", "date"),
@@ -198,6 +201,8 @@ TABLES: dict[str, TableSpec] = {
             Column("id", "int", editable=False),
             Column("category_id", "int", ref="event_category", required=True),
             Column("name", "str", required=True),
+            # Per-team placement published in the Hall of Fame, e.g. "🥇 1st Place".
+            Column("award", "str"),
         ],
     ),
     # NB: no "event_team_members" grid — that flat roster is unused; event
