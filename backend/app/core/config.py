@@ -22,10 +22,23 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
+    ]
+    # The public marketing site reads the /api/public/* Hall of Fame endpoint
+    # from the browser. These origins are ALWAYS allowed, unioned in on top of
+    # cors_origins — so a deploy-time CORS_ORIGINS override (which sets the
+    # portal frontend's own origins and would otherwise drop these) can never
+    # break the public site's read. Public, PII-free data only.
+    public_site_origins: list[str] = [
         "https://mindtechrobotics.com",
         "https://www.mindtechrobotics.com",
     ]
     frontend_url: str = "http://localhost:5173"
+
+    @property
+    def all_cors_origins(self) -> list[str]:
+        """cors_origins (possibly overridden per-deploy) unioned with the public
+        marketing-site origins, de-duplicated, order preserved."""
+        return list(dict.fromkeys([*self.cors_origins, *self.public_site_origins]))
 
     # Confirmation phrase for the destructive Rebuild-from-Sheets action — the
     # admin must type this exact string to commit. Change it per deployment.
