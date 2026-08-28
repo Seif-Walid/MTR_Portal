@@ -123,6 +123,12 @@ class EventTeamMember(Base):
         ForeignKey("event_teams.id", ondelete="CASCADE"), index=True
     )
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # The member's role *in this competition*, shown verbatim in the public Hall
+    # of Fame — free-form and specific to the event ("Electrical", "CEO", "Pilot
+    # · CTO", "GUI"). Distinct from User.department (the fixed org discipline):
+    # a person's competition credit is not their department. NULL means no role
+    # is shown for them on that team, matching how the roster records it.
+    role: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     team: Mapped[EventTeam] = relationship(back_populates="members")
     user = relationship("User", foreign_keys=[user_id], lazy="joined")

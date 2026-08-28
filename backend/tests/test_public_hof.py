@@ -60,8 +60,10 @@ def test_hall_of_fame_shape_and_filtering(client, db_session):
     team = EventTeam(category_id=cat.id, name="Sumo 1", award="🥇 1st Place")
     db.add(team)
     db.flush()
-    u = _member(db, "Ahmed Barakat", "electrical")
-    db.add(EventTeamMember(team_id=team.id, user_id=u.id))
+    # department is "mechanical" but the competition role is "Electrical" — the
+    # public role must be the per-membership role, never the department.
+    u = _member(db, "Ahmed Barakat", "mechanical")
+    db.add(EventTeamMember(team_id=team.id, user_id=u.id, role="Electrical"))
 
     # A discipline-less group: category name == team name -> sublabel is dropped.
     e2 = Event(
@@ -133,7 +135,7 @@ def test_hall_of_fame_leaks_no_pii(client, db_session):
     db.add(team)
     db.flush()
     u = _member(db, "Seif Walid", "software")
-    db.add(EventTeamMember(team_id=team.id, user_id=u.id))
+    db.add(EventTeamMember(team_id=team.id, user_id=u.id, role="Software"))
     db.commit()
 
     member = client.get("/api/public/hall-of-fame").json()[0]["groups"][0]["members"][0]
