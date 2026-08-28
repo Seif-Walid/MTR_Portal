@@ -70,11 +70,11 @@ EXPLICIT: dict[str, str] = {
     "Mostafa Mohamed Mostafa": "Mostafa mohamed mostafa Erakat",
     "Amr Khaled Mohamed": "Amr Khaled Mohamed",  # seated CTO (Pilot · CTO)
     "Osama El-Azab": "Osama Medhat",  # seated CEO (roster surname differs)
-    # Two accounts share the name "Yahya Hamdy Hassan" (#265, #310) — pin the
-    # owner-chosen one by email since the name can't disambiguate. Both roster
-    # spellings are the same competitor.
-    "Yahya Hamdy": "yahyahamdy@mtr.eg",
-    "Yahya Hamdy Hassan": "yahyahamdy@mtr.eg",
+    # "Yahya Hamdy Hassan" had a duplicate account; the owner deleted the
+    # @mtr.eg one and kept the gmail account. Pin by that surviving email (both
+    # roster spellings are the same competitor).
+    "Yahya Hamdy": "yahiahamdy2007@gmail.com",
+    "Yahya Hamdy Hassan": "yahiahamdy2007@gmail.com",
 }
 
 # A value containing "@" pins by email (portable across dev/prod, and the only
