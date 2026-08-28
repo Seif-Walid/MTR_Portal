@@ -41,6 +41,10 @@ class MemberOut(BaseModel):
 
     id: int
     user: UserBrief
+    # The member's role in this competition, shown in the public Hall of Fame
+    # (e.g. "Electrical", "CEO", "Pilot · CTO"). Free-form; distinct from the
+    # user's org department.
+    role: str | None = None
 
 
 class TeamOut(BaseModel):
@@ -48,6 +52,8 @@ class TeamOut(BaseModel):
 
     id: int
     name: str
+    # Per-team placement shown in the public Hall of Fame (e.g. "🥇 1st Place").
+    award: str | None = None
     roles: list[EntityRoleOut] = []
     members: list[MemberOut] = []
     can_manage_members: bool = False  # for the current user
@@ -74,6 +80,8 @@ class EventOut(EventBrief):
     start_date: date | None
     end_date: date | None
     created_at: datetime
+    # Competition-wide placements shown in the public Hall of Fame.
+    awards: list[str] | None = None
     kind: EventKindOut | None = None
     roles: list[EntityRoleOut] = []
     category_count: int = 0
@@ -108,6 +116,10 @@ class EventEdit(BaseModel):
     clear_start_date: bool = False
     clear_end_date: bool = False
     status: EventStatus | None = None
+    # Competition-wide Hall-of-Fame placements. `awards` replaces the whole list;
+    # `clear_awards` empties it (to NULL). Leave both unset to keep as-is.
+    awards: list[str] | None = None
+    clear_awards: bool = False
 
 
 class CategoryCreate(BaseModel):
@@ -125,8 +137,18 @@ class TeamCreate(BaseModel):
 
 class TeamEdit(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
+    # Per-team Hall-of-Fame placement. `award` sets it; `clear_award` blanks it.
+    award: str | None = Field(default=None, max_length=255)
+    clear_award: bool = False
 
 
 class MemberAdd(BaseModel):
     user_id: int
     role_root_position_id: int | None = None
+
+
+class MemberRoleEdit(BaseModel):
+    # The member's competition role for the Hall of Fame. `role` sets it;
+    # `clear_role` blanks it.
+    role: str | None = Field(default=None, max_length=100)
+    clear_role: bool = False

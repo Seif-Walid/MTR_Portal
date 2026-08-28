@@ -227,6 +227,7 @@ export interface EventBrief {
 export interface EventMember {
   id: number; // membership row id
   user: UserBrief;
+  role?: string | null; // competition role shown in the public Hall of Fame
 }
 
 export interface EntityRole {
@@ -239,6 +240,7 @@ export interface EntityRole {
 export interface EventTeam {
   id: number;
   name: string;
+  award?: string | null; // per-team placement shown in the public Hall of Fame
   roles: EntityRole[];
   members: EventMember[];
   can_manage_members: boolean;
@@ -255,6 +257,7 @@ export interface Event extends EventBrief {
   start_date: string | null;
   end_date: string | null;
   created_at: string;
+  awards?: string[] | null; // competition-wide placements shown in the public Hall of Fame
   kind: EventKind | null;
   roles: EntityRole[];
   category_count: number;
