@@ -8,6 +8,7 @@ import type {
   ArchivedEventDetail,
   ArchivedGroup,
   ArchivedTask,
+  ArchiveSummary,
 } from '../api/types';
 import { StatusTag } from '../components/tags';
 import TaskDrawer from '../components/TaskDrawer';
@@ -30,13 +31,46 @@ async function run(p: Promise<unknown>, ok: string, after: () => void) {
   }
 }
 
+/** The overview the public site heads its Hall of Fame with. Same numbers, same
+ * source — the site derives nothing of its own, so what a sponsor reads there
+ * is what a member reads here. */
+function Overview({ summary }: { summary: ArchiveSummary }) {
+  const stats: [string, number][] = [
+    ['Competitions entered', summary.competitions],
+    ['Seasons', summary.seasons],
+    ['Members fielded', summary.members_fielded],
+    ['🥇 1st Place', summary.gold],
+    ['🥈 2nd Place', summary.silver],
+    ['🥉 3rd Place', summary.bronze],
+    ['🏆 Special awards', summary.special],
+  ];
+  return (
+    <div
+      style={{
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 1,
+        background: 'rgba(120,170,230,.14)', border: '1px solid rgba(120,170,230,.14)',
+        borderRadius: 14, overflow: 'hidden', marginBottom: 22,
+      }}
+    >
+      {stats.map(([label, value]) => (
+        <div key={label} style={{ background: 'rgba(15,20,29,.55)', padding: '14px 16px' }}>
+          <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 24, lineHeight: 1, color: '#eaf2ff' }}>{value}</div>
+          <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(224,236,252,.45)', marginTop: 8 }}>{label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function EventList() {
   const [events, setEvents] = useState<ArchivedEvent[]>([]);
+  const [summary, setSummary] = useState<ArchiveSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
     api.get<ArchivedEvent[]>('/api/archive/events').then(setEvents).finally(() => setLoading(false));
+    api.get<ArchiveSummary>('/api/archive/summary').then(setSummary).catch(() => setSummary(null));
   }, []);
 
   const reactivate = async (id: number) => {
@@ -60,6 +94,7 @@ function EventList() {
         The record of past events, and the source the public site publishes from. Open one for its
         full roster and the tasks you took on.
       </p>
+      {summary && <Overview summary={summary} />}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
         {events.map((e) => (
           <div

@@ -186,6 +186,18 @@ export interface ArchivedEvent {
   can_manage?: boolean;
 }
 
+/** What the whole archived record adds up to — the headline the public site
+ * prints above its Hall of Fame, counted from the same events. */
+export interface ArchiveSummary {
+  competitions: number;
+  seasons: number;
+  members_fielded: number;
+  gold: number;
+  silver: number;
+  bronze: number;
+  special: number; // judged awards that name no placement
+}
+
 export interface ArchivedTask {
   outcome: 'accomplished' | 'incomplete';
   team_name: string;

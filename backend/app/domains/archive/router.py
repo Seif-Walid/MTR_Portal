@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.domains.auth.deps import DB, CurrentUser
-from app.domains.events.hall_of_fame import event_groups
+from app.domains.events.hall_of_fame import archived_competitions, event_groups, summary
 from app.domains.events.models import (
     Event,
     EventCategory,
@@ -125,6 +125,25 @@ def list_archived_events(db: DB, user: CurrentUser) -> list[ArchivedEventOut]:
     ).all()
     can = _can_manage_archive(db, user)
     return [_event_out(e, can) for e in events]
+
+
+class ArchiveSummaryOut(BaseModel):
+    """The headline the website prints above its Hall of Fame."""
+
+    competitions: int
+    seasons: int
+    members_fielded: int
+    gold: int
+    silver: int
+    bronze: int
+    special: int  # judged awards that name no placement, e.g. Best Documentation
+
+
+@router.get("/summary")
+def archive_summary(db: DB, user: CurrentUser) -> ArchiveSummaryOut:
+    """What the whole record adds up to — the same aggregate the public site
+    shows, counted from the archived competitions rather than kept by hand."""
+    return ArchiveSummaryOut(**summary(list(db.scalars(archived_competitions()).all())))
 
 
 def _can_manage_archive(db: DB, user: CurrentUser) -> bool:

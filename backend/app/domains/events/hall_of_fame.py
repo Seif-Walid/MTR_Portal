@@ -12,7 +12,44 @@ Everything here is PII-free by construction: a member contributes their public
 name and their verbatim competition role, nothing else.
 """
 
-from app.domains.events.models import Event, EventTeam, EventTeamMember
+import re
+
+from sqlalchemy import Select, select
+from sqlalchemy.orm import selectinload
+
+from app.domains.events.models import (
+    Event,
+    EventCategory,
+    EventKind,
+    EventStatus,
+    EventTeam,
+    EventTeamMember,
+)
+
+# The kind whose archived events make up the Hall of Fame. Training seasons and
+# R&D topics are internal — only competitions are part of the public record.
+COMPETITION_KIND_SLUG = "competition"
+
+
+def archived_competitions() -> Select[tuple[Event]]:
+    """Every archived competition, newest first, with its roster preloaded.
+
+    Shared so the public record and the portal's overview of it are the same
+    set of events by construction."""
+    return (
+        select(Event)
+        .join(EventKind, Event.kind_id == EventKind.id)
+        .where(
+            Event.status == EventStatus.ARCHIVED,
+            EventKind.slug == COMPETITION_KIND_SLUG,
+        )
+        .order_by(Event.start_date.desc().nullslast(), Event.name)
+        .options(
+            selectinload(Event.categories)
+            .selectinload(EventCategory.teams)
+            .selectinload(EventTeam.members)
+        )
+    )
 
 
 def _member_out(member: EventTeamMember, with_ids: bool) -> dict:
@@ -73,4 +110,68 @@ def record_out(event: Event) -> dict:
         "year": year_of(event),
         "awards": event.awards or None,
         "groups": event_groups(event),
+    }
+
+
+# ---------------------------------------------------------------------------
+# The overview: what the whole record adds up to.
+#
+# Awards are free-form strings written the way the team announces them
+# ("🥇 1st Place — Sumo 1", "🏆 Best Documentation Award"), at two levels: the
+# event (Event.awards) and the individual team (EventTeam.award). Counting them
+# is a projection like any other, so it lives here rather than being typed by
+# hand into the website — that copy drifted the moment a new medal was won.
+# ---------------------------------------------------------------------------
+
+# "1st Place", "2nd place", "3RD PLACE" — the placement inside an award string.
+_PLACEMENT = re.compile(r"\b(\d+)\s*(?:st|nd|rd|th)\b", re.IGNORECASE)
+
+
+def _placement(award: str) -> int | None:
+    """The finishing position an award announces, or None if it announces no
+    position at all (a named award like "Best Documentation")."""
+    match = _PLACEMENT.search(award)
+    return int(match.group(1)) if match else None
+
+
+def _awards_of(event: Event) -> list[str]:
+    """Every award the event won, at both levels. An event either carries its
+    placements itself or leaves them on its teams; counting both means neither
+    convention is silently worth nothing."""
+    return [*(event.awards or []), *(t["award"] for t in event_groups(event) if t["award"])]
+
+
+def summary(events: list[Event]) -> dict:
+    """What a set of Hall-of-Fame events adds up to: how much was entered, how
+    many people it took, and the medal tally.
+
+    `special` counts awards that name no placement — a judged award like Best
+    Documentation is a result, not a nothing, so it is never dropped. Placements
+    past the podium are counted in neither: they are visible on the record
+    itself, which is where they belong."""
+    names: set[str] = set()
+    years: set[int] = set()
+    medals = {"gold": 0, "silver": 0, "bronze": 0, "special": 0}
+    podium = {1: "gold", 2: "silver", 3: "bronze"}
+
+    for event in events:
+        year = year_of(event)
+        if year is not None:
+            years.add(year)
+        for group in event_groups(event):
+            for member in group["members"]:
+                # One person on three teams is one member fielded.
+                names.add(member["name"].strip().lower())
+        for award in _awards_of(event):
+            place = _placement(award)
+            if place is None:
+                medals["special"] += 1
+            elif place in podium:
+                medals[podium[place]] += 1
+
+    return {
+        "competitions": len(events),
+        "seasons": len(years),
+        "members_fielded": len(names),
+        **medals,
     }

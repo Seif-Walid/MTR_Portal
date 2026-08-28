@@ -14,24 +14,11 @@ the Archive so the two views can never drift.
 """
 
 from fastapi import APIRouter
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from app.core.database import DB
-from app.domains.events.hall_of_fame import record_out
-from app.domains.events.models import (
-    Event,
-    EventCategory,
-    EventKind,
-    EventStatus,
-    EventTeam,
-)
+from app.domains.events.hall_of_fame import archived_competitions, record_out, summary
 
 router = APIRouter(prefix="/public", tags=["public"])
-
-# The kind whose archived events make up the Hall of Fame. Training seasons and
-# R&D topics are internal — only competitions are shown publicly.
-COMPETITION_KIND_SLUG = "competition"
 
 
 @router.get("/hall-of-fame")
@@ -39,19 +26,13 @@ def hall_of_fame(db: DB) -> list[dict]:
     """Every archived competition, newest first, in the website's CompetitionRecord
     shape: {id, event, fullName, year, awards, groups[{label, sublabel, award,
     members[{name, role}]}]}. Unauthenticated and PII-free."""
-    events = db.scalars(
-        select(Event)
-        .join(EventKind, Event.kind_id == EventKind.id)
-        .where(
-            Event.status == EventStatus.ARCHIVED,
-            EventKind.slug == COMPETITION_KIND_SLUG,
-        )
-        .order_by(Event.start_date.desc().nullslast(), Event.name)
-        .options(
-            selectinload(Event.categories)
-            .selectinload(EventCategory.teams)
-            .selectinload(EventTeam.members)
-        )
-    ).all()
+    return [record_out(event) for event in db.scalars(archived_competitions()).all()]
 
-    return [record_out(event) for event in events]
+
+@router.get("/hall-of-fame/summary")
+def hall_of_fame_summary(db: DB) -> dict:
+    """What the record adds up to: competitions entered, seasons, members
+    fielded, and the medal tally — counted from the same archived competitions
+    /hall-of-fame returns, so the headline numbers can never disagree with the
+    records printed underneath them."""
+    return summary(list(db.scalars(archived_competitions()).all()))
