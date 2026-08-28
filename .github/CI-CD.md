@@ -26,12 +26,12 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 
 | Secret | Required | Example / notes |
 |---|---|---|
-| `VM_HOST` | ✅ | `130.110.17.255` or `mindtechrobotics.duckdns.org` |
+| `VM_HOST` | ✅ | `130.110.17.255` (use the raw IP, not the public hostname) |
 | `VM_USER` | ✅ | SSH user on the VM, e.g. `ubuntu` |
 | `VM_SSH_KEY` | ✅ | **base64** of the private key whose public half is in the VM's `~/.ssh/authorized_keys` — `base64 -w0 ~/.ssh/your_key` (base64 avoids the trailing-newline mangling that breaks a raw paste) |
 | `GOOGLE_CLIENT_SECRET` | ✅ | Google OAuth secret — the prod overlay refuses to start without it |
 | `VM_SSH_PORT` | optional | Defaults to `22` |
-| `SITE_ADDRESS` | optional | Defaults to `mindtechrobotics.duckdns.org` |
+| `SITE_ADDRESS` | optional | Defaults to `portal.mindtechrobotics.com` |
 | `VM_APP_DIR` | optional | Repo path on the VM, defaults to `~/MTR_Portal` |
 
 Generate a deploy key (run locally, add the public half on the VM):
@@ -63,7 +63,7 @@ Every push is also tagged `:<sha>`. To roll back on the VM:
 cd ~/MTR_Portal
 export BACKEND_IMAGE=ghcr.io/seif-walid/mtr_portal-backend:<good-sha>
 export FRONTEND_IMAGE=ghcr.io/seif-walid/mtr_portal-frontend:<good-sha>
-export SITE_ADDRESS=mindtechrobotics.duckdns.org GOOGLE_CLIENT_SECRET=…
+export SITE_ADDRESS=portal.mindtechrobotics.com GOOGLE_CLIENT_SECRET=…
 docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
