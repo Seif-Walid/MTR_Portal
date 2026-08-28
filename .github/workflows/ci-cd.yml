@@ -128,7 +128,7 @@ jobs:
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SITE_ADDRESS: ${{ secrets.SITE_ADDRESS || 'mindtechrobotics.duckdns.org' }}
+          SITE_ADDRESS: ${{ secrets.SITE_ADDRESS || 'portal.mindtechrobotics.com' }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_SHEETS_CREDENTIALS_B64: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS_B64 }}
           GOOGLE_SHEETS_SPREADSHEET_ID: ${{ secrets.GOOGLE_SHEETS_SPREADSHEET_ID }}

@@ -33,7 +33,7 @@
 
 // ---- CONFIG -----------------------------------------------------------------
 // Public portal URL (live sync only works against a public server, not localhost).
-var PORTAL_URL = 'https://mindtechrobotics.duckdns.org';
+var PORTAL_URL = 'https://portal.mindtechrobotics.com';
 // Must equal SHEETS_SYNC_TOKEN configured on the portal.
 var TOKEN = 'PASTE_YOUR_SHEETS_SYNC_TOKEN_HERE';
 // -----------------------------------------------------------------------------

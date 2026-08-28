@@ -1,27 +1,31 @@
 # Direct-HTTPS deployment (replaces Tailscale Funnel + Cloudflare Pages proxy)
 
-Goal: browser → `https://<host>.duckdns.org` → **the VM, one hop**. No relay, no
-double proxy, no third-party-cookie problem (frontend and API are same-origin).
+Goal: browser → `https://portal.mindtechrobotics.com` → **the VM, one hop**. No
+relay, no double proxy, no third-party-cookie problem (frontend and API are
+same-origin).
 
 Run everything below **on the Oracle VM** unless noted.
 
-## 1. Free stable hostname (DuckDNS)
+## 1. Public hostname (Cloudflare DNS, the `mindtechrobotics.com` zone)
 
-1. Go to https://www.duckdns.org, sign in (GitHub/Google), create a subdomain,
-   e.g. `mtrportal` → you get `mtrportal.duckdns.org`. Copy your **token**.
-2. Point it at the VM's public IP (either paste the IP on the DuckDNS page, or
-   run the updater once):
+The portal lives on a subdomain of the club domain; the apex serves the
+marketing site (Cloudflare Pages):
 
-   ```bash
-   curl "https://www.duckdns.org/update?domains=mtrportal&token=YOUR_TOKEN&ip="
-   ```
+```
+mindtechrobotics.com          -> marketing site  (Cloudflare Pages)
+portal.mindtechrobotics.com   -> portal          (this VM, one hop)
+```
 
-   (Empty `ip=` makes DuckDNS use the caller's public IP — run it from the VM.)
-3. Keep it current in case the VM's public IP changes (cron, every 5 min):
+| Type | Name   | Content          | Proxy status              |
+|------|--------|------------------|---------------------------|
+| A    | portal | 130.110.17.255   | **DNS only** (grey cloud) |
 
-   ```bash
-   ( crontab -l 2>/dev/null; echo '*/5 * * * * curl -s "https://www.duckdns.org/update?domains=mtrportal&token=YOUR_TOKEN&ip=" >/dev/null' ) | crontab -
-   ```
+> Must be **grey-cloud / DNS-only**. Caddy fetches its own Let's Encrypt cert on
+> the VM over ports 80/443; Cloudflare's orange-cloud proxy would intercept the
+> ACME challenge and terminate TLS itself.
+
+If the VM's public IP ever changes, edit that A record — it is a static record,
+there is no updater daemon to install.
 
 ## 2. Open ports 80 + 443
 
@@ -36,7 +40,7 @@ sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
 sudo netfilter-persistent save
 ```
 
-Verify from your laptop: `nc -vz mtrportal.duckdns.org 443` should connect.
+Verify from your laptop: `nc -vz portal.mindtechrobotics.com 443` should connect.
 
 ## 3. Deploy
 
@@ -44,7 +48,7 @@ Verify from your laptop: `nc -vz mtrportal.duckdns.org 443` should connect.
 cd ~/MTR_Portal          # wherever the repo lives on the VM
 git pull                 # picks up deploy/Caddyfile + docker-compose.prod.yml
 
-export SITE_ADDRESS=mtrportal.duckdns.org
+export SITE_ADDRESS=portal.mindtechrobotics.com
 
 # Google SSO: the Client ID is baked into docker-compose.prod.yml, but the
 # secret is never committed. Generate/copy it in Google Cloud Console
@@ -66,18 +70,24 @@ docker logs -f portal-caddy      # look for "certificate obtained successfully"
 
 ```bash
 curl -s -o /dev/null -w 'ttfb=%{time_starttransfer}s total=%{time_total}s\n' \
-  https://mtrportal.duckdns.org/api/auth/config
+  https://portal.mindtechrobotics.com/api/auth/config
 ```
 
-Then open `https://mtrportal.duckdns.org` in a browser, log in, confirm `/me` stays 200.
+Then open `https://portal.mindtechrobotics.com` in a browser, log in, confirm
+`/me` stays 200.
 
-## 5. Retire the old path
+## 5. Retire the old paths
 
-- Point people at `https://mtrportal.duckdns.org` (Cloudflare Pages can be deleted).
+- Point people at `https://portal.mindtechrobotics.com` (Cloudflare Pages for the
+  portal can be deleted; the marketing Pages project stays).
 - Turn off the Funnel so nothing depends on it:
   ```bash
   sudo tailscale funnel off
   ```
+- The former `mindtechrobotics.duckdns.org` host is retired — Caddy no longer
+  answers for it. See [SUBDOMAIN_CUTOVER.md](SUBDOMAIN_CUTOVER.md) for the
+  cutover history and the remaining external cleanup (DuckDNS record, old Google
+  redirect URI).
 - Optional code cleanup once you're happy: delete `frontend/functions/api/[[route]].ts`
   (the Pages proxy) — it's unused in this architecture.
 
