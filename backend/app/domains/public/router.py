@@ -31,15 +31,11 @@ router = APIRouter(prefix="/public", tags=["public"])
 COMPETITION_KIND_SLUG = "competition"
 
 
-def _role_of(department: str | None) -> str | None:
-    """A member's public technical role is their org department, title-cased
-    for display ("electrical" -> "Electrical"). No department -> no role shown."""
-    return department.title() if department else None
-
-
-def _member_out(name: str, department: str | None) -> dict:
-    # Only the two public fields. Anything else on the user/profile stays server-side.
-    return {"name": name, "role": _role_of(department)}
+def _member_out(name: str, role: str | None) -> dict:
+    # Only the two public fields. `role` is the member's verbatim competition
+    # role (EventTeamMember.role), NOT their department — competition credit is
+    # per-event and free-form. Everything else on the user/profile stays server-side.
+    return {"name": name, "role": role}
 
 
 def _year_of(event: Event) -> int | None:
@@ -86,7 +82,7 @@ def hall_of_fame(db: DB) -> list[dict]:
                         "sublabel": sublabel,
                         "award": team.award,
                         "members": [
-                            _member_out(m.user.full_name, m.user.department)
+                            _member_out(m.user.full_name, m.role)
                             for m in team.members
                         ],
                     }
