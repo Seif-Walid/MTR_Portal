@@ -32,6 +32,7 @@ from app.domains.events.schemas import (
     EventKindOut,
     MemberAdd,
     MemberOut,
+    MemberRoleEdit,
     TeamCreate,
     TeamEdit,
     TeamOut,
@@ -177,8 +178,12 @@ def _team_out(db: DB, comp: Event, team: EventTeam, can_manage: bool, user: User
     return TeamOut(
         id=team.id,
         name=team.name,
+        award=team.award,
         roles=_entity_roles_out(db, "team_created", "team", team.id, names, comp.kind_id),
-        members=[MemberOut(id=m.id, user=UserBrief.model_validate(m.user)) for m in team.members],
+        members=[
+            MemberOut(id=m.id, user=UserBrief.model_validate(m.user), role=m.role)
+            for m in team.members
+        ],
         can_manage_members=can_manage or can_manage_team(db, user, team),
     )
 
@@ -224,6 +229,7 @@ def _base_out(db: DB, comp: Event, manage: bool) -> dict:
     return dict(
         id=comp.id, name=comp.name, status=comp.status, description=comp.description,
         start_date=comp.start_date, end_date=comp.end_date, created_at=comp.created_at,
+        awards=comp.awards,
         kind=_kind_out(comp),
         roles=_entity_roles_out(db, "event_created", "event", comp.id, _names(comp), comp.kind_id),
         category_count=cats, team_count=teams, member_count=members, allocation_count=alloc,
@@ -333,6 +339,10 @@ def edit_team(team_id: int, payload: TeamEdit, db: DB, user: CurrentUser) -> Tea
             role_engine.retitle_positions_for_entity(
                 db, "membership", member.id, {**names, "member": member.user.full_name}
             )
+    if payload.clear_award:
+        team.award = None
+    elif payload.award is not None:
+        team.award = payload.award
     resync_managers(db)
     db.commit()
     db.refresh(team)
@@ -421,6 +431,33 @@ def remove_member(team_id: int, user_id: int, db: DB, user: CurrentUser) -> None
         db.commit()
 
 
+@router.patch("/teams/{team_id}/members/{user_id}")
+def edit_member_role(
+    team_id: int, user_id: int, payload: MemberRoleEdit, db: DB, user: CurrentUser
+) -> TeamOut:
+    """Set a member's competition role — the free-form credit shown in the public
+    Hall of Fame (e.g. "Electrical", "CEO", "Pilot · CTO"). Purely descriptive:
+    it does not touch the org role/position engine."""
+    team = _get_team(db, team_id)
+    comp = _team_event(team)
+    require_manage_team(db, user, team)
+    member = db.scalar(
+        select(EventTeamMember).where(
+            EventTeamMember.team_id == team_id,
+            EventTeamMember.user_id == user_id,
+        )
+    )
+    if member is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found on this team")
+    if payload.clear_role:
+        member.role = None
+    elif payload.role is not None:
+        member.role = payload.role
+    db.commit()
+    db.refresh(team)
+    return _team_out(db, comp, team, can_manage_team(db, user, team), user)
+
+
 # --- events ---------------------------------------------------------
 @router.get("")
 def list_events(
@@ -489,6 +526,10 @@ def edit_event(
                     )
     if payload.description is not None:
         comp.description = payload.description
+    if payload.clear_awards:
+        comp.awards = None
+    elif payload.awards is not None:
+        comp.awards = payload.awards
     status_changed = payload.status is not None and payload.status != comp.status
     if payload.status is not None:
         comp.status = payload.status
