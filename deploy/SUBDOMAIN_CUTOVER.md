@@ -1,6 +1,6 @@
 # Cutover: move the portal to `portal.mindtechrobotics.com`
 
-Today the portal answers on `mindtechrobotics.duckdns.org`; the marketing site
+The portal used to answer on `mindtechrobotics.duckdns.org`; the marketing site
 owns `mindtechrobotics.com` (Cloudflare Pages). This moves the portal onto a
 subdomain of the same brand domain, so the two apps share one domain:
 
@@ -12,7 +12,8 @@ portal.mindtechrobotics.com   -> portal          (the Oracle VM, one hop)
 Nothing in the code is hard-coded to the old host — Caddy, the backend
 `FRONTEND_URL`, the CORS origin and the Google redirect URI are all derived from
 `SITE_ADDRESS` at deploy time. So the cutover is DNS + Google + one redeploy.
-The duckdns host keeps working until you retire it, so this is zero-downtime.
+The duckdns host kept working through the transition, so this was zero-downtime;
+step 5 below records its retirement.
 
 ## 1. DNS (Cloudflare, the `mindtechrobotics.com` zone)
 
@@ -73,10 +74,22 @@ PORTAL_API_URL = https://portal.mindtechrobotics.com
 (`lib/roster.ts` reads this; it falls back to the bundled `roster.json` if unset.)
 Also update `.env.example` / `.env.local` in that repo for local dev parity.
 
-## 5. Retire the old host (optional, after a few days)
+## 5. Retire the old host — done
 
-Once `portal.mindtechrobotics.com` is verified and the website reads it, you can
-drop the DuckDNS updater cron and stop advertising the old URL. Keep the DuckDNS
-record a while as a fallback; Google's old redirect URI can be removed last.
-```
-```
+`mindtechrobotics.duckdns.org` is no longer served: it was removed from
+`deploy/Caddyfile`, so Caddy answers only for `SITE_ADDRESS`. Requests to the old
+name now fail TLS instead of loading the portal. There was never a DuckDNS
+updater cron on the VM, so nothing to uninstall there.
+
+External cleanup, done outside this repo:
+
+- **DuckDNS**: delete the `mindtechrobotics` domain at https://www.duckdns.org.
+- **Google Cloud Console** → the portal OAuth client: remove the old redirect URI
+  `https://mindtechrobotics.duckdns.org/api/auth/google/callback`. Keep only the
+  `portal.mindtechrobotics.com` one.
+- **Apps Script** (Sheets two-way mirror): re-paste `scripts/sheets_live_sync.gs`
+  or edit `PORTAL_URL` in the bound script — it pointed at the duckdns host and
+  would break sync otherwise.
+- **GitHub secrets**: `SITE_ADDRESS` must be `portal.mindtechrobotics.com`, and
+  `VM_HOST` must be the raw IP `130.110.17.255` (not the duckdns name, which no
+  longer resolves once the DuckDNS record is deleted).

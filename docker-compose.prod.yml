@@ -3,7 +3,7 @@
 # in a single hop. Replaces the Cloudflare Pages + Tailscale Funnel path.
 #
 # Usage on the VM:
-#   export SITE_ADDRESS=mtrportal.duckdns.org
+#   export SITE_ADDRESS=portal.mindtechrobotics.com
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 services:
   caddy:
@@ -23,7 +23,7 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      SITE_ADDRESS: ${SITE_ADDRESS:?Set SITE_ADDRESS to your public host, e.g. mtrportal.duckdns.org}
+      SITE_ADDRESS: ${SITE_ADDRESS:?Set SITE_ADDRESS to your public host, e.g. portal.mindtechrobotics.com}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
