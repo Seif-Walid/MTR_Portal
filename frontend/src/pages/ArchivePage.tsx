@@ -10,7 +10,7 @@ import type {
   ArchivedTask,
   ArchiveSummary,
 } from '../api/types';
-import { StatusTag } from '../components/tags';
+import { AwardTag, StatusTag } from '../components/tags';
 import TaskDrawer from '../components/TaskDrawer';
 
 const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
@@ -118,7 +118,7 @@ function EventList() {
             <div style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(224,236,252,.45)' }}>{fmtRange(e.start_date, e.end_date)}</div>
             {e.awards && e.awards.length > 0 && (
               <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {e.awards.map((a) => <Tag key={a} color="gold" style={{ margin: 0 }}>{a}</Tag>)}
+                {e.awards.map((a) => <AwardTag key={a} award={a} />)}
               </div>
             )}
             {e.can_manage && (
@@ -148,7 +148,7 @@ function AwardsEditor({ awards, canManage, onSave }: {
     if (list.length === 0) return null;
     return (
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 16 }}>
-        {list.map((a) => <Tag key={a} color="gold" style={{ margin: 0 }}>{a}</Tag>)}
+        {list.map((a) => <AwardTag key={a} award={a} />)}
       </div>
     );
   }
@@ -211,7 +211,7 @@ function Roster({ groups, canManage, onChanged }: {
                   {g.award || '🏆 Add placement'}
                 </Typography.Text>
               ) : (
-                g.award && <Tag color="gold" style={{ margin: 0 }}>{g.award}</Tag>
+                g.award && <AwardTag award={g.award} />
               )}
             </div>
             <ul style={{ listStyle: 'none', padding: 0, margin: '10px 0 0', display: 'grid', gap: 5 }}>

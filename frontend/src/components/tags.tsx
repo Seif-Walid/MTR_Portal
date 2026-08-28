@@ -41,6 +41,14 @@ const chip = (text: string, color: string) => (
   </span>
 );
 
+/* Archive placements ("🥇 1st Place — Sumo 1", "Best Documentation"). Podium
+   finishes carry the amber accent; everything below it sits back in steel so a
+   wall of awards still reads as a ranking. */
+export function AwardTag({ award }: { award: string }) {
+  const podium = /(^|\s)(1st|2nd|3rd)\b/i.test(award) || /[🥇🥈🥉🏆]/u.test(award);
+  return chip(award, podium ? C.amber : C.steel);
+}
+
 // Kept for the Tasks status filter <Select> (reads .label per key). Colours
 // mirror the chip meanings; every backend status is present, incl. approved.
 export const STATUS_META: Record<TaskStatus, { label: string; color: string }> = {

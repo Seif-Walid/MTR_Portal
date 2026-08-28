@@ -6,6 +6,7 @@ import { api, ApiError } from '../api/client';
 import type { EventDetail, EntityRole, RoleRoot, UserBrief } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import PositionPicker from './PositionPicker';
+import { AwardTag } from './tags';
 
 function opts(users: UserBrief[]) {
   return users.map((u) => ({ value: u.id, label: `${u.full_name} (${u.email})` }));
@@ -66,7 +67,7 @@ function AwardsEditor({ awards, canManage, onSave }: {
     return (
       <Space wrap size={4} style={{ marginBottom: 8 }}>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>Awards:</Typography.Text>
-        {list.map((a) => <Tag key={a} color="gold">{a}</Tag>)}
+        {list.map((a) => <AwardTag key={a} award={a} />)}
       </Space>
     );
   }
@@ -95,7 +96,7 @@ function AwardField({ value, canManage, onSave }: {
   onSave: (award: string) => void;
 }) {
   if (!canManage) {
-    return value ? <Tag color="gold" style={{ marginBottom: 6 }}>{value}</Tag> : null;
+    return value ? <div style={{ marginBottom: 6 }}><AwardTag award={value} /></div> : null;
   }
   return (
     <div style={{ marginBottom: 6 }}>
