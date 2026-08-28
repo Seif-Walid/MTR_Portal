@@ -1,11 +1,14 @@
-# Terminates HTTPS for the public hostname and hands everything to the
+# Terminates HTTPS for the public hostname(s) and hands everything to the
 # existing frontend nginx container, which already serves the SPA and
 # reverse-proxies /api/ to the backend on the same origin.
 #
-# SITE_ADDRESS is injected from the environment (e.g. mtrportal.duckdns.org).
-# With a bare hostname (no scheme) Caddy automatically provisions and renews
-# a Let's Encrypt certificate and redirects HTTP -> HTTPS.
-{$SITE_ADDRESS} {
+# SITE_ADDRESS is the canonical public host (portal.mindtechrobotics.com),
+# injected from the environment. mindtechrobotics.duckdns.org is kept as a
+# transitional alias so the old URL keeps working during the subdomain cutover
+# (zero-downtime); remove it once duckdns is retired. With a bare hostname (no
+# scheme) Caddy automatically provisions and renews a Let's Encrypt certificate
+# for each name and redirects HTTP -> HTTPS.
+{$SITE_ADDRESS}, mindtechrobotics.duckdns.org {
 	encode zstd gzip
 	reverse_proxy frontend:80
 }
