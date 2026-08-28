@@ -21,6 +21,63 @@ async function run(p: Promise<unknown>, ok: string, after: () => void) {
   }
 }
 
+/** Competition-wide placements (event.awards) shown in the public Hall of Fame.
+ * Free-form chips — type a placement and press enter; ✕ removes one. */
+function AwardsEditor({ awards, canManage, onSave }: {
+  awards: string[] | null | undefined;
+  canManage: boolean;
+  onSave: (awards: string[]) => void;
+}) {
+  const list = awards ?? [];
+  if (!canManage) {
+    if (list.length === 0) return null;
+    return (
+      <Space wrap size={4} style={{ marginBottom: 8 }}>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>Awards:</Typography.Text>
+        {list.map((a) => <Tag key={a} color="gold">{a}</Tag>)}
+      </Space>
+    );
+  }
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        Hall of Fame — competition awards
+      </Typography.Text>
+      <Select
+        mode="tags"
+        style={{ width: '100%', maxWidth: 560, marginTop: 4 }}
+        placeholder="e.g. 🥇 1st Place — Sumo, Best Documentation"
+        value={list}
+        open={false}
+        tokenSeparators={[',']}
+        onChange={(v: string[]) => onSave(v.map((s) => s.trim()).filter(Boolean))}
+      />
+    </div>
+  );
+}
+
+/** A single per-team placement (team.award), inline-editable. */
+function AwardField({ value, canManage, onSave }: {
+  value: string | null | undefined;
+  canManage: boolean;
+  onSave: (award: string) => void;
+}) {
+  if (!canManage) {
+    return value ? <Tag color="gold" style={{ marginBottom: 6 }}>{value}</Tag> : null;
+  }
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <Typography.Text
+        type={value ? undefined : 'secondary'}
+        style={{ fontSize: 13 }}
+        editable={{ tooltip: 'Set placement', text: value ?? '', onChange: (val) => onSave(val.trim()) }}
+      >
+        {value || '🏆 Add placement'}
+      </Typography.Text>
+    </div>
+  );
+}
+
 function RolesEditor({ roles, dir, canManage, onChanged }: {
   roles: EntityRole[];
   dir: UserBrief[];
@@ -127,15 +184,53 @@ function TeamCard({ team, dir, canManageComp, isAdmin, onChanged }: {
         )
       }
     >
+      <AwardField
+        value={team.award}
+        canManage={canManageComp}
+        onSave={(award) =>
+          run(
+            api.patch(`/api/events/teams/${team.id}`, award ? { award } : { clear_award: true }),
+            'Placement updated',
+            onChanged,
+          )
+        }
+      />
       <RolesEditor roles={team.roles} dir={dir} canManage={canManageComp} onChanged={onChanged} />
       <Divider style={{ margin: '8px 0' }} />
-      <Space wrap size={[6, 6]}>
+      <Space direction="vertical" size={4} style={{ width: '100%' }}>
         {team.members.length === 0 && <Typography.Text type="secondary">No members yet.</Typography.Text>}
         {team.members.map((m) => (
-          <Tag key={m.id} closable={canMembers}
-            onClose={(e) => { e.preventDefault(); run(api.delete(`/api/events/teams/${team.id}/members/${m.user.id}`), 'Removed', onChanged); }}>
-            {m.user.full_name}
-          </Tag>
+          <Space key={m.id} size={6} align="center" wrap>
+            <Typography.Text>{m.user.full_name}</Typography.Text>
+            {/* Competition role shown in the public Hall of Fame — inline editable. */}
+            <Typography.Text
+              type={m.role ? 'secondary' : undefined}
+              style={{ fontSize: 12 }}
+              editable={canMembers ? {
+                tooltip: 'Set role',
+                text: m.role ?? '',
+                onChange: (val) => {
+                  const role = val.trim();
+                  run(
+                    api.patch(
+                      `/api/events/teams/${team.id}/members/${m.user.id}`,
+                      role ? { role } : { clear_role: true },
+                    ),
+                    'Role updated',
+                    onChanged,
+                  );
+                },
+              } : false}
+            >
+              {m.role ? `· ${m.role}` : (canMembers ? '· add role' : '')}
+            </Typography.Text>
+            {canMembers && (
+              <Button
+                size="small" type="text" danger icon={<DeleteOutlined />}
+                onClick={() => run(api.delete(`/api/events/teams/${team.id}/members/${m.user.id}`), 'Removed', onChanged)}
+              />
+            )}
+          </Space>
         ))}
       </Space>
       {canMembers && (
@@ -207,6 +302,18 @@ export default function EventDetailPanel({ eventId, onChanged }: {
   return (
     <div style={{ padding: '4px 8px' }}>
       {detail.description && <Typography.Paragraph type="secondary">{detail.description}</Typography.Paragraph>}
+
+      <AwardsEditor
+        awards={detail.awards}
+        canManage={canManage}
+        onSave={(awards) =>
+          run(
+            api.patch(`/api/events/${eventId}`, awards.length ? { awards } : { clear_awards: true }),
+            'Awards updated',
+            refresh,
+          )
+        }
+      />
 
       <RolesEditor roles={detail.roles} dir={dir} canManage={canManage} onChanged={refresh} />
 
