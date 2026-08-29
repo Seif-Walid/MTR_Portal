@@ -178,8 +178,11 @@ def archive_template(db: Session, template_id: int) -> None:
     the thing that must never be touched. Vacant positions this template
     produced are just future-placeholder seats no one holds, so they're removed
     (keeping them would clutter the tree with the seats of a role the admin
-    just deleted); any live position chained under a removed vacant seat
-    splices up on the next resync.
+    just deleted); anything parented under a removed vacant seat is spliced up
+    to that seat's own parent right here, rather than left to a global resync
+    (which would re-derive — and so move — positions this deletion has no
+    business touching) or to the FK's ON DELETE SET NULL (which would float
+    the children to the top of the org tree).
 
     The template row is kept (archived=True) so the surviving occupied
     positions keep a valid role_template_id — they stay role-template-managed
@@ -192,8 +195,12 @@ def archive_template(db: Session, template_id: int) -> None:
     if template is None or template.archived:
         return
     for pos in db.scalars(select(Position).where(Position.role_template_id == template_id)):
-        if not pos.occupant_links:  # vacant placeholder — no assignment to lose
-            db.delete(pos)
+        if pos.occupant_links:  # real people sit here — leave it exactly as it is
+            continue
+        for child in db.scalars(select(Position).where(Position.parent_id == pos.id)):
+            child.parent_id = pos.parent_id
+        db.flush()
+        db.delete(pos)
     template.archived = True
     template.sort_order = None
     db.flush()
@@ -365,6 +372,13 @@ def resync_position_parent(
         # resolved: don't re-derive it (its sort_order is None anyway, and the
         # whole point of archiving is to leave existing seats untouched).
         if pos.role_template is None or pos.role_template.archived:
+            continue
+        # ...and so is a position sitting *under* one of those survivors:
+        # re-deriving would splice it past the archived seat (which
+        # list_templates no longer returns), silently reshaping structure that
+        # already exists. Deleting a role governs future seating only.
+        if pos.parent is not None and pos.parent.role_template is not None \
+                and pos.parent.role_template.archived:
             continue
         new_parent_id, blocked = _find_chain_parent(
             db, before_order=pos.role_template.sort_order, lineage=lineage, kind_id=kind_id

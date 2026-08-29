@@ -249,8 +249,10 @@ def edit_role_template(
 @router.delete("/roles/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_role_template(template_id: int, db: DB, user: CurrentUser) -> None:
     _require_org_manager(db, user)
+    # No resync_all here on purpose: deleting a role must not re-derive — and
+    # so move — positions that already exist. archive_template splices out
+    # exactly the vacant seats it removes and leaves everything else put.
     role_engine.delete_template(db, template_id)
-    resync_all_role_positions(db)
     resync_managers(db)
     db.commit()
 

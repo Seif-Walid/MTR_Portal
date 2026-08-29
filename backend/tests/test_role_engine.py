@@ -429,3 +429,58 @@ def test_deleting_a_template_keeps_its_occupied_seats(login, org):
     fresh = _comp(login, root=root, name="Fresh")
     assert fresh["roles"] == []
     assert "Fresh PM" not in _tree_by_title(login)
+
+
+def test_deleting_a_template_leaves_the_existing_tree_under_it_alone(login, org):
+    """The seats *below* a deleted role's surviving seats must not move either
+    — splicing them up to the grandparent would flatten real, existing org
+    structure. A deleted role governs future seating only."""
+    pm = _template(login, title="{event} PM", event="event_created", level="Lead")
+    coach = _template(login, title="{team} Coach", event="team_created")
+    lead = _template(login, title="{team} Lead", event="team_created")
+    root = ensure_position(login("admin"))
+    comp = _comp(login, root=root, name="Frozen")
+    seat_role(login("admin"), comp, [org["cto"].id])
+    cat = login("cto").post(f"/api/events/{comp['id']}/categories", json={"name": "Senior"}).json()
+    team = _team(login, cat["id"], name="Team")
+
+    # occupy the coach seat, so deleting its template keeps the position
+    coach_pos = next(r["position_id"] for r in team["roles"] if r["title"] == "Team Coach")
+    login("admin").put(f"/api/org/roles/positions/{coach_pos}/occupants", json={"user_ids": [org["cto"].id]})
+
+    assert login("admin").delete(f"/api/org/roles/templates/{coach['id']}").status_code == 204
+    tree = _tree_by_title(login)
+    assert tree["Team Lead"]["parent_id"] == tree["Team Coach"]["id"]  # not spliced up to the PM
+
+    # and a later chain edit elsewhere doesn't retroactively splice it either
+    login("admin").patch(f"/api/org/roles/templates/{lead['id']}", json={"sort_order": 1})
+    tree = _tree_by_title(login)
+    assert tree["Team Lead"]["parent_id"] == tree["Team Coach"]["id"]
+
+
+def test_deleting_a_template_never_orphans_a_seat_to_the_top(login, org):
+    """A vacant seat that gets removed splices its children onto its own
+    parent — including children the resync would never revisit (positions of
+    an already-archived template), which the FK's SET NULL would otherwise
+    float to the top level of the org tree."""
+    pm = _template(login, title="{event} PM", event="event_created", level="Lead")
+    coach = _template(login, title="{team} Coach", event="team_created")
+    lead = _template(login, title="{team} Lead", event="team_created")
+    root = ensure_position(login("admin"))
+    comp = _comp(login, root=root, name="Orphan")
+    seat_role(login("admin"), comp, [org["cto"].id])
+    cat = login("cto").post(f"/api/events/{comp['id']}/categories", json={"name": "Senior"}).json()
+    team = _team(login, cat["id"], name="Team")
+
+    # occupy the *lead* seat and delete its template first: that seat survives,
+    # frozen under the (still vacant) coach seat
+    lead_pos = next(r["position_id"] for r in team["roles"] if r["title"] == "Team Lead")
+    login("admin").put(f"/api/org/roles/positions/{lead_pos}/occupants", json={"user_ids": [org["cto"].id]})
+    assert login("admin").delete(f"/api/org/roles/templates/{lead['id']}").status_code == 204
+
+    # now delete the coach template: its vacant seat goes, and the frozen lead
+    # seat under it must land on the PM, not at the root of the tree
+    assert login("admin").delete(f"/api/org/roles/templates/{coach['id']}").status_code == 204
+    tree = _tree_by_title(login)
+    assert "Team Coach" not in tree
+    assert tree["Team Lead"]["parent_id"] == tree["Orphan PM"]["id"]
