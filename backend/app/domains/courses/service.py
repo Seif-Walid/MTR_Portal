@@ -216,6 +216,12 @@ def replace_bundle(db: Session, course: Course, files: dict[str, bytes]) -> dict
     return {"files": len(files), "materials_added": added, "materials_removed": removed}
 
 
+def material_sort_key(m: CourseMaterial) -> tuple:
+    """Shelf order: week 1 before week 7, whatever order the files were added
+    in. Items with no unit sit after the numbered ones, in their own order."""
+    return (m.unit is None, m.unit or 0, m.sort_order, m.id or 0)
+
+
 def _next_order(course: Course) -> int:
     return max((m.sort_order for m in course.materials), default=-1) + 1
 

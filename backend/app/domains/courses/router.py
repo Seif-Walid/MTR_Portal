@@ -107,7 +107,7 @@ def get_course(course_id: int, db: DB, user: CurrentUser) -> dict:
     course = service.visible_course(db, user, course_id)
     manage = service.can_manage(db, user)
     done = service.completed_ids(db, user, course.id)
-    mats = sorted(course.materials, key=lambda m: (m.sort_order, m.id))
+    mats = sorted(course.materials, key=service.material_sort_key)
     out = _course_out(course, _released(course), done)
     out["materials"] = [_material_out(m, done, manage) for m in mats]
     out["can_manage"] = manage
