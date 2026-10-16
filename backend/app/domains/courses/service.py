@@ -24,6 +24,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.domains.access import service as access
+from app.domains.courses import preview
 from app.domains.courses.models import (
     Course,
     CourseFile,
@@ -61,7 +62,7 @@ COVER_DIR = "_cover"
 UPLOAD_DIR = "_uploads"
 # Files that belong to the course rather than to its bundle: a bundle
 # re-upload never touches them.
-OWN_PREFIXES = (f"{COVER_DIR}/", f"{UPLOAD_DIR}/")
+OWN_PREFIXES = (f"{COVER_DIR}/", f"{UPLOAD_DIR}/", f"{preview.PREVIEW_DIR}/")
 
 MAX_BUNDLE_BYTES = 200 * 1024 * 1024
 MAX_BUNDLE_FILES = 5000
@@ -246,14 +247,40 @@ def store_upload(db: Session, course: Course, kind: str, filename: str, data: by
     return path
 
 
+def make_preview(db: Session, course: Course, source_path: str, data: bytes) -> str | None:
+    """Renders an office file to a cached PDF so the viewer can show it inline,
+    stored as a companion file. Returns its path, or None when the file needs
+    no rendition or LibreOffice couldn't make one (then it falls back to a
+    download). Replaces any rendition already stored for `source_path`."""
+    if not preview.can_preview(source_path):
+        return None
+    pdf = preview.to_pdf(data, source_path)
+    if pdf is None:
+        return None
+    rpath = preview.preview_path(source_path)
+    db.execute(delete(CourseFile).where(CourseFile.course_id == course.id, CourseFile.path == rpath))
+    db.add(CourseFile(course_id=course.id, path=rpath, media_type="application/pdf",
+                      size=len(pdf), content=pdf))
+    return rpath
+
+
+def drop_preview(db: Session, course: Course, source_path: str | None) -> None:
+    """Removes a file's cached PDF rendition, if it has one."""
+    if source_path:
+        db.execute(delete(CourseFile).where(
+            CourseFile.course_id == course.id, CourseFile.path == preview.preview_path(source_path)))
+
+
 def add_material(
     db: Session, course: Course, kind: str, *, title: str | None, unit_label: str | None,
     filename: str | None = None, data: bytes | None = None, url: str | None = None,
 ) -> CourseMaterial:
     """Puts one file or one link onto a shelf. Title and unit default to what
     the file says about itself (its <title>, a "week3" in its name)."""
+    preview_path = None
     if data is not None:
         path = store_upload(db, course, kind, filename or "file", data)
+        preview_path = make_preview(db, course, path, data)
         auto_title = _title_of(path, data)
         unit, auto_label = _unit_of(filename or path)
     else:
@@ -264,7 +291,8 @@ def add_material(
         unit = int(m.group()) if m else None
     material = CourseMaterial(
         kind=kind, title=(title or "").strip() or auto_title or "Untitled",
-        path=path, external_url=url, unit=unit, unit_label=unit_label or auto_label,
+        path=path, preview_path=preview_path, external_url=url, unit=unit,
+        unit_label=unit_label or auto_label,
         sort_order=_next_order(course), is_released=kind != MaterialKind.ANSWERS,
     )
     course.materials.append(material)
@@ -277,7 +305,9 @@ def replace_material_file(db: Session, course: Course, material: CourseMaterial,
     in place; a bundle page or a link becomes an uploaded file."""
     if material.path and material.path.startswith(f"{UPLOAD_DIR}/"):
         drop_file(db, course, material.path)
+    drop_preview(db, course, material.path)
     material.path = store_upload(db, course, material.kind, filename, data)
+    material.preview_path = make_preview(db, course, material.path, data)
     material.external_url = None
     db.flush()
 
@@ -287,6 +317,7 @@ def drop_file(db: Session, course: Course, path: str | None) -> None:
     bundle may link to them."""
     if path and path.startswith(f"{UPLOAD_DIR}/"):
         db.execute(delete(CourseFile).where(CourseFile.course_id == course.id, CourseFile.path == path))
+    drop_preview(db, course, path)
 
 
 # --- access ------------------------------------------------------------------
@@ -309,6 +340,30 @@ def completed_ids(db: Session, user: User, course_id: int) -> set[int]:
         .join(CourseMaterial, CourseMaterial.id == CourseProgress.material_id)
         .where(CourseProgress.user_id == user.id, CourseMaterial.course_id == course_id)
     ))
+
+
+def backfill_previews(db: Session) -> dict:
+    """Builds the cached PDF rendition for every office-file material that has
+    none yet, for files uploaded before previews existed. Run once after
+    deploying; safe to re-run — it only touches materials still missing one."""
+    made = failed = 0
+    rows = db.scalars(select(CourseMaterial).where(
+        CourseMaterial.path.is_not(None), CourseMaterial.preview_path.is_(None))).all()
+    for m in rows:
+        if not preview.can_preview(m.path):
+            continue
+        cf = db.scalar(select(CourseFile).where(
+            CourseFile.course_id == m.course_id, CourseFile.path == m.path))
+        if cf is None:
+            continue
+        rpath = make_preview(db, db.get(Course, m.course_id), m.path, cf.content)
+        if rpath:
+            m.preview_path = rpath
+            made += 1
+            db.commit()
+        else:
+            failed += 1
+    return {"made": made, "failed": failed}
 
 
 def file_count(db: Session, course_id: int) -> int:

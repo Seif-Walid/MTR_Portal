@@ -482,7 +482,7 @@ function MaterialViewer({ courseId, materialId }: { courseId: number; materialId
           {m.completed ? 'Done' : 'Mark done'}
         </Button>
       </div>
-      {m.is_link || !inline(m.media_type) ? (
+      {m.is_link || (!inline(m.media_type) && !m.preview_url) ? (
         <div
           style={{
             flex: 1, display: 'grid', placeItems: 'center', textAlign: 'center',
@@ -504,7 +504,15 @@ function MaterialViewer({ courseId, materialId }: { courseId: number; materialId
       ) : (
       <iframe
         key={m.id}
-        src={m.url}
+        // An office file is shown through its cached PDF rendition. For any PDF
+        // (a real one or a rendition), strip the browser's built-in reader chrome
+        // (toolbar, side panes) so the page sits flush in our own frame instead
+        // of looking like a nested tab.
+        src={m.preview_url
+          ? `${m.preview_url}#toolbar=0&navpanes=0&statusbar=0&view=FitH`
+          : m.media_type === 'application/pdf'
+            ? `${m.url}#toolbar=0&navpanes=0&statusbar=0&view=FitH`
+            : m.url}
         title={m.title}
         allow="fullscreen; clipboard-write"
         allowFullScreen

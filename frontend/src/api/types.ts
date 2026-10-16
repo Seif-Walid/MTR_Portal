@@ -717,6 +717,7 @@ export interface CourseMaterial {
   path: string | null; // managers only
   is_link: boolean;
   media_type: string | null; // files only
+  preview_url: string | null; // PDF rendition of an office file, shown inline
   unit: number | null;
   unit_label: string | null;
   sort_order: number;

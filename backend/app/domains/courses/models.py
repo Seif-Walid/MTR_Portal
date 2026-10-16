@@ -89,6 +89,9 @@ class CourseMaterial(Base):
     kind: Mapped[str] = mapped_column(String(20))
     title: Mapped[str] = mapped_column(String(300))
     path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # A cached PDF rendition of an office file (its `_previews/….pdf` path), so
+    # the viewer can show it inline; NULL when the file needs no rendition.
+    preview_path: Mapped[str | None] = mapped_column(String(600), nullable=True)
     external_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     unit: Mapped[int | None] = mapped_column(Integer, nullable=True)
     unit_label: Mapped[str | None] = mapped_column(String(100), nullable=True)

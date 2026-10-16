@@ -14,7 +14,7 @@ from app.core.config import settings
 from app.domains.access import service as access
 from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, CurrentUser
-from app.domains.courses import service
+from app.domains.courses import preview, service
 from app.domains.courses.models import Course, CourseFile, CourseMaterial, CourseProgress, MaterialKind
 
 router = APIRouter(prefix="/courses", tags=["courses"])
@@ -72,6 +72,8 @@ def _material_out(m: CourseMaterial, done: set[int], manage: bool) -> dict:
         "path": m.path if manage else None,
         "is_link": bool(m.external_url),
         "media_type": service.media_type_of(m.path) if m.path else None,
+        # A cached PDF rendition of an office file, shown inline in the viewer.
+        "preview_url": _file_url(m.course_id, m.preview_path) if (m.preview_path and open_) else None,
         "unit": m.unit,
         "unit_label": m.unit_label,
         "sort_order": m.sort_order,
@@ -332,8 +334,10 @@ def get_file(course_id: int, path: str, db: DB, user: CurrentUser) -> Response:
     ../book/week2.html) resolve inside this same prefix."""
     course = service.visible_course(db, user, course_id)
     if not service.can_manage(db, user):
+        # A rendition is gated by the file it renders, not by its own path.
+        gate = preview.source_of(path) or path
         held = db.scalar(select(CourseMaterial.id).where(
-            CourseMaterial.course_id == course.id, CourseMaterial.path == path,
+            CourseMaterial.course_id == course.id, CourseMaterial.path == gate,
             CourseMaterial.is_released.is_(False)))
         if held is not None:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "This material hasn't been released yet")
