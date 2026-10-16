@@ -5,6 +5,8 @@ import {
   EditOutlined,
   ExportOutlined,
   FileOutlined,
+  FullscreenExitOutlined,
+  FullscreenOutlined,
   LeftOutlined,
   LinkOutlined,
   LockOutlined,
@@ -32,7 +34,7 @@ import {
   message,
 } from 'antd';
 import type { UploadFile } from 'antd';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
@@ -429,6 +431,22 @@ function MaterialViewer({ courseId, materialId }: { courseId: number; materialId
   const navigate = useNavigate();
   const kinds = useKinds();
   const [course, setCourse] = useState<CourseDetail | null>(null);
+  const viewerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(document.fullscreenElement === viewerRef.current);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      viewerRef.current?.requestFullscreen().catch(() => {});
+    }
+  };
 
   const load = useCallback(() => {
     api.get<CourseDetail>(`/api/courses/${courseId}`).then(setCourse).catch((e) => {
@@ -459,7 +477,16 @@ function MaterialViewer({ courseId, materialId }: { courseId: number; materialId
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: 'calc(100vh - 170px)', minHeight: 520 }}>
+    <div
+      ref={viewerRef}
+      style={{
+        display: 'flex', flexDirection: 'column', gap: 12,
+        height: isFullscreen ? '100vh' : 'calc(100vh - 170px)',
+        minHeight: isFullscreen ? undefined : 520,
+        background: isFullscreen ? C.bgVoid : undefined,
+        padding: isFullscreen ? 16 : undefined,
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate(`/courses/${course.id}`)} style={{ color: C.textMuted }}>
           {course.title}
@@ -472,6 +499,12 @@ function MaterialViewer({ courseId, materialId }: { courseId: number; materialId
         </div>
         <Button icon={<LeftOutlined />} disabled={!prev} onClick={() => go(prev)} aria-label="Previous" />
         <Button icon={<RightOutlined />} disabled={!next} onClick={() => go(next)} aria-label="Next" />
+        <Button
+          icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+          onClick={toggleFullscreen}
+          aria-label={isFullscreen ? 'Exit full screen' : 'Full screen'}
+          title={isFullscreen ? 'Exit full screen' : 'Full screen'}
+        />
         <Button icon={<ExportOutlined />} href={m.url} target="_blank" rel="noopener">Open in new tab</Button>
         <Button
           type={m.completed ? 'default' : 'primary'}
