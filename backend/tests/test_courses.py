@@ -213,3 +213,37 @@ def test_bundle_reupload_keeps_shelf_uploads(login, course):
     titles = {m["title"] for m in admin.get(f"/api/courses/{course}").json()["materials"]}
     assert {"Extra", "example.com"} <= titles
     assert admin.get(f"/api/courses/{course}/files/_uploads/tools/extra.pdf").status_code == 200
+
+
+def test_office_file_gets_inline_pdf_preview(login, grant):
+    """An uploaded office file is rendered to a cached PDF the viewer shows
+    inline; a held-back one's rendition is refused to learners like its source.
+    Skipped where LibreOffice isn't installed (e.g. CI without it)."""
+    from app.domains.courses import preview
+    if not preview.available():
+        pytest.skip("LibreOffice not installed")
+
+    grant("Member", "courses.view")
+    admin, member = login("admin"), login("comp_member")
+    cid = admin.post("/api/courses", data={"title": "Office"}).json()["id"]
+    csv = b"name,score\nAla,10\nBob,7\n"
+
+    slides = admin.post(f"/api/courses/{cid}/materials",
+                        data={"kind": "slides"},
+                        files={"file": ("grades.csv", csv, "text/csv")}).json()
+    assert slides["preview_url"] and slides["preview_url"].endswith(".pdf")
+    # the rendition serves as a real PDF, inline to learners
+    r = member.get(slides["preview_url"])
+    assert r.status_code == 200 and r.content[:5] == b"%PDF-"
+    assert r.headers["content-type"].startswith("application/pdf")
+
+    # a held-back office file's rendition is refused to learners, same as its source
+    admin.post(f"/api/courses/{cid}/materials",
+               data={"kind": "answers"},
+               files={"file": ("key.csv", csv, "text/csv")})
+    seen = next(m for m in member.get(f"/api/courses/{cid}").json()["materials"]
+                if m["kind"] == "answers")
+    assert seen["preview_url"] is None  # not surfaced to the learner while held back
+    rendition = f"/api/courses/{cid}/files/_previews/_uploads/answers/key.csv.pdf"
+    assert member.get(rendition).status_code == 403
+    assert admin.get(rendition).status_code == 200
