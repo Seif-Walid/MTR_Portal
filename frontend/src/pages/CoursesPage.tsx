@@ -569,8 +569,17 @@ function ShelfStager({
         <Upload
           multiple
           showUploadList={false}
-          beforeUpload={(f) => {
-            onChange([...items, { uid: stagedUid(), kind: kind.key, file: f as File, title: '', unit_label: '' }]);
+          beforeUpload={(f, batch) => {
+            // antd calls this once per file; the whole selection arrives as
+            // `batch`, so queue it all on the first call and skip the rest —
+            // adding one at a time would read a stale `items` each round.
+            if (f !== batch[0]) return false;
+            onChange([
+              ...items,
+              ...batch.map((b) => ({
+                uid: stagedUid(), kind: kind.key, file: b as File, title: '', unit_label: '',
+              })),
+            ]);
             return false;
           }}
         >
