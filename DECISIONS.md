@@ -830,3 +830,35 @@ button); the detail panel labels categories/teams from `detail.kind`. An
 "Event types" manager (org.edit) adds/renames/deletes kinds inline. The
 role-template form got a "Fires for" picker (a kind, or every kind), and each
 automatic-role node in the org tree shows a kind tag.
+
+## The member database and the books move into the portal; Google Sheets is retired
+
+- **Why.** The member database and the finance books lived in two Google
+  Sheets workbooks held together with formulas and IMPORTRANGE. The team
+  decided the portal's own database is the single source of truth, so both
+  were modelled as portal tables and every Google Sheets integration (the
+  inventory mirror, Rebuild-from-Sheets, the bulk editor's Open-in-Sheets /
+  pull / webhook, the Apps Script live mirror, the `sheet_exports` table and
+  the service-account settings) was removed. Tables still download as Excel.
+- **The roster is its own entity.** `MemberProfile` no longer requires an
+  account: members without a Gmail are roster-only, and an account created
+  later for an email the roster knows claims that row. The roster keeps its
+  own name/email; the account's name stays the public (Hall of Fame) name.
+- **Participations are separate from team rosters.** `EventParticipation`
+  is the full record of who registered for / took part in what (trainings and
+  recruitment included). The curated `EventTeamMember` rosters stay what the
+  public Hall of Fame shows, so importing the record can't change the site.
+- **Computed, never stored.** Every value the workbook computed with a
+  formula (needed qty, FMV, net, dues maturity / discount / fee / balance,
+  cash balances, the projection, the dashboard) is computed on read in
+  `finance/service.py`. The projected-dues funding line is derived from the
+  dues roster instead of hand-typed segment counts.
+- **Data vs code.** Pick-lists (methods, categories, subsystems, …) are one
+  admin-editable `finance_options` table; tiers and loyalty discounts are
+  per-season rows. Only states the math branches on (Secured/Expected,
+  Owed/Paid, Active/Withdrawn, EGP/USD) are fixed in code.
+- **Editing reuses the bulk grid.** Each finance table is a bulk-registry
+  spec (gated by `finance.edit`), so the Finance page embeds the same
+  autosaving grid as Data Tables; the registry gained number columns,
+  computed read-only columns, labels, and filtered references (a pick-list
+  is a filtered view of the shared options table).

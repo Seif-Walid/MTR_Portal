@@ -26,8 +26,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # Picks up backend/.env if you have one (Google/Sheets creds, custom
-    # ORG_NAME, SEED_ADMIN_* overrides, ...) — the two lines below always
+    # Picks up backend/.env if you have one (Google sign-in creds,
+    # SEED_ADMIN_* overrides, ...) — the two lines below always
     # win over it, since the container topology needs them regardless of
     # what's in a .env written for local (non-Docker) dev.
     env_file:

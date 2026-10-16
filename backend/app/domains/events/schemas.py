@@ -92,6 +92,11 @@ class EventOut(EventBrief):
     member_count: int = 0
     allocation_count: int = 0
     can_manage: bool = False  # for the current user
+    # The event record (the member database's Events sheet): code, level,
+    # organizer, result, counts, recorded budget … — only the fields that are set.
+    code: str | None = None
+    record: dict[str, str | int | float] = {}
+    participation_count: int = 0
 
 
 class EventDetailOut(EventOut):

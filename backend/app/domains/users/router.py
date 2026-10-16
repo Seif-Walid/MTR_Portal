@@ -10,6 +10,7 @@ from app.domains.auth.deps import DB, CurrentUser
 from app.domains.hierarchy.service import taskable_user_ids
 from app.domains.positions.models import Position, PositionOccupant
 from app.domains.users.models import MemberProfile, User
+from app.domains.users.roster import profile_for_new_account
 from app.domains.users.schemas import (
     MemberProfileIn,
     MemberProfileOut,
@@ -113,16 +114,18 @@ def _apply_profile(db: DB, user: User, data: MemberProfileIn) -> None:
         return
     mtr_id = fields.get("mtr_id")
     if mtr_id:
+        own_id = user.profile.id if user.profile is not None else None
         clash = db.scalar(
             select(MemberProfile).where(
-                MemberProfile.mtr_id == mtr_id, MemberProfile.user_id != user.id
+                MemberProfile.mtr_id == mtr_id,
+                MemberProfile.id != own_id if own_id is not None else True,
             )
         )
         if clash is not None:
             raise HTTPException(status.HTTP_409_CONFLICT, "MTR ID already in use")
     profile = user.profile
     if profile is None:
-        profile = MemberProfile(user_id=user.id)
+        profile = profile_for_new_account(db, user.email)
         user.profile = profile
         db.add(profile)
     for field, value in fields.items():
@@ -144,7 +147,8 @@ def create_user(payload: UserCreate, db: DB, actor: CurrentUser) -> UserAdminOut
         full_name=payload.full_name,
         hashed_password=hash_password(payload.password),
         access_level_id=payload.access_level_id,
-        profile=MemberProfile(),  # every account is a member — roster row starts empty
+        # every account is a member — claims its roster row if the roster knows the email
+        profile=profile_for_new_account(db, email),
     )
     db.add(user)
     db.commit()

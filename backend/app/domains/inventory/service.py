@@ -8,7 +8,7 @@ from app.domains.users.models import User
 
 
 def can_manage_inventory(db: Session, user: User) -> bool:
-    """inventory.edit: create, edit, delete, allocate, import, sync."""
+    """inventory.edit: create, edit, delete, allocate, import."""
     return access.has_privilege(db, user, "inventory.edit")
 
 

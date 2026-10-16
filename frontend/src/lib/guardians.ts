@@ -1,7 +1,7 @@
 // Guardian numbers live in the single `guardian_phone` roster cell as a
 // comma-separated list, each entry optionally tagged with a kinship label in
 // parentheses, e.g. `01000000000 (Father), 01111111111 (Uncle), 01222222222`.
-// Keeping it one flat text cell means the bulk editor, Sheets mirror and roster
+// Keeping it one flat text cell means the bulk editor and roster
 // importer still treat it as ordinary text.
 
 export type GuardianKind = 'father' | 'mother' | 'other' | '';

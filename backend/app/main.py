@@ -10,6 +10,9 @@ from app.domains.calendar.router import router as calendar_router
 from app.domains.dashboard.router import router as dashboard_router
 from app.domains.auth.router import router as auth_router
 from app.domains.events.router import router as events_router
+from app.domains.explorer.router import router as explorer_router
+from app.domains.finance.router import router as finance_router
+from app.domains.members.router import router as members_router
 from app.domains.hierarchy.router import router as team_router
 from app.domains.inventory.requests_router import router as inventory_requests_router
 from app.domains.inventory.router import router as inventory_router
@@ -17,7 +20,6 @@ from app.domains.notifications.router import router as notifications_router
 from app.domains.positions.router import router as positions_router
 from app.domains.public.router import router as public_router
 from app.domains.requests.router import router as requests_router
-from app.domains.sync.router import router as sync_router
 from app.domains.tasks.router import router as tasks_router
 from app.domains.timeblocks.router import router as timeblocks_router
 from app.domains.users.router import router as users_router
@@ -32,7 +34,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Future modules (finance) mount here as sibling domain routers sharing auth,
+# Every domain mounts here as a sibling router sharing auth,
 # users and the hierarchy permission layer.
 for domain_router in (
     auth_router,
@@ -49,9 +51,11 @@ for domain_router in (
     inventory_requests_router,
     inventory_router,
     events_router,
+    explorer_router,
+    finance_router,
+    members_router,
     positions_router,
     audit_router,
-    sync_router,
     bulk_router,
     calendar_router,
     dashboard_router,

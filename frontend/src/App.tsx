@@ -1,13 +1,16 @@
 import { Spin } from 'antd';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
-import { useAuth } from './auth/AuthContext';
+import { can, useAuth } from './auth/AuthContext';
 import AppLayout from './components/AppLayout';
 import AdminUsersPage from './pages/AdminUsersPage';
 import ArchivePage from './pages/ArchivePage';
 import BulkDataPage from './pages/BulkDataPage';
 import AuditLogPage from './pages/AuditLogPage';
 import EventsPage from './pages/EventsPage';
+import FinancePage from './pages/FinancePage';
+import ExplorerPage from './pages/ExplorerPage';
+import MembersPage from './pages/MembersPage';
 import HomePage from './pages/HomePage';
 import InventoryPage from './pages/InventoryPage';
 import LoginPage from './pages/LoginPage';
@@ -36,6 +39,13 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route path="/home" element={<HomePage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route
+            path="/explore/*"
+            element={can(me, 'dashboard.view') ? <ExplorerPage /> : <Navigate to="/home" replace />}
+          />
+          <Route path="/insights" element={<Navigate to="/explore" replace />} />
+          <Route path="/members" element={<MembersPage />} />
+          <Route path="/finance" element={<FinancePage />} />
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/inventory" element={<InventoryPage />} />

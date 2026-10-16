@@ -24,8 +24,5 @@ class TableSummary(BaseModel):
     row_count: int
     append_only: bool
     read_only: bool = False
-
-
-class SheetWebhookRequest(BaseModel):
-    tab: str  # the worksheet/table key, e.g. "inventory_items"
-    row: dict = {}  # one row keyed by column name; id blank = insert
+    group: str = "Core"
+    description: str = ""

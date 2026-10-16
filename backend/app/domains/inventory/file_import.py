@@ -1,6 +1,5 @@
-"""Parse an uploaded .xlsx/.csv into the same (headers, rows) shape the
-Google Sheet importer produces, so both sources feed the same column-mapping
-UI and the same import logic. No Google credentials required."""
+"""Parse an uploaded .xlsx/.csv into a (headers, rows) shape the column-mapping
+UI and the inventory import logic consume."""
 
 import csv
 import io

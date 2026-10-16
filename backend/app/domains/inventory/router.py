@@ -9,7 +9,7 @@ from app.domains.audit.service import log as audit_log
 from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.events.models import Event
-from app.domains.inventory import file_import, sheets, stock
+from app.domains.inventory import file_import, stock
 from app.domains.inventory.models import (
     Condition,
     InventoryAllocation,
@@ -22,9 +22,6 @@ from app.domains.inventory.schemas import (
     AllocationEdit,
     BulkAllocationCreate,
     FileImportPreviewOut,
-    ImportPreviewOut,
-    ImportPreviewRequest,
-    ImportRequest,
     ImportResult,
     ItemBrief,
     ItemCreate,
@@ -91,42 +88,7 @@ def item_directory(db: DB, user: CurrentUser) -> list[ItemBrief]:
     return [ItemBrief.model_validate(i) for i in items]
 
 
-@router.get("/sheets/status")
-def sheets_status(db: DB, user: CurrentUser) -> dict[str, bool]:
-    """Google Sheets capabilities: `configured` gates the Sync button (needs a
-    default target sheet); `credentials` gates Import (needs only the key)."""
-    return {
-        "configured": sheets.is_configured(),
-        "credentials": sheets.credentials_available(),
-        "can_sync": can_manage_inventory(db, user),
-    }
-
-
-@router.post("/sync")
-def sync_to_sheets(db: DB, user: CurrentUser) -> dict[str, object]:
-    require_manage(db, user)
-    if not sheets.is_configured():
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Google Sheets sync is not configured on the server.",
-        )
-    items = list(db.scalars(select(InventoryItem).order_by(InventoryItem.name)).unique())
-    try:
-        result = sheets.push_inventory(items)
-    except Exception as exc:  # noqa: BLE001 — surface the sync failure to the user
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Sync failed: {exc}") from exc
-    return result
-
-
-# --- import from a Google Sheet ------------------------------------------
-def _require_credentials() -> None:
-    if not sheets.credentials_available():
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Google Sheets is not configured on the server (service-account key missing).",
-        )
-
-
+# --- import from an uploaded .xlsx/.csv ---------------------------------
 def _parse_int(value: str, default: int = 1) -> int:
     text = (value or "").strip().replace(",", "")
     try:
@@ -192,41 +154,6 @@ def _import_rows(
     return ImportResult(created=created, updated=updated, skipped=skipped, errors=errors)
 
 
-@router.post("/import/preview")
-def import_preview(payload: ImportPreviewRequest, db: DB, user: CurrentUser) -> ImportPreviewOut:
-    """Read a sheet's headers + first rows so the UI can map columns."""
-    require_manage(db, user)
-    _require_credentials()
-    spreadsheet_id = sheets.parse_spreadsheet_id(payload.source)
-    try:
-        headers, rows = sheets.read_worksheet(spreadsheet_id, payload.worksheet)
-    except Exception as exc:  # noqa: BLE001 — surface read failures to the user
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Could not read the sheet: {exc}") from exc
-    return ImportPreviewOut(
-        spreadsheet_id=spreadsheet_id,
-        worksheet=payload.worksheet,
-        headers=headers,
-        rows=rows[:15],
-        total=len(rows),
-    )
-
-
-@router.post("/import")
-def import_items(payload: ImportRequest, db: DB, user: CurrentUser) -> ImportResult:
-    """Create (or upsert) inventory items from a Google Sheet. The portal takes
-    over as the source of truth once imported."""
-    require_manage(db, user)
-    _require_credentials()
-    if not payload.mapping.get("name"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Map a column to the item name.")
-    team_lead_id = _resolve_user(db, payload.team_lead_id, "Team lead")
-    try:
-        _, rows = sheets.read_worksheet(payload.spreadsheet_id, payload.worksheet)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Could not read the sheet: {exc}") from exc
-    return _import_rows(db, rows, payload.mapping, team_lead_id, payload.upsert)
-
-
 def _read_upload(file: UploadFile) -> bytes:
     data = file.file.read(settings.max_upload_mb * 1024 * 1024 + 1)
     if len(data) > settings.max_upload_mb * 1024 * 1024:
@@ -244,8 +171,7 @@ def import_file_preview(
     file: UploadFile,
     sheet: str | None = Form(None),
 ) -> FileImportPreviewOut:
-    """Read an uploaded .xlsx/.csv's headers + first rows — no Google Sheets
-    credentials needed. For workbooks with multiple tabs, omit `sheet` to get
+    """Read an uploaded .xlsx/.csv's headers + first rows. For workbooks with multiple tabs, omit `sheet` to get
     the first one plus the full tab list, then re-call with a chosen tab."""
     require_manage(db, user)
     data = _read_upload(file)

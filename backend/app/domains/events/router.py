@@ -13,6 +13,7 @@ from app.domains.events.models import (
     EventTeam,
     EventTeamMember,
     EventKind,
+    EventParticipation,
 )
 from app.domains.events.role_sync import (
     lineage_for_event,
@@ -235,7 +236,37 @@ def _base_out(db: DB, comp: Event, manage: bool) -> dict:
         roles=_entity_roles_out(db, "event_created", "event", comp.id, _names(comp), comp.kind_id),
         category_count=cats, team_count=teams, member_count=members, allocation_count=alloc,
         can_manage=manage,
+        code=comp.code,
+        record={k: getattr(comp, k) for k in RECORD_FIELDS if getattr(comp, k) not in (None, "")},
+        participation_count=db.scalar(
+            select(func.count()).select_from(EventParticipation).where(EventParticipation.event_id == comp.id)
+        ) or 0,
     )
+
+
+# The event-record columns surfaced on the event card, in display order.
+RECORD_FIELDS = [
+    "level", "organizer", "location", "tracks", "result", "registered_count",
+    "participants_count", "teams_count", "mentors", "captains", "contact",
+    "budget_total", "actual_spend", "currency", "funding_source", "prep_date",
+    "competition_days", "registration_form", "roster_source", "notes",
+]
+
+
+@router.get("/{event_id}/participations")
+def event_participations(event_id: int, db: DB, user: CurrentUser) -> list[dict]:
+    """Everyone the member database records as taking part in this event."""
+    access.require_privilege(db, user, "members.view")
+    rows = db.scalars(select(EventParticipation).where(EventParticipation.event_id == event_id))
+    out = [
+        {
+            "id": p.id, "member_id": p.member_id, "mtr_id": p.member.mtr_id, "name": p.member.display_name,
+            "role": p.role, "team": p.team, "mentor": p.mentor, "rating": p.rating,
+            "registered_at": p.registered_at,
+        }
+        for p in rows
+    ]
+    return sorted(out, key=lambda r: (r["team"] or "~", r["name"].lower()))
 
 
 def _list_out(db: DB, user: User, comp: Event) -> EventOut:

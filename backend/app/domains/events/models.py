@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from enum import StrEnum
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -65,6 +65,35 @@ class Event(Base):
     # for events that have no overall award (or per-team awards instead, see
     # EventTeam.award). Public API surfaces this verbatim.
     awards: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+
+    # --- the event record (the member database's Events sheet) ---------------
+    # A short stable code the roster and the finance books key events by,
+    # e.g. "ROV26", "GT-S3". Unique when set.
+    code: Mapped[str | None] = mapped_column(String(30), unique=True, index=True, nullable=True)
+    level: Mapped[str | None] = mapped_column(String(100), nullable=True)  # National / International …
+    organizer: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    tracks: Mapped[str | None] = mapped_column(Text, nullable=True)  # categories / tracks entered
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)  # placement summary
+    registered_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    participants_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    teams_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mentors: Mapped[str | None] = mapped_column(Text, nullable=True)
+    captains: Mapped[str | None] = mapped_column(Text, nullable=True)
+    contact: Mapped[str | None] = mapped_column(String(255), nullable=True)  # MTR contact
+    # Recorded totals for events whose books predate the portal's finance
+    # module. Events with budget lines / spendings in the finance books show
+    # those live figures instead (see finance.service.event_money).
+    budget_total: Mapped[float | None] = mapped_column(Numeric(14, 2, asdecimal=False), nullable=True)
+    actual_spend: Mapped[float | None] = mapped_column(Numeric(14, 2, asdecimal=False), nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    funding_source: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    registration_form: Mapped[str | None] = mapped_column(Text, nullable=True)
+    roster_source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prep_date: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    competition_days: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -137,3 +166,30 @@ class EventTeamMember(Base):
 
     team: Mapped[EventTeam] = relationship(back_populates="members")
     user = relationship("User", foreign_keys=[user_id], lazy="joined")
+
+
+class EventParticipation(Base):
+    """One member's part in one event — the member database's Participations
+    sheet: who registered for / took part in what, in which role and team,
+    under which mentor, and how they were rated. This is the full participation
+    record (trainings and recruitment included); the curated team rosters above
+    (EventTeamMember) remain what the public Hall of Fame shows."""
+
+    __tablename__ = "event_participations"
+    __table_args__ = (UniqueConstraint("event_id", "member_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[int] = mapped_column(
+        ForeignKey("events.id", ondelete="CASCADE"), index=True
+    )
+    member_id: Mapped[int] = mapped_column(
+        ForeignKey("member_profiles.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[str | None] = mapped_column(String(255), nullable=True)  # role / field
+    team: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mentor: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    rating: Mapped[str | None] = mapped_column(String(50), nullable=True)  # free-form score
+    registered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    event: Mapped[Event] = relationship(lazy="joined")
+    member = relationship("MemberProfile", lazy="joined")

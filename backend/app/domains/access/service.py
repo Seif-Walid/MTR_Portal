@@ -32,6 +32,11 @@ PRIVILEGES: list[tuple[str, str]] = [
     ("org.view", "View organization"),
     ("org.edit", "Edit organization"),
     ("people.view", "View team & directory"),
+    ("members.view", "View member roster"),
+    ("members.edit", "Edit member roster"),
+    ("finance.view", "View finances"),
+    ("finance.edit", "Edit finances"),
+    ("dashboard.view", "View the data dashboard"),
     ("users.manage", "Manage users"),
     ("audit.view", "View audit log"),
 ]

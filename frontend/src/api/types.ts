@@ -7,6 +7,9 @@ export interface UserBrief {
 
 export interface MemberProfile {
   mtr_id: string | null;
+  guardian_kinship?: string | null;
+  joined_at?: string | null;
+  data_confidence?: string | null;
   national_id: string | null;
   birthday: string | null; // ISO date
   university: string | null;
@@ -296,6 +299,9 @@ export interface Event extends EventBrief {
   member_count: number;
   allocation_count: number;
   can_manage: boolean;
+  code?: string | null;
+  record?: Record<string, string | number>;
+  participation_count?: number;
 }
 
 export interface EventDetail extends Event {
@@ -392,20 +398,6 @@ export interface InventoryItem {
   updated_at: string;
 }
 
-export interface SheetsStatus {
-  configured: boolean; // has a default push target (drives Sync)
-  credentials: boolean; // has a service-account key (drives Import)
-  can_sync: boolean;
-}
-
-export interface ImportPreview {
-  spreadsheet_id: string;
-  worksheet: string | null;
-  headers: string[];
-  rows: Record<string, string>[];
-  total: number;
-}
-
 export interface ImportResult {
   created: number;
   updated: number;
@@ -472,34 +464,6 @@ export interface AuditEntry {
   created_at: string;
 }
 
-export interface SheetExportStatus {
-  tab: string;
-  row_count: number;
-  is_dirty: boolean;
-  last_synced_at: string | null;
-  last_error: string;
-}
-
-export interface RebuildReport {
-  ok: boolean;
-  tab_counts: Record<string, number>;
-  errors: string[];
-  would_delete: Record<string, number>;
-  committed: boolean;
-  snapshot_path: string | null;
-  batch_id: number | null;
-}
-
-export interface RebuildBatch {
-  id: number;
-  status: 'dry_run' | 'succeeded' | 'failed';
-  tab_counts: string; // JSON
-  errors: string; // JSON
-  snapshot_path: string;
-  started_at: string;
-  finished_at: string | null;
-}
-
 export interface AppNotification {
   id: number;
   type: string;
@@ -558,4 +522,171 @@ export interface CalendarItem {
   kind: string | null;
   detail: string | null;
   overdue: boolean;
+}
+
+// --- finance books ----------------------------------------------------------
+export interface FinanceSeasonBrief {
+  id: number;
+  name: string;
+  status: string;
+  start_date: string | null;
+  end_date: string | null;
+  usd_rate: number;
+}
+
+export interface CashMatrix {
+  methods: { id: number | null; name: string }[];
+  rows: { party_id: number; name: string; cells: Record<string, number>; total: number }[];
+  totals: Record<string, number>;
+  total: number;
+}
+
+export interface FinanceDashboard {
+  seasons: FinanceSeasonBrief[];
+  season_id: number | null;
+  kpis: {
+    plan_needed: number;
+    plan_fmv: number;
+    spent: number;
+    dues_collected: number;
+    funding_secured: number;
+    funding_expected: number;
+    cash_on_hand: number;
+    projected_dues: number;
+    dues_coverage: number;
+    gap: number;
+    owed: number;
+  };
+  per_season: { season_id: number; season: string; fmv: number; needed: number; spent: number; left: number; status: string }[];
+  by_subsystem: { name: string; fmv: number; needed: number }[];
+  by_category: { name: string; needed: number; spent: number }[];
+  by_event: { name: string; needed: number; spent: number }[];
+  monthly: { month: string; collected: number; spent: number }[];
+  funding: { source: string; type: string | null; amount: number; status: string; season_id: number }[];
+  cash: CashMatrix;
+}
+
+export interface DuesRow {
+  enrollment_id: number;
+  member_id: number;
+  name: string;
+  mtr_id: string | null;
+  tier: string;
+  joined_at: string | null;
+  maturity: number;
+  maturity_overridden: boolean;
+  discount: number;
+  monthly_fee: number;
+  status: string;
+  months_due: number;
+  monthly: Record<string, number>;
+  paid: number;
+  expected: number;
+  balance: number;
+  note: string | null;
+}
+
+export interface DuesLedger {
+  season: FinanceSeasonBrief;
+  months: string[];
+  rows: DuesRow[];
+  projection: {
+    tier: string; discount: number; base: number; monthly_fee: number; months: number;
+    one_time_fee: number; members: number; projected: number;
+  }[];
+  totals: {
+    members: number; active: number; projected: number; collected: number; expected: number;
+    balance: number; unenrolled_paid: number; by_month: Record<string, number>;
+  };
+}
+
+export interface EventMoney {
+  has_books: boolean;
+  planned_fmv: number;
+  planned_needed: number;
+  spent: number;
+  budget_lines: number;
+}
+
+// --- member roster ----------------------------------------------------------
+export interface RosterMember {
+  id: number;
+  mtr_id: string | null;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  university: string | null;
+  college: string | null;
+  major: string | null;
+  graduating_year: number | null;
+  location: string | null;
+  joined_at: string | null;
+  data_confidence: string | null;
+  has_account: boolean;
+  account_active: boolean | null;
+  events: string[];
+}
+
+export interface Participation {
+  id: number;
+  event_id: number;
+  event_name: string;
+  event_code: string | null;
+  event_kind: string | null;
+  event_start: string | null;
+  role: string | null;
+  team: string | null;
+  mentor: string | null;
+  rating: string | null;
+  registered_at: string | null;
+}
+
+export interface RosterMemberDetail extends RosterMember {
+  full_name: string | null;
+  national_id: string | null;
+  birthday: string | null;
+  guardian_phone: string | null;
+  guardian_kinship: string | null;
+  uni_id: string | null;
+  source_records: number | null;
+  review_note: string | null;
+  account_email: string | null;
+  participations: Participation[];
+}
+
+export interface DuplicateHit {
+  id: number;
+  mtr_id: string | null;
+  name: string;
+  matched_on: string[];
+}
+
+export interface RosterStats {
+  totals: {
+    members: number; unnumbered: number; with_account: number; roster_only: number; needs_review: number;
+    participations: number; active_members: number; graduating_soon: number;
+  };
+  by_university: { name: string; count: number }[];
+  by_major: { name: string; count: number }[];
+  by_location: { name: string; count: number }[];
+  by_graduating_year: { name: string; count: number }[];
+  by_confidence: { name: string; count: number }[];
+  joins_by_month: { month: string; count: number }[];
+  activity: { events: number; members: number }[];
+  events: {
+    id: number; name: string; code: string | null; kind: string | null; start_date: string | null;
+    status: string; participants: number; result: string | null;
+  }[];
+}
+
+export interface EventParticipant {
+  id: number;
+  member_id: number;
+  mtr_id: string | null;
+  name: string;
+  role: string | null;
+  team: string | null;
+  mentor: string | null;
+  rating: string | null;
+  registered_at: string | null;
 }

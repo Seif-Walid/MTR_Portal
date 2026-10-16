@@ -38,6 +38,9 @@ The privilege vocabulary (`GET /api/access/privileges`, defined in
 | Tasks | `tasks.use` · `tasks.assign` · `tasks.assign_any` |
 | Organization | `org.view` · `org.edit` |
 | People | `people.view` · `users.manage` |
+| Members | `members.view` · `members.edit` |
+| Finance | `finance.view` · `finance.edit` |
+| Dashboard | `dashboard.view` |
 | Audit | `audit.view` |
 
 - **Seats carry the power.** Every org position (real seat or automatic role) has an
@@ -107,8 +110,7 @@ Access is a straight privilege check, not a hierarchy walk:
   **whole storage** — every item, its allocations, whereabouts and history.
 - **Without any of those, nothing is visible** — item lookups 404 rather than leak that
   an item exists.
-- **`inventory.edit`** is the management grant: create, edit, delete, allocate, import,
-  and push to Sheets. **`inventory.approve`** covers approving requests and moving stock;
+- **`inventory.edit`** is the management grant: create, edit, delete, allocate and import. **`inventory.approve`** covers approving requests and moving stock;
   **`inventory.request`** lets someone ask for units without seeing the controls.
 
 Capacity is guarded server-side: you can't allocate more than is free, and you can't
@@ -150,7 +152,7 @@ Authority is **scoped to the event and derived from seats**, never from a job ti
 
 Events carry an official **`full_name`**, optional **awards**, and an **archived** status.
 An event-purpose inventory allocation links to an event (its name flows to the Holdings
-matrix and Sheets); an event referenced by an allocation can't be deleted — archive it
+matrix); an event referenced by an allocation can't be deleted — archive it
 instead.
 
 ### Automatic roles (the role-chain engine)
@@ -200,99 +202,106 @@ that span (`weekday_mask`, bit *i* = Python weekday, Monday = 0). Blocks are exp
 calendar items on read; no per-day rows are stored. Schedule them from **My Teams** →
 TimeBlockPanel.
 
-## People & profiles
+## Members — the roster (`/members`)
 
-Every account has an optional **MemberProfile** roster row (kept in its own table so `User`
-stays the lean identity/access record): MTR id, national id, birthday, university, college,
-major, graduating year, phone, guardian phone(s), university id, location. Every field is
-optional — the source roster data is patchy. People edit their own from `/profile`
-(`PUT /api/auth/me/profile`); `users.manage` can edit anyone's from User Management or the
-Data Tables grid. **My Teams** (`/team`) shows the org subtree and the event teams a person
-belongs to, with per-status task counts.
+The member database lives in the portal. Each member is a **roster record**
+(`MemberProfile`) with the member database's columns: MTR ID, name, Gmail, phone,
+national ID, birthday, governorate, university, college, major, college ID, graduating
+year, guardian's number + kinship, first registration, data confidence and a review note.
+A member may or may not have a **portal account**: anyone with a Gmail on the roster gets
+one (and signs in with Google), members without one stay **roster-only**; when an account
+is later created for an email the roster already knows, it claims that roster row (MTR ID,
+participations and dues follow). People edit their own fields from `/profile`.
+
+- **Members page** — searchable/filterable directory, a detail drawer with every event the
+  member took part in, inline edit, and **Add member**: the next free MTR ID is filled in
+  and a live duplicate check (same name / phone / Gmail) warns before you add someone twice.
+- **Participations** — one row per (member × event): role / field, team, mentor, rating,
+  registration time. Shown on the member, and on the event card ("Show the N participants").
+- **Events** carry the member database's event record too: an Event ID code (`ROV26`),
+  level, organizer, location, tracks, result, registered / participant / team counts,
+  mentors, captains, contact, recorded budget / spend, funding source, notes. Edit them in
+  Data Tables → Events. The curated Hall-of-Fame rosters (team members + awards) are
+  separate and unchanged.
+- Gated by `members.view` (directory, stats) and `members.edit` (add / edit / remove).
+
+## Finance — the books (`/finance`)
+
+The team's finances, formerly a spreadsheet, as portal tables. Every figure the sheet used
+to compute with formulas is computed on read, never stored:
+
+| Tab | What it holds | Computed |
+|---|---|---|
+| Budget | planned purchases per season / event / subsystem / category, EGP or USD | unit EGP (season USD rate), total & needed qty, FMV, needed cost |
+| Spendings | money actually spent, who paid, by which method | net |
+| Dues | tiers & loyalty discounts per season, the dues roster, the payments log | maturity (years since first registration), discount, fee, monthly paid grid, expected, balance, projection by segment |
+| Funding & payables | grants / sponsors / carry-overs (expected or secured); money owed | — |
+| Cash | transfers between holders (blank *from* = opening balance) | balance per holder × method: transfers in − out − fees − spendings paid + dues received |
+| Setup | seasons, people & entities (cash holders, suppliers, sponsors), pick-lists | — |
+
+The **Overview** tab is the finance dashboard: still-needed plan, spent, dues collected vs
+projected, funding secured, cash on hand and the gap (plan − funding − projected dues), plan
+by subsystem, spending against plan by category, money by month, per-season and per-event
+roll-ups. Pick-lists (payment methods, categories, sub-categories, subsystems, funding
+types, entity types) are data the treasurer edits. Gated by `finance.view` (dashboard) and
+`finance.edit` (the editable grids).
+
+## Dashboard (`/explore`) — Board and above
+
+A read-only explorer over all of the portal's data, gated by `dashboard.view` (the Board
+preset and above):
+
+- **How it all connects** — every kind of record (members, events, teams, positions,
+  inventory, budget, dues, …) laid out by area with its count, and a line for each way one
+  kind points at another. Hover to light up a kind's relations, click to browse it.
+- **Find anything** — one search box across every kind of record.
+- **Any record** — its details, a diagram of what it points to and what points to it, and
+  the connected records grouped by kind; click through from one to the next (a "Recently"
+  trail leads back). A member also shows what their portal account is part of, and vice
+  versa.
+- **Charts** — roster, participation and season-finance charts.
+
+Relations come straight from the schema's foreign keys, so new tables appear on their own.
+Inside the dashboard each kind of record is still gated by its own domain's view privilege
+(`members.view`, `finance.view`, …); tasks, requests and the audit trail are admin-only.
 
 ## Data Tables (`/admin/data`)
 
-An inline-editable grid over the portal's structural tables — People, Member Profiles, Org
-Positions, Event Kinds, Events, Event Categories, Event Teams, Inventory Locations,
-Inventory Items, Inventory Movements (plus read-only views of the rest). Click a cell, edit,
-it saves. **Each table is gated by its own privilege** (People needs `users.manage`,
-Positions `org.edit`, Events `events.manage_any`, …), so the grid never widens anyone's
-access.
+An inline-editable grid over the portal's tables, grouped by domain — People, Members
+(roster), Participations, Org Positions, Event Kinds, Events, Event Categories, Event Teams,
+Inventory, every finance table and pick-list (plus read-only views of the rest). Click a
+cell, edit, it saves. **Each table is gated by its own privilege** (People needs
+`users.manage`, the roster `members.edit`, the books `finance.edit`, …), so the grid never
+widens anyone's access. Computed columns are shown read-only. Every table downloads as
+`.xlsx`, and an edited file can be uploaded back: the upload previews the diff first
+(`apply=false`), then commits; `delete_missing=true` also removes rows you deleted from the
+file. The same grid is embedded in the Finance tabs.
 
-Every table also has a spreadsheet escape hatch:
+### Import components from a file
 
-- **Download `.xlsx` / upload it back** — the upload previews the diff first (`apply=false`),
-  then commits; `delete_missing=true` also removes rows you deleted from the sheet.
-- **Open in Google Sheets / Pull from Sheet** — push the table into a live tab, edit it in
-  Google's UI, pull the changes back (same validation as the upload).
-- **Live two-way mirror** — with `SHEETS_SYNC_TOKEN` set, the spreadsheet's bound Apps
-  Script (`scripts/sheets_live_sync.gs`) posts every edit to `POST /api/bulk/sheet-webhook`
-  and runs a reconcile on a one-minute timer, so edits flow both directions with no button
-  press. `POST /api/bulk/{table}/sheet/sync` is the "don't wait" button.
+Inventory managers can bulk-import items from a `.xlsx` / `.csv` (Inventory → **Import**):
+preview the detected columns, map them to item fields (name is required;
+quantity/category/unit/location/asset-tag/condition optional), optionally dedicate
+everything to a team, and import. Re-running upserts (matched by asset tag, then name).
 
-### Import components from a Google Sheet
+### Moving the member database and books off Google Sheets (one-time)
 
-Inventory managers can bulk-import items from a spreadsheet (Inventory → **Import from
-Sheet**): paste the Sheet link, preview the detected columns, map them to item fields (name
-is required; quantity/category/unit/location/asset-tag/condition optional), optionally
-dedicate everything to a team, and import. Re-running upserts (matched by asset tag, then
-name) so it's safe to import repeatedly. The sheet must be shared with the service account.
-A **local file** import (`/inventory/import/file`) takes the same mapping without Google.
+`backend/scripts/import_member_database.py` loads the two workbooks the team kept in Google
+Sheets (download each as `.xlsx`) into the portal — roster, events record, participations,
+and the whole finance book. Dry run by default:
 
-### Google Sheets inventory mirror (app is king)
-
-"Sync to Sheets" (`inventory.edit`) overwrites a linked spreadsheet with the current
-inventory snapshot — total / in-use / free / usage breakdown / holders per item — so
-anyone who prefers a spreadsheet can read it, while real edits always happen in the
-portal. It's optional and degrades gracefully: without credentials the button is
-disabled. To enable, set in `backend/.env`:
-
-```
-GOOGLE_SHEETS_CREDENTIALS_FILE=/path/to/service-account.json   # or ..._B64 in containers
-GOOGLE_SHEETS_SPREADSHEET_ID=<the id from the sheet URL>
-GOOGLE_SHEETS_WORKSHEET=Inventory
+```bash
+python -m scripts.import_member_database "MTR_Members_Database.xlsx" "MTR_Financial.xlsx"
+python -m scripts.import_member_database "MTR_Members_Database.xlsx" "MTR_Financial.xlsx" --commit
 ```
 
-Create a Google Cloud **service account**, download its JSON key, enable the Google
-Sheets **and Drive** APIs, and **share the target spreadsheet with the service account's
-email** (Editor).
-
-## Rebuild from Sheets (`/api/sync/*`, API-only)
-
-A separate, heavier mechanism from the Data Tables grid above: mirror the portal's full
-**structural data** — people, positions, events, categories, teams, team members,
-inventory locations, items and movements — to a multi-tab spreadsheet, and, in the other
-direction, **rebuild the entire database from that spreadsheet**. It uses the same
-service-account credentials as the inventory mirror. There is currently **no page for it**
-— the day-to-day UI is Data Tables; these endpoints are the disaster-recovery path, driven
-directly (`/docs`).
-
-- **Export** (`POST /sync/export`) pushes the current database out, one tab per entity,
-  preserving each row's real database ID so cross-references (a position's parent, a
-  movement's item) stay resolvable in the sheet.
-- **Rebuild** is the opposite, **destructive** direction: it replaces the database with
-  whatever is in the sheet. This is a restore from spreadsheet, not a two-way sync —
-  anything created in the portal since the last export and not present in the sheet is
-  destroyed.
-  1. **Dry-run** (`POST /sync/rebuild/dry-run`) parses and cross-validates every tab
-     (dangling references, bad enum values, cyclical positions, …) and reports counts and
-     errors without touching the database.
-  2. If there are no errors, **commit** (`POST /sync/rebuild/commit`, requires the org's
-     exact name as `confirm_phrase`) snapshots every managed table to a timestamped JSON
-     file under `backend/snapshots/` (gitignored — treat it like `.env`, it can contain
-     real org data), clears/de-references anything that depends on the data being replaced
-     (tasks, requests, notifications, sessions, inventory allocations and checkout
-     requests, audit-log actor references), truncates and re-imports the structural tables
-     with the sheet's IDs preserved, and finally re-exports so the sheet and database are
-     provably identical again.
-  3. Everyone is signed out by a commit (every session is invalidated), and rebuilt
-     accounts get a password nobody knows — sign back in via Google (if linked and
-     within the allowed domains) or have an admin reset it.
-- **Permissions**: export, dry-run, and rebuild history need org-manager rights; **commit
-  is one step stricter**, matching the phrase-confirmation gate.
-- Degrades the same way as the inventory mirror: without credentials configured,
-  every `/sync/*` action beyond `status` returns a clear "not configured" error
-  instead of silently doing nothing.
+The sheet is the source of truth for the roster: rows are matched to existing records by
+Gmail, then phone, national ID (only when unique) and name; every MTR ID is re-keyed to the
+sheet's number; new members with a Gmail get a Google-linked account at the Member level.
+Matched events gain their record columns but keep their name, status, kind and awards (the
+public Hall of Fame reads those); new events are never created archived, so nothing new
+goes public until someone archives it. The finance book loads only into empty books
+(`--replace-finance` wipes and reloads). Re-running is safe.
 
 ## Quick start
 
@@ -313,7 +322,7 @@ ever talks to one origin — same as the Vite dev proxy below, just in productio
   (`DB_PORT=5433 docker compose up -d --build`)
 
 Drop a `backend/.env` next to `backend/Dockerfile` before starting (copy it from
-`.env.example`) to carry over Google/Sheets credentials, `ORG_NAME`, or
+`.env.example`) to carry over Google sign-in credentials or
 `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` into the containers — `DATABASE_URL` and
 `FRONTEND_URL` are always overridden by `docker-compose.yml` regardless, since those two
 have to match the container network no matter what's in your local dev `.env`. Set
@@ -444,17 +453,20 @@ who-holds-what breakdown, and the stock-movement ledger with checkout requests
 per-kind automatic roles (a role fires and chains only within its kind, or across all) and
 per-kind labels; event nesting with seat-level authority (occupying a role seat whose level
 carries `events.manage_seated` manages that event/team — a team role touches only its own
-team); Google Sheet import (mocked) with upsert; the **Positions** org tree (single root, no
+team); file import with upsert; the **Positions** org tree (single root, no
 cycles, multi-occupant seats, occupant→manager derivation with vacant-seat skip and
 earliest-occupant-wins for shared seats, audit log); user management sourced from a
 DB-backed catalog (not a hardcoded frontend list); the general audit log +
 soft-delete-by-default with admin-only permanent delete; Google sign-in (auto-provisions a
 no-privileges account for any verified email, gated only by the domain allowlist, and
 requires an explicit link — never a silent email match — for an email that already has a
-password account, with the OAuth round-trip mocked); the Sheets export/rebuild cycle
-(cross-tab reference validation and a full rebuild round-trip: snapshot → clear dependents →
-truncate → import → auto re-export, with Sheets I/O mocked); the **bulk data editor**
-(per-table privilege gating, validation, xlsx round-trip, sheet push/pull/webhook); the
+password account, with the OAuth round-trip mocked); the **bulk data editor**
+(per-table privilege gating, validation, xlsx round-trip, filtered pick-lists, computed
+columns); the **finance books** (budget FMV/needed, dues maturity/fees/balances, cash
+balances, dashboard roll-up, gating); the **member roster** (roster-only members, MTR IDs,
+duplicate check, participations, sign-ups claiming their roster row) and the one-time
+**member-database import** (matching, re-keying, Hall-of-Fame fields untouched,
+idempotency); the
 **dashboard** roll-up and the **calendar** aggregator (per-source privilege skipping,
 scope=me vs. general); **time blocks** (span vs. weekday-mask expansion, anchor and manage
 rights); the **archive** (open to any member, personalized participation, record editing
@@ -479,7 +491,7 @@ depends on real credentials being present or absent on the machine running it.
 ```
 backend/
   app/
-    core/                  config, database, security, gsheets
+    core/                  config, database, security
     domains/
       auth/                sessions, login, Google SSO, current-user deps
       access/              privilege vocabulary + admin-editable access ladder
@@ -489,9 +501,13 @@ backend/
       requests/            up/across requests -> spawned tasks
       notifications/       in-app notifications
       inventory/           items + allocations, capacity, ledger, checkout
-                           requests, Sheets sync + import
-      events/              events (kind-discriminated), categories, teams,
-                           members, hall_of_fame projection
+                           requests, file import
+      events/              events (kind-discriminated) + event record,
+                           categories, teams, members, participations,
+                           hall_of_fame projection
+      members/             the roster: directory, duplicate check, stats
+      finance/             the books: budget, spendings, dues, funding,
+                           payables, cash — computed views
       positions/           org-chart Position tree, role-chain engine,
                            resync_managers() bridge
       timeblocks/          team calendar blocks (span or weekday mask)
@@ -500,9 +516,7 @@ backend/
       archive/             archived events: record + own participation
       public/              unauthenticated, PII-free Hall of Fame for the website
       audit/               general audit log (domain/action/entity, JSON detail)
-      bulk/                editable data tables + xlsx / live Sheets round-trip
-      sync/                multi-tab Sheets export + destructive rebuild
-      (finance/)           future module — same pattern
+      bulk/                editable data tables + xlsx round-trip
     seed.py
   alembic/                 migrations
   tests/                   test suite
@@ -513,11 +527,11 @@ frontend/
     theme/                 CIRCUIT tokens + AntD theme
     components/            layout, drawers, modals, org tree, calendar,
                            time-block panel, notification bell
-    pages/                 Home, Tasks, Calendar, Inventory, Events, Requests,
-                           Team, Archive, Organization, Profile, Admin Users,
-                           Audit Log, Data Tables, Login
+    pages/                 Home, Dashboard, Members, Finance, Tasks, Calendar,
+                           Inventory, Events, Requests, Team, Archive,
+                           Organization, Profile, Admin Users, Audit Log,
+                           Data Tables, Login
 deploy/                    Caddyfile + production runbook
-scripts/                   sheets_live_sync.gs (Apps Script for the live mirror)
 ```
 
 ## API surface (all under `/api`)
@@ -541,8 +555,7 @@ scripts/                   sheets_live_sync.gs (Apps Script for the live mirror)
   · `GET /inventory/directory` (unscoped id/name/unit, for pickers)
   · `POST /inventory/{id}/allocations` · `POST /inventory/allocations/bulk`
   · `PATCH/DELETE /inventory/allocations/{id}`
-  · `GET /inventory/holders` · `GET /inventory/sheets/status` · `POST /inventory/sync`
-  · `POST /inventory/import/preview` · `POST /inventory/import`
+  · `GET /inventory/holders`
   · `POST /inventory/import/file/preview` · `POST /inventory/import/file`
   · `GET/POST /inventory/locations` · `DELETE /inventory/locations/{id}`
   · `GET /inventory/{id}/whereabouts` · `GET/POST /inventory/{id}/movements`
@@ -557,6 +570,14 @@ scripts/                   sheets_live_sync.gs (Apps Script for the live mirror)
   · `POST /events/{id}/categories` · `PATCH/DELETE /events/categories/{id}`
   · `POST /events/categories/{id}/teams` · `PATCH/DELETE /events/teams/{id}`
   · `POST/DELETE/PATCH /events/teams/{id}/members[/{user_id}]`
+  · `GET /events/{id}/participations` (`members.view`)
+- `GET/POST /members` · `GET/PATCH/DELETE /members/{id}` · `GET /members/stats`
+  · `GET /members/next-id` · `POST /members/check-duplicate` — the roster
+- `GET /finance/seasons` · `GET /finance/dashboard?season_id=` · `GET /finance/dues?season_id=`
+  · `GET /finance/cash` · `GET /finance/events/{id}` — computed views of the books (the
+  stored tables are edited through `/bulk`)
+- `GET /explore/schema` · `GET /explore/search?q=` · `GET /explore/{table}` ·
+  `GET /explore/{table}/{id}` — the data dashboard (`dashboard.view`)
 - `GET /archive/events` · `GET /archive/summary` · `GET /archive/events/{id}`
   · `POST /archive/events/{id}/reactivate` · `PATCH /archive/events/{id}`
   · `PATCH /archive/teams/{id}` · `PATCH /archive/members/{id}`
@@ -584,12 +605,6 @@ scripts/                   sheets_live_sync.gs (Apps Script for the live mirror)
 - `GET /audit` — general audit log (`audit.view`): access changes / inventory quantity / role occupants
 - `GET /bulk/tables` · `GET /bulk/{table}` · `POST /bulk/{table}` · `POST /bulk/{table}/validate`
   · `GET /bulk/{table}/export.xlsx` · `POST /bulk/{table}/upload`
-  · `POST /bulk/{table}/sheet/push|pull|sync` · `GET /bulk/sheets/status`
-  · `POST /bulk/sheet-webhook` (token-authenticated, called by Apps Script)
-- `GET /sync/status` (any user) · `GET /sync/exports` · `POST /sync/export`
-  · `GET /sync/rebuild/history` · `POST /sync/rebuild/dry-run`
-  · `POST /sync/rebuild/commit` (requires exact `confirm_phrase`) — see
-  [Rebuild from Sheets](#rebuild-from-sheets-apisync-api-only)
 - `GET /notifications` · `GET /notifications/unread-count` · `POST /notifications/mark-read`
 
 Interactive docs: http://localhost:8000/docs

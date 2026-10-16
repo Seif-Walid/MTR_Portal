@@ -17,7 +17,8 @@ from app.domains.auth.models import AuthSession
 from app.domains.auth.schemas import ChangePasswordIn, LoginIn, RegisterIn
 from app.domains.hierarchy.service import taskable_user_ids
 from app.domains.positions.models import Position, PositionOccupant
-from app.domains.users.models import MemberProfile, User
+from app.domains.users.models import User
+from app.domains.users.roster import profile_for_new_account
 from app.domains.users.schemas import MeOut, MemberProfileOut, SelfProfileIn
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -106,7 +107,8 @@ def register(payload: RegisterIn, response: Response, db: DB) -> MeOut:
         email=payload.email,
         full_name=payload.full_name,
         hashed_password=hash_password(payload.password),
-        profile=MemberProfile(),  # every login is a member — roster row starts empty
+        # every login is a member — claims its roster row if the roster knows the email
+        profile=profile_for_new_account(db, payload.email),
     )
     db.add(user)
     db.commit()
@@ -141,7 +143,7 @@ def update_my_profile(payload: SelfProfileIn, db: DB, user: CurrentUser) -> MeOu
     sending an explicit null clears one. Creates the roster row on demand for
     accounts that never had one."""
     if user.profile is None:
-        user.profile = MemberProfile()
+        user.profile = profile_for_new_account(db, user.email)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(user.profile, field, value)
     db.commit()
@@ -306,7 +308,8 @@ def google_callback(
             full_name=info.get("name") or email.split("@")[0],
             hashed_password=hash_password(secrets.token_urlsafe(32)),
             google_linked_at=datetime.now(timezone.utc),
-            profile=MemberProfile(),  # every login is a member — roster row starts empty
+            # every login is a member — claims its roster row if the roster knows the email
+            profile=profile_for_new_account(db, email),
         )
         db.add(user)
         db.commit()

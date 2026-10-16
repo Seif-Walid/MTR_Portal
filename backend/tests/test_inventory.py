@@ -1,4 +1,4 @@
-"""Inventory CRUD, hierarchy-scoped visibility, and sync gating."""
+"""Inventory CRUD and hierarchy-scoped visibility."""
 
 
 def _item(login, who, org, **over):
@@ -57,10 +57,3 @@ def test_holders_picker_needs_people_view(login, org):
     assert any(h["email"] == org["student"].email for h in holders)
 
 
-def test_sync_gated_when_unconfigured(login, org):
-    status = login("cto").get("/api/inventory/sheets/status").json()
-    assert status["configured"] is False and status["can_sync"] is True
-    assert status["credentials"] is False  # no service-account key in tests
-    assert login("cto").post("/api/inventory/sync").status_code == 503
-    # non-staff can't sync at all
-    assert login("student").post("/api/inventory/sync").status_code == 403

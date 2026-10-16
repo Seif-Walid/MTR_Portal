@@ -87,9 +87,6 @@ External cleanup, done outside this repo:
 - **Google Cloud Console** → the portal OAuth client: remove the old redirect URI
   `https://mindtechrobotics.duckdns.org/api/auth/google/callback`. Keep only the
   `portal.mindtechrobotics.com` one.
-- **Apps Script** (Sheets two-way mirror): re-paste `scripts/sheets_live_sync.gs`
-  or edit `PORTAL_URL` in the bound script — it pointed at the duckdns host and
-  would break sync otherwise.
 - **GitHub secrets**: `SITE_ADDRESS` must be `portal.mindtechrobotics.com`, and
   `VM_HOST` must be the raw IP `130.110.17.255` (not the duckdns name, which no
   longer resolves once the DuckDNS record is deleted).

@@ -162,29 +162,7 @@ class AllocationEdit(BaseModel):
     notes: str | None = None
 
 
-# --- Google Sheet import --------------------------------------------------
-class ImportPreviewRequest(BaseModel):
-    source: str = Field(min_length=1)  # full Sheet URL or bare spreadsheet id
-    worksheet: str | None = None
-
-
-class ImportPreviewOut(BaseModel):
-    spreadsheet_id: str
-    worksheet: str | None
-    headers: list[str]
-    rows: list[dict[str, str]]  # first N rows, for column mapping
-    total: int
-
-
-class ImportRequest(BaseModel):
-    spreadsheet_id: str = Field(min_length=1)
-    worksheet: str | None = None
-    # target item field -> source column header. "name" is required.
-    mapping: dict[str, str]
-    team_lead_id: int | None = None
-    upsert: bool = True  # update existing items (matched by asset tag or name)
-
-
+# --- local file (.xlsx/.csv) import ---------------------------------------
 class ImportResult(BaseModel):
     created: int
     updated: int
@@ -192,7 +170,6 @@ class ImportResult(BaseModel):
     errors: list[str] = []
 
 
-# --- local file (.xlsx/.csv) import, no Google Sheets needed --------------
 class FileImportPreviewOut(BaseModel):
     sheets: list[str] | None  # workbook tab names (xlsx); None for CSV
     sheet: str | None  # which tab this preview came from

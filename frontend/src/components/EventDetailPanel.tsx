@@ -6,6 +6,7 @@ import { api, ApiError } from '../api/client';
 import type { EventDetail, EntityRole, RoleRoot, UserBrief } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import PositionPicker from './PositionPicker';
+import EventRecord from './EventRecord';
 import { AwardTag } from './tags';
 
 function opts(users: UserBrief[]) {
@@ -362,6 +363,8 @@ export default function EventDetailPanel({ eventId, onChanged }: {
       />
 
       <RolesEditor roles={detail.roles} dir={dir} canManage={canManage} onChanged={refresh} />
+
+      <EventRecord detail={detail} />
 
       <Divider style={{ margin: '12px 0' }} />
 

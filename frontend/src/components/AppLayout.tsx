@@ -37,6 +37,9 @@ const ICONS: Record<string, React.ReactNode> = {
   '/admin/users': <Ic><circle cx="10" cy="10" r="2.5" /><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.4 1.4M13.6 13.6L15 15M15 5l-1.4 1.4M6.4 13.6L5 15" /></Ic>,
   '/admin/audit': <Ic><rect x="4.5" y="3" width="11" height="14" rx="1.5" /><path d="M7.5 7.5h5M7.5 10.5h5M7.5 13.5h3" /></Ic>,
   '/admin/data': <Ic><rect x="3" y="4" width="14" height="12" rx="1.5" /><path d="M3 8h14M3 12h14M8.5 4v12" /></Ic>,
+  '/explore': <Ic><path d="M3.5 16.5h13" /><path d="M6 13.5V9M10 13.5V5.5M14 13.5v-6" /></Ic>,
+  '/members': <Ic><circle cx="10" cy="7" r="3" /><path d="M4 17c0-3.2 2.7-5 6-5s6 1.8 6 5" /></Ic>,
+  '/finance': <Ic><rect x="3" y="5" width="14" height="10.5" rx="1.5" /><path d="M3 8.5h14" /><circle cx="13" cy="12" r="1.2" /></Ic>,
 };
 
 // --- header eyebrow + title per route ---------------------------------------
@@ -52,6 +55,10 @@ const TITLES: Record<string, [string, string]> = {
   '/organization': ['Structure', 'Organization'],
   '/admin/users': ['Admin', 'User Management'],
   '/admin/audit': ['Admin', 'Audit Log'],
+  '/admin/data': ['Admin', 'Data Tables'],
+  '/explore': ['Overview', 'Dashboard'],
+  '/members': ['People', 'Members'],
+  '/finance': ['Money', 'Finance'],
 };
 
 const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
@@ -119,6 +126,7 @@ export default function AppLayout() {
   type NavItem = { key: string; label: string; children?: { key: string; label: string }[] };
   const items: NavItem[] = [
     { key: '/home', label: 'Home' },
+    ...(can(me, 'dashboard.view') ? [{ key: '/explore', label: 'Dashboard' }] : []),
     ...(can(me, 'tasks.use') ? [{ key: '/tasks', label: 'My Tasks' }] : []),
     ...(can(me, 'tasks.use') || can(me, 'events.view') || can(me, 'inventory.view')
       ? [{ key: '/calendar', label: 'Calendar' }]
@@ -132,13 +140,17 @@ export default function AppLayout() {
     ...(can(me, 'people.view') && (me.has_team || can(me, 'users.manage')) ? [{ key: '/team', label: 'My Teams' }] : []),
     // Archive is public — a browsable record of past events, no gate.
     { key: '/archive', label: 'Archive' },
+    ...(can(me, 'members.view') ? [{ key: '/members', label: 'Members' }] : []),
+    ...(can(me, 'finance.view') ? [{ key: '/finance', label: 'Finance' }] : []),
     ...(can(me, 'org.view') ? [{ key: '/organization', label: 'Organization' }] : []),
     ...(can(me, 'users.manage') ? [{ key: '/admin/users', label: 'User Management' }] : []),
     ...(can(me, 'audit.view') ? [{ key: '/admin/audit', label: 'Audit Log' }] : []),
     ...(can(me, 'inventory.edit') ||
     can(me, 'users.manage') ||
     can(me, 'org.edit') ||
-    can(me, 'events.manage_any')
+    can(me, 'events.manage_any') ||
+    can(me, 'members.edit') ||
+    can(me, 'finance.edit')
       ? [{ key: '/admin/data', label: 'Data Tables' }]
       : []),
   ];

@@ -33,13 +33,13 @@ What a neighboring ops tool could not truthfully copy is the **data-driven autho
 
 - A competitive university robotics team working in **competition seasons** (e.g. MATE ROV, RoboCup, VEX) plus **training** and **R&D** tracks, modeled as Events with nested categories/teams/members.
 - **Physical inventory** (real components) tracked across lab locations, with allocations, a movement ledger, and a checkout-request → approve → issue → return flow.
-- A **member roster** imported from the org's student-database spreadsheet; members pre-linked to Google so they sign in with their Gmail.
-- **Google Workspace/Gmail** is the identity source; **Google Sheets** is an optional external mirror (multi-tab export + destructive rebuild-from-Sheets behind an admin gate).
+- The **member database** (roster, event record, participations) and the **finance books** (budget, spendings, dues, funding, cash) live in the portal's own database, with a dashboard over both; members with a Gmail are pre-linked to Google so they sign in with it.
+- **Google Workspace/Gmail** is the identity source. Google Sheets is no longer used — the portal's database is the single source of truth (any table still downloads as Excel).
 - Runs as a **Dockerized modular monolith** (FastAPI + SQLAlchemy/Alembic; PostgreSQL in prod, SQLite in dev; React + TypeScript/Vite + Ant Design). New domains (finance) can be added as sibling modules sharing auth/users/permissions.
 
 ## Capabilities and Constraints
 
-Confirmed modules: Tasks (assign, blocked state, comments, history, multi-assignee batches), Work Requests, Inventory (items, allocations, locations, movements, checkout requests), Events (Competition/Training/R&D with categories→teams→members and automatic role seats), Members directory (profiles imported from roster), Organization (visual org tree; `manager_id` drives the task/visibility subtree), Access Ladder (privileges + editable levels), Calendar (General vs Me scope across tasks/events/inventory/requests), Audit Log, Notifications, Google sign-in + linking, Google Sheets sync/rebuild, light/dark theme.
+Confirmed modules: Tasks (assign, blocked state, comments, history, multi-assignee batches), Work Requests, Inventory (items, allocations, locations, movements, checkout requests), Events (Competition/Training/R&D with categories→teams→members and automatic role seats), Members (the roster: profiles, participations, add-with-duplicate-check), Finance (budget, spendings, dues, funding, cash + dashboard), Organization (visual org tree; `manager_id` drives the task/visibility subtree), Access Ladder (privileges + editable levels), Calendar (General vs Me scope across tasks/events/inventory/requests), Audit Log, Notifications, Google sign-in + linking, Dashboard (roster + books at a glance).
 
 Constraints that future work must respect:
 - Authority is always derived from seats + the ladder — never hardcode a role, and never let structural edits grant power.

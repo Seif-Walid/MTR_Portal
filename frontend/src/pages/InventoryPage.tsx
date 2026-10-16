@@ -8,7 +8,7 @@ import { api } from '../api/client';
 import type { InventoryItem } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
 import BulkAllocateModal from '../components/BulkAllocateModal';
-import ImportFromSheetModal from '../components/ImportFromSheetModal';
+import ImportFromFileModal from '../components/ImportFromFileModal';
 import InventoryItemDrawer from '../components/InventoryItemDrawer';
 import InventoryRequestsDrawer from '../components/InventoryRequestsDrawer';
 import LocationsModal from '../components/LocationsModal';
@@ -202,7 +202,7 @@ export default function InventoryPage() {
 
       <NewInventoryItemModal open={creating} onClose={() => setCreating(false)} onCreated={load} />
       <InventoryRequestsDrawer open={requestsOpen} onClose={() => setRequestsOpen(false)} />
-      <ImportFromSheetModal open={importing} onClose={() => setImporting(false)} onImported={load} />
+      <ImportFromFileModal open={importing} onClose={() => setImporting(false)} onImported={load} />
       <LocationsModal open={locationsOpen} onClose={() => setLocationsOpen(false)} />
       <InventoryItemDrawer itemId={openItemId} onClose={() => setSearchParams({})} onChanged={load} />
       <BulkAllocateModal

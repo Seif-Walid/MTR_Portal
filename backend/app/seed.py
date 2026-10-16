@@ -19,6 +19,7 @@ from app.domains.access import models as _access_models  # noqa: F401
 from app.domains.audit import models as _audit_models  # noqa: F401
 from app.domains.auth import models as _auth_models  # noqa: F401
 from app.domains.events import models as _comp_models  # noqa: F401
+from app.domains.finance import models as _finance_models  # noqa: F401
 from app.domains.inventory import models as _inv_models  # noqa: F401
 from app.domains.positions import models as _pos_models  # noqa: F401
 from app.domains.notifications import models as _notif_models  # noqa: F401

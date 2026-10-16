@@ -45,7 +45,7 @@ function guess(headers: string[], field: string): string | undefined {
   return headers.find((h) => wants.some((w) => h.toLowerCase().includes(w)));
 }
 
-export default function ImportFromSheetModal({
+export default function ImportFromFileModal({
   open,
   onClose,
   onImported,
@@ -54,7 +54,7 @@ export default function ImportFromSheetModal({
   onClose: () => void;
   onImported: () => void;
 }) {
-  // Local file only (Google Sheet import was removed)
+  // Local .xlsx/.csv file
   const [file, setFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<FileImportPreview | null>(null);
 

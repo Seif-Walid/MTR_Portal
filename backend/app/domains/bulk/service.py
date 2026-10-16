@@ -1,9 +1,7 @@
 """Generic bulk-editor engine: read / validate / apply for any table in the
 registry.
 
-Unlike the Sheets *rebuild* (which truncates and recreates every managed table
-from a full snapshot — see sync.service), this is an **incremental, id-keyed
-upsert**: rows carrying an id are updated, rows without one are inserted, and
+This is an **incremental, id-keyed upsert**: rows carrying an id are updated, rows without one are inserted, and
 ids listed in `deletes` are removed per the table's delete policy. A save is
 all-or-nothing — if validation finds any problem, nothing is written.
 """
@@ -24,8 +22,7 @@ from app.domains.events.models import Event, EventCategory, EventTeam, EventTeam
 from app.domains.inventory.models import InventoryItem, StockMovement
 from app.domains.positions.models import Position, PositionOccupant
 from app.domains.users.models import User
-from app.domains.sync import service as sync
-from app.domains.sync.service import _EXPORTERS, _bool, _parse_date, _parse_datetime
+from app.domains.bulk.exporters import _EXPORTERS, _bool, _parse_date, _parse_datetime
 from app.domains.bulk.registry import REFS, TABLES, Column, TableSpec
 
 
@@ -41,6 +38,8 @@ def _cell(value: object) -> str:
         return ""
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, float):
+        return str(int(value)) if value.is_integer() else f"{value:.4f}".rstrip("0").rstrip(".")
     if isinstance(value, (datetime, date)):
         return value.isoformat()
     return str(value)
@@ -56,15 +55,53 @@ def _generic_export(db: Session, spec: TableSpec) -> tuple[list[str], list[list[
     return cols, rows
 
 
+def _spec_query(spec: TableSpec):
+    q = select(spec.model)
+    if spec.where is not None:
+        q = q.where(spec.where())
+    return q.order_by(spec.model.id)
+
+
+def _spec_ids(db: Session, spec: TableSpec) -> set[int]:
+    q = select(spec.model.id)
+    if spec.where is not None:
+        q = q.where(spec.where())
+    return {r[0] for r in db.execute(q).all()}
+
+
+def _spec_export(db: Session, spec: TableSpec) -> tuple[list[str], list[list[str]]]:
+    """Read a curated table straight off its column declarations — attribute
+    per column (computed @property columns included), id refs as ids and
+    name/slug refs translated to the referenced row's name/slug."""
+    header = [c.name for c in spec.columns]
+    lookups: dict[str, dict[int, object]] = {}
+    for c in spec.columns:
+        if c.ref and REFS[c.ref].value_attr != "id" and c.ref not in lookups:
+            ref = REFS[c.ref]
+            lookups[c.ref] = {o.id: getattr(o, ref.value_attr) for o in db.scalars(select(ref.model))}
+    rows = []
+    for obj in db.scalars(_spec_query(spec)).unique():
+        row = []
+        for c in spec.columns:
+            value = getattr(obj, c.model_attr)
+            if c.ref in lookups and value is not None:
+                value = lookups[c.ref].get(value)
+            row.append(_cell(value))
+        rows.append(row)
+    return header, rows
+
+
 def _export_for(db: Session, spec: TableSpec) -> tuple[list[str], list[list[str]]]:
     exporter = _EXPORTERS.get(spec.key)
-    return exporter(db) if exporter else _generic_export(db, spec)
+    if exporter:
+        return exporter(db)
+    return _generic_export(db, spec) if spec.read_only else _spec_export(db, spec)
 
 
 def read_table(db: Session, spec: TableSpec) -> dict:
     """Current DB rows for a table, plus the dropdown options every reference
-    column needs. Row serialization is the exact same code the Sheets export
-    uses, so grid / CSV / mirror never disagree."""
+    column needs. Row serialization is the exact same code the Excel export
+    uses, so grid and file never disagree."""
     header, rows = _export_for(db, spec)
     columns = [_column_payload(c) for c in spec.columns]
     row_dicts = [dict(zip(header, r)) for r in rows]
@@ -77,12 +114,15 @@ def read_table(db: Session, spec: TableSpec) -> dict:
         "append_only": spec.append_only,
         "delete": spec.delete,
         "read_only": spec.read_only,
+        "group": spec.group,
+        "description": spec.description,
     }
 
 
 def _column_payload(c: Column) -> dict:
     return {
         "name": c.name,
+        "label": c.header,
         "type": c.type,
         "editable": c.editable,
         "required": c.required,
@@ -101,7 +141,7 @@ def _ref_options(db: Session, spec: TableSpec) -> dict[str, list[dict]]:
         ref = REFS[col.ref]
         opts = [
             {"value": getattr(o, ref.value_attr), "label": ref.label(o)}
-            for o in db.scalars(select(ref.model))
+            for o in db.scalars(ref.query()).unique()
         ]
         out[col.name] = opts
     return out
@@ -125,7 +165,10 @@ def _err(errors: list[dict], index: int | None, column: str | None, message: str
 
 def _valid_ref_ids(db: Session, ref_key: str, deleted: dict[str, set[int]]) -> set[int]:
     ref = REFS[ref_key]
-    ids = {r[0] for r in db.execute(select(ref.model.id)).all()}
+    q = select(ref.model.id)
+    if ref.where is not None:
+        q = q.where(ref.where())
+    ids = {r[0] for r in db.execute(q).all()}
     # A reference must not point at a row being deleted in the same save.
     return ids - deleted.get(_model_table_key(ref.model), set())
 
@@ -161,6 +204,8 @@ def _coerce_scalar(raw: str, col: Column):
         return None
     if col.type == "int":
         return int(raw)
+    if col.type == "number":
+        return float(raw.replace(",", ""))
     if col.type == "bool":
         return _bool(raw)
     if col.type == "date":
@@ -175,7 +220,7 @@ def validate(
 ) -> tuple[list[Coerced], list[dict], dict]:
     """Pure — never writes. Returns (coerced rows, errors, summary)."""
     errors: list[dict] = []
-    existing_ids = {r[0] for r in db.execute(select(spec.model.id)).all()}
+    existing_ids = _spec_ids(db, spec)
     deleted_by_table = {spec.key: set(deletes)}
     col_info = _column_info(spec.model)
 
@@ -317,7 +362,6 @@ def apply(db: Session, spec: TableSpec, rows: list[dict], deletes: list[int], ac
 
     summary = {"adds": adds, "updates": updates, "deletes": removed}
     if adds or updates or removed:
-        sync.mark_dirty(db, spec.key)
         audit.log(db, actor_id, "bulk", "apply", spec.key, None, summary)
     db.commit()
     return {"ok": True, "errors": [], "summary": summary}
@@ -325,7 +369,7 @@ def apply(db: Session, spec: TableSpec, rows: list[dict], deletes: list[int], ac
 
 def _insert_defaults(spec: TableSpec, fields: dict) -> dict:
     """Fill columns a new row needs but the grid never edits."""
-    out = dict(fields)
+    out = {**fields, **spec.insert_values}
     if spec.model is User:
         # bulk-created accounts get an unguessable password; they sign in only
         # after being explicitly linked (see auth.router), matching rebuild.
@@ -360,6 +404,48 @@ def _guard_event_category(db: Session, cid: int) -> str | None:
     return None
 
 
+def _references_to(db: Session, model: type, rid: int) -> list[str]:
+    """Every (table, count) still pointing at row `rid` of `model` through a
+    foreign key that would not cascade or null out on delete."""
+    from app.core.database import Base
+
+    target = model.__table__
+    hits = []
+    for table in Base.metadata.tables.values():
+        for fk in table.foreign_keys:
+            if fk.column.table is not target or (fk.ondelete or "").upper() in ("CASCADE", "SET NULL"):
+                continue
+            n = db.scalar(select(func.count()).select_from(table).where(fk.parent == rid))
+            if n:
+                hits.append(f"{n} {table.name.replace('_', ' ')}")
+    return hits
+
+
+def _guard_referenced(what: str):
+    def guard(db: Session, rid: int, _what=what) -> str | None:
+        spec_model = next(s.model for s in TABLES.values() if s.label == _what or s.key == _what)
+        hits = _references_to(db, spec_model, rid)
+        return f"cannot delete {_what} {rid}: still used by {', '.join(hits)}" if hits else None
+    return guard
+
+
+def _guard_member(db: Session, mid: int) -> str | None:
+    from app.domains.finance.models import DuesPayment
+    from app.domains.users.models import MemberProfile
+
+    m = db.get(MemberProfile, mid)
+    if m is not None and m.user_id is not None:
+        return f"cannot delete member {mid}: they have a portal account — deactivate it on the People tab instead"
+    if db.scalar(select(func.count()).select_from(DuesPayment).where(DuesPayment.member_id == mid)):
+        return f"cannot delete member {mid}: they have dues payments on record"
+    return None
+
+
+for _key in ("finance_seasons", "finance_parties", "dues_tiers"):
+    TABLES[_key].delete_guard = _guard_referenced(_key)
+for _key in [k for k in TABLES if k.startswith("options_")]:
+    TABLES[_key].delete_guard = _guard_referenced(_key)
+TABLES["member_profiles"].delete_guard = _guard_member
 TABLES["positions"].delete_guard = _guard_position
 TABLES["event_kinds"].delete_guard = _guard_event_kind
 TABLES["events"].delete_guard = _guard_event
@@ -367,8 +453,8 @@ TABLES["event_categories"].delete_guard = _guard_event_category
 
 
 # --- Excel round-trip -------------------------------------------------------
-# The whole workflow: download a real .xlsx of a table, edit it freely in Excel
-# or Google Sheets, upload it back. We diff the file against the DB and apply
+# The whole workflow: download a real .xlsx of a table, edit it freely in Excel,
+# upload it back. We diff the file against the DB and apply
 # adds/updates (and, opt-in, delete rows the user removed from the sheet).
 def workbook_bytes(db: Session, spec: TableSpec) -> bytes:
     import io
@@ -446,132 +532,11 @@ def _cell_to_str(value: object) -> str:
     return str(value).strip()
 
 
-# --- Google Sheets escape hatch ---------------------------------------------
-# Same round-trip as the Excel one, but the file *is* a live Google Sheet: push
-# the current DB into a per-table tab, edit it in Google's UI, then pull it back
-# through the exact same validate/apply path. Reuses the service-account client
-# the Sheets mirror already uses (app/core/gsheets.py).
-BULK_SHEET_BANNER = (
-    "[ LIVE — edits here save to the portal automatically. Keep the header row and the "
-    "id column; leave id blank to add a row (its id fills in once it saves). ]"
-)
-
-
-def sheet_status() -> dict:
-    """Whether the server can talk to Google Sheets at all, plus the target
-    spreadsheet's URL. Drives the enabled/disabled state of the Sheets buttons."""
-    from app.core import gsheets
-    from app.core.config import settings
-
-    sid = settings.google_sheets_spreadsheet_id
-    return {
-        "configured": gsheets.credentials_available() and bool(sid),
-        "spreadsheet_id": sid,
-        "url": f"https://docs.google.com/spreadsheets/d/{sid}/edit" if sid else "",
-    }
-
-
-def push_to_sheet(db: Session, spec: TableSpec) -> dict:
-    """Overwrite this table's tab with the current DB rows and return a deep
-    link to that tab. Raises RuntimeError if Sheets isn't configured."""
-    import gspread
-
-    from app.core import gsheets
-    from app.core.config import settings
-
-    sid = settings.google_sheets_spreadsheet_id
-    if not (gsheets.credentials_available() and sid):
-        raise RuntimeError("Google Sheets isn't configured on the server.")
-
-    header = [c.name for c in spec.columns]
-    _, rows = _export_for(db, spec)
-    ss = gsheets.open_spreadsheet(sid)
-    try:
-        ws = ss.worksheet(spec.key)
-    except gspread.WorksheetNotFound:
-        ws = ss.add_worksheet(title=spec.key, rows=max(100, len(rows) + 2), cols=max(len(header), 1))
-    grid = [[BULK_SHEET_BANNER] + [""] * (len(header) - 1), header, *rows]
-    ws.clear()
-    ws.update(grid, "A1")
-    try:
-        ws.freeze(rows=2)  # keep the banner + header visible while scrolling
-    except Exception:  # noqa: BLE001 — freezing is cosmetic, never fatal
-        pass
-    return {
-        "url": f"https://docs.google.com/spreadsheets/d/{sid}/edit#gid={ws.id}",
-        "tab": spec.key,
-        "rows": len(rows),
-    }
-
-
-def webhook_apply(db: Session, spec: TableSpec, row: dict, actor_id: int | None) -> dict:
-    """Apply ONE row edited live in Google Sheets (called by the spreadsheet's
-    bound Apps Script on every edit). Same validation as the grid/upload, but
-    single-row and it returns the row's id so the script can write it back into
-    a freshly-inserted row (blank-id) — which is what stops re-edits of a new
-    row from inserting duplicates."""
-    coerced, errors, _ = validate(db, spec, [row], [])
-    if errors:
-        return {"ok": False, "errors": errors, "id": None}
-    if not coerced:
-        # nothing to write (e.g. an append-only ledger's existing row is immutable)
-        raw_id = str(row.get("id", "")).strip()
-        return {"ok": True, "errors": [], "id": int(raw_id) if raw_id else None}
-
-    c = coerced[0]
-    if c.id is None:
-        obj = spec.model(**_insert_defaults(spec, c.fields))
-        db.add(obj)
-        db.flush()
-        new_id, action = obj.id, "insert"
-    else:
-        obj = db.get(spec.model, c.id)
-        for attr, value in c.fields.items():
-            if getattr(obj, attr) != value:
-                setattr(obj, attr, value)
-        new_id, action = c.id, "update"
-
-    sync.mark_dirty(db, spec.key)
-    audit.log(db, actor_id, "bulk", f"sheet_{action}", spec.key, new_id, {"via": "sheet-webhook"})
-    db.commit()
-    return {"ok": True, "errors": [], "id": new_id}
-
-
-def pull_from_sheet(
-    db: Session, spec: TableSpec, do_apply: bool, delete_missing: bool, actor_id: int
-) -> dict:
-    """Read this table's tab back and run it through the same diff/apply path as
-    an uploaded file. `do_apply=False` previews; `True` commits."""
-    from app.core import gsheets
-    from app.core.config import settings
-
-    sid = settings.google_sheets_spreadsheet_id
-    if not (gsheets.credentials_available() and sid):
-        raise RuntimeError("Google Sheets isn't configured on the server.")
-
-    header, sheet_rows = gsheets.read_worksheet(sid, spec.key)
-    expected = [c.name for c in spec.columns]
-    missing = [c for c in expected if c not in header]
-    if missing:
-        raise ValueError(
-            f"The '{spec.key}' tab is missing column(s): {', '.join(missing)}. "
-            "Keep every column — re-open it from the portal to reset the tab."
-        )
-    rows = [{name: r.get(name, "") for name in expected} for r in sheet_rows]
-
-    plan = plan_upload(db, spec, rows, delete_missing)
-    if not do_apply or not plan["ok"]:
-        return {"applied": False, **plan}
-    deletes = plan["missing_ids"] if (delete_missing and plan["can_delete"]) else []
-    result = apply(db, spec, rows, deletes, actor_id)
-    return {"applied": result["ok"], **result}
-
-
 def plan_upload(db: Session, spec: TableSpec, rows: list[dict], delete_missing: bool) -> dict:
     """Diff the uploaded rows against the DB without writing. Returns the counts
     the confirm dialog shows, the ids that would be deleted, and any errors."""
     coerced, errors, _ = validate(db, spec, rows, [])
-    existing_ids = {r[0] for r in db.execute(select(spec.model.id)).all()}
+    existing_ids = _spec_ids(db, spec)
     uploaded_ids = {c.id for c in coerced if c.id is not None}
 
     new = changed = unchanged = 0
@@ -585,7 +550,7 @@ def plan_upload(db: Session, spec: TableSpec, rows: list[dict], delete_missing: 
         else:
             unchanged += 1
 
-    # rows in the DB but absent from the uploaded sheet — candidate deletions
+    # rows in the DB but absent from the uploaded file — candidate deletions
     can_delete = not (spec.append_only or spec.delete == "none")
     missing_ids = sorted(existing_ids - uploaded_ids) if can_delete else []
     return {

@@ -36,6 +36,9 @@ class MemberProfileOut(BaseModel):
     guardian_phone: str | None = None
     uni_id: str | None = None
     location: str | None = None
+    guardian_kinship: str | None = None
+    joined_at: datetime | None = None
+    data_confidence: str | None = None
 
 
 class MemberProfileIn(BaseModel):
