@@ -18,6 +18,7 @@ import OrganizationPage from './pages/OrganizationPage';
 import ProfilePage from './pages/ProfilePage';
 import RequestsPage from './pages/RequestsPage';
 import CalendarPage from './pages/CalendarPage';
+import CoursesPage from './pages/CoursesPage';
 import TasksPage from './pages/TasksPage';
 import TeamPage from './pages/TeamPage';
 
@@ -52,6 +53,9 @@ export default function App() {
           <Route path="/events" element={<EventsPage />} />
           <Route path="/events/:slug" element={<EventsPage />} />
           <Route path="/requests" element={<RequestsPage />} />
+          <Route path="/courses" element={<CoursesPage />} />
+          <Route path="/courses/:courseId" element={<CoursesPage />} />
+          <Route path="/courses/:courseId/:materialId" element={<CoursesPage />} />
           <Route path="/team" element={<TeamPage />} />
           <Route path="/archive" element={<ArchivePage />} />
           <Route path="/archive/:eventId" element={<ArchivePage />} />

@@ -10,6 +10,7 @@ from app.core.database import Base
 from app.domains.access import models as _access  # noqa: F401
 from app.domains.audit import models as _audit  # noqa: F401
 from app.domains.auth import models as _auth  # noqa: F401
+from app.domains.courses import models as _courses  # noqa: F401
 from app.domains.events import models as _events  # noqa: F401
 from app.domains.finance import models as _finance  # noqa: F401
 from app.domains.inventory import models as _inventory  # noqa: F401

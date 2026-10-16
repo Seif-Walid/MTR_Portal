@@ -7,7 +7,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // same-origin in dev: session cookie just works
-      '/api': 'http://localhost:8000',
+      '/api': process.env.API_PROXY ?? 'http://localhost:8000',
     },
   },
 });

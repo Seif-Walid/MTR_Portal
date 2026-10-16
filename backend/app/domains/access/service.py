@@ -37,6 +37,8 @@ PRIVILEGES: list[tuple[str, str]] = [
     ("finance.view", "View finances"),
     ("finance.edit", "Edit finances"),
     ("dashboard.view", "View the data dashboard"),
+    ("courses.view", "View courses"),
+    ("courses.manage", "Manage courses"),
     ("users.manage", "Manage users"),
     ("audit.view", "View audit log"),
 ]
@@ -53,11 +55,11 @@ PRESET_LEVELS: list[tuple[int, str, list[str]]] = [
     (3, "Lead", [
         "inventory.view", "inventory.request", "inventory.approve", "inventory.edit",
         "events.view", "events.manage_seated", "events.create",
-        "tasks.use", "tasks.assign", "org.view", "people.view",
+        "tasks.use", "tasks.assign", "org.view", "people.view", "courses.view",
     ]),
     (4, "Member", [
         "inventory.view", "inventory.request",
-        "events.view", "tasks.use", "org.view", "people.view",
+        "events.view", "tasks.use", "org.view", "people.view", "courses.view",
     ]),
     (5, "Guest", []),
 ]

@@ -690,3 +690,43 @@ export interface EventParticipant {
   rating: string | null;
   registered_at: string | null;
 }
+
+export type MaterialKind = 'slides' | 'book' | 'tasks' | 'answers' | 'tools';
+
+export interface Course {
+  id: number;
+  title: string;
+  description: string | null;
+  cover_label: string | null;
+  accent: string;
+  cover_url: string | null;
+  cover_path: string | null;
+  is_published: boolean;
+  sort_order: number;
+  counts: Record<MaterialKind, number>;
+  total: number;
+  completed: number;
+  percent: number;
+  updated_at: string;
+}
+
+export interface CourseMaterial {
+  id: number;
+  kind: MaterialKind;
+  title: string;
+  path: string | null; // managers only
+  is_link: boolean;
+  media_type: string | null; // files only
+  unit: number | null;
+  unit_label: string | null;
+  sort_order: number;
+  is_released: boolean;
+  url: string | null; // null = held back from this viewer
+  completed: boolean;
+}
+
+export interface CourseDetail extends Course {
+  materials: CourseMaterial[];
+  can_manage: boolean;
+  file_count: number | null;
+}

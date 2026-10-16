@@ -9,6 +9,7 @@ from app.domains.bulk.router import router as bulk_router
 from app.domains.calendar.router import router as calendar_router
 from app.domains.dashboard.router import router as dashboard_router
 from app.domains.auth.router import router as auth_router
+from app.domains.courses.router import router as courses_router
 from app.domains.events.router import router as events_router
 from app.domains.explorer.router import router as explorer_router
 from app.domains.finance.router import router as finance_router
@@ -51,6 +52,7 @@ for domain_router in (
     inventory_requests_router,
     inventory_router,
     events_router,
+    courses_router,
     explorer_router,
     finance_router,
     members_router,

@@ -389,3 +389,12 @@
 .mtr-oauth-btn:hover:not(:disabled) { border-color:rgba(92,198,255,.4); background:rgba(92,198,255,.06); }
 .mtr-oauth-btn:disabled { opacity:.5; cursor:not-allowed; }
 @media (prefers-reduced-motion:reduce) { .mtr-trace, .mtr-pcb-node { animation:none; } }
+
+/* Courses: cards lift on hover; the course hero stacks on narrow screens */
+.mtr-course-card { transition: border-color .15s, transform .15s, box-shadow .15s; }
+.mtr-course-card:hover { border-color: rgba(92, 198, 255, .45) !important; transform: translateY(-2px); box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
+.mtr-course-card:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .mtr-course-hero { grid-template-columns: 1fr !important; }
+  .mtr-course-hero > div:last-child { padding: 0 18px 20px !important; }
+}
