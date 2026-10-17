@@ -13,7 +13,7 @@ always agree on shape.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Literal
 
 from sqlalchemy import select
@@ -133,6 +133,9 @@ class Column:
     max_length: int | None = None
     pattern: str | None = None  # full-match regex for text cells
     pattern_hint: str | None = None  # what a valid value looks like, e.g. "MTR-123"
+    # column-level access: a viewer without this privilege never sees the column —
+    # not in the grid, the export, an upload, or the data dashboard
+    view_privilege: str | None = None
 
     @property
     def model_attr(self) -> str:
@@ -174,6 +177,8 @@ class TableSpec:
     where: Callable[[], object] | None = field(default=None, repr=False)
     # fixed column values for inserted rows (e.g. list_key for a pick-list)
     insert_values: dict = field(default_factory=dict)
+    # set on a viewer-narrowed copy (for_privileges): the table with every column
+    full: "TableSpec | None" = field(default=None, repr=False, compare=False)
 
     def column(self, name: str) -> Column | None:
         return next((c for c in self.columns if c.name == name), None)
@@ -188,10 +193,26 @@ class TableSpec:
             return self.model.is_active.is_(True)
         return None
 
+    def for_privileges(self, privileges: set[str]) -> "TableSpec":
+        """This table as one viewer may see it: columns they lack the
+        privilege for are dropped (so nothing downstream can read or write them)."""
+        cols = [c for c in self.columns if c.view_privilege is None or c.view_privilege in privileges]
+        return self if len(cols) == len(self.columns) else replace(self, columns=cols, full=self)
+
     def filters(self) -> list:
         out = [] if self.where is None else [self.where()]
         live = self.live_clause()
         return out if live is None else [*out, live]
+
+
+def restricted_attrs(table: str, privileges: set[str]) -> set[str]:
+    """Model attributes of SQL table `table` hidden from a viewer with these
+    privileges — the column-level view privileges, for screens outside the grid."""
+    return {
+        c.model_attr
+        for spec in TABLES.values() if spec.model.__table__.name == table
+        for c in spec.columns if c.view_privilege and c.view_privilege not in privileges
+    }
 
 
 def _enum(e) -> tuple[str, ...]:
@@ -203,7 +224,8 @@ _EMAIL = dict(pattern=r"[^@\s]+@[^@\s]+\.[^@\s]+", pattern_hint="an email addres
 _PHONE = dict(pattern=r"\+?\d[\d \-]{6,15}", pattern_hint="a phone number like 01012345678 or +966…")
 _PHONES = dict(pattern=r"\+?\d[\d \-]{6,15}(\s*[,/]\s*\+?\d[\d \-]{6,15})*",
                pattern_hint="one or more phone numbers, separated by commas")
-_MONEY = dict(min=0)
+# member contact / identity details: only people who maintain the roster see them
+_PII = "members.edit"
 
 
 # --- the tables -------------------------------------------------------------
@@ -236,17 +258,18 @@ TABLES: dict[str, TableSpec] = {
             Column("full_name", "str", label="Name", max_length=150),
             Column("email", "str", label="Gmail", **_EMAIL),
             Column("user_id", "int", ref="user", label="Portal account"),
-            Column("phone", "str", **_PHONE),
-            Column("national_id", "str", label="National ID", pattern=r"\d{14}", pattern_hint="the 14-digit national ID"),
-            Column("birthday", "date"),
+            Column("phone", "str", view_privilege=_PII, **_PHONE),
+            Column("national_id", "str", label="National ID", pattern=r"\d{14}", pattern_hint="the 14-digit national ID",
+                   view_privilege=_PII),
+            Column("birthday", "date", view_privilege=_PII),
             Column("location", "str", label="Governorate"),
             Column("university", "str"),
             Column("college", "str"),
             Column("major", "str"),
             Column("uni_id", "str", label="College ID"),
             Column("graduating_year", "int", label="Grad year", min=2000, max=2100),
-            Column("guardian_phone", "str", label="Guardian's number", **_PHONES),
-            Column("guardian_kinship", "str", label="Guardian's kinship"),
+            Column("guardian_phone", "str", label="Guardian's number", view_privilege=_PII, **_PHONES),
+            Column("guardian_kinship", "str", label="Guardian's kinship", view_privilege=_PII),
             Column("joined_at", "datetime", label="First registration"),
             Column("data_confidence", "str", label="Confidence"),
             Column("source_records", "int", label="Source records"),

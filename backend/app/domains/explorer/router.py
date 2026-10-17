@@ -37,7 +37,7 @@ def schema(db: DB, user: CurrentUser) -> dict:
 
 @router.get("/search")
 def search(db: DB, user: CurrentUser, q: str = Query(min_length=1, max_length=100)) -> list[dict]:
-    return service.search(db, q.strip(), _visible(db, user))
+    return service.search(db, q.strip(), _visible(db, user), privileges=access.privileges_for(db, user))
 
 
 @router.get("/{table}")
@@ -46,13 +46,14 @@ def list_rows(
     q: str = "", offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200),
 ) -> dict:
     visible = _visible(db, user)
-    return service.list_rows(db, _entity(table, visible), q.strip(), offset, limit, visible)
+    return service.list_rows(db, _entity(table, visible), q.strip(), offset, limit, visible,
+                             access.privileges_for(db, user))
 
 
 @router.get("/{table}/{record_id}")
 def get_record(table: str, record_id: int, db: DB, user: CurrentUser) -> dict:
     visible = _visible(db, user)
-    out = service.record(db, _entity(table, visible), record_id, visible)
+    out = service.record(db, _entity(table, visible), record_id, visible, access.privileges_for(db, user))
     if out is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Record not found")
     return service.annotate_edit(out, service.edit_keys(access.privileges_for(db, user)), visible)

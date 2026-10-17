@@ -146,3 +146,188 @@ def test_input_rules_are_enforced_and_described(login, org, season, db_session):
     ok = admin.post("/api/bulk/member_profiles", json={"rows": [
         {"id": str(m.id), "phone": "phone?", "university": "AUC"}], "partial": True}).json()
     assert ok["ok"], ok
+
+
+# --- phase 4: column-level visibility ---------------------------------------------
+def _grant(db, login_name, org, *privs):
+    import json
+
+    from app.domains.access.models import AccessLevel
+
+    level = db.get(AccessLevel, org[login_name].access_level_id)
+    level.privileges = json.dumps(sorted(set(json.loads(level.privileges)) | set(privs)))
+    db.commit()
+
+
+def test_member_contact_columns_need_members_edit(login, org, db_session):
+    from app.domains.users.models import MemberProfile
+
+    m = MemberProfile(full_name="Private Pat", mtr_id="MTR-500", phone="01012345678", national_id="12345678901234")
+    db_session.add(m)
+    db_session.commit()
+    _grant(db_session, "ceo", org, "dashboard.view", "members.view")
+    ceo = login("ceo")
+    rec = ceo.get(f"/api/explore/member_profiles/{m.id}").json()
+    names = {f["name"] for f in rec["fields"]}
+    assert "mtr_id" in names and "phone" not in names and "national_id" not in names
+    # can't find someone by a number they aren't allowed to see
+    assert ceo.get("/api/explore/member_profiles", params={"q": "0101234"}).json()["total"] == 0
+
+    admin_rec = login("admin").get(f"/api/explore/member_profiles/{m.id}").json()
+    assert "phone" in {f["name"] for f in admin_rec["fields"]}
+
+
+def test_narrowed_spec_drops_columns_and_values():
+    from app.domains.bulk.registry import TABLES
+
+    spec = TABLES["member_profiles"].for_privileges(set())
+    assert "phone" not in {c.name for c in spec.columns}
+    assert spec.full is TABLES["member_profiles"]
+    assert TABLES["member_profiles"].for_privileges({"members.edit"}) is TABLES["member_profiles"]
+
+
+def test_members_directory_redacts_contact_details(login, org, db_session):
+    from app.domains.users.models import MemberProfile
+
+    m = MemberProfile(full_name="Quiet Q", mtr_id="MTR-501", phone="01099998888", guardian_phone="01011112222")
+    db_session.add(m)
+    db_session.commit()
+    _grant(db_session, "ceo", org, "members.view")
+    ceo = login("ceo")
+    assert next(r for r in ceo.get("/api/members").json() if r["id"] == m.id)["phone"] is None
+    detail = ceo.get(f"/api/members/{m.id}").json()
+    assert detail["phone"] is None and detail["guardian_phone"] is None and detail["mtr_id"] == "MTR-501"
+    assert login("admin").get(f"/api/members/{m.id}").json()["phone"] == "01099998888"
+
+
+# --- phase 5: guided importer -------------------------------------------------------
+def _book(content):
+    import io
+
+    import openpyxl
+
+    return openpyxl.load_workbook(io.BytesIO(content))
+
+
+def _save(wb) -> bytes:
+    import io
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _upload(client, table, content, query="", name="f.xlsx", data=None):
+    return client.post(f"/api/bulk/{table}/upload{query}", files={"file": (name, content, "application/octet-stream")},
+                       data=data or {})
+
+
+def test_export_is_scoped_typed_and_has_dropdowns(login, org, season, db_session):
+    admin = login("admin")
+    other = FinanceSeason(name="Old", status="closed")
+    db_session.add(other)
+    db_session.commit()
+    _add_spending(admin, season.id, item="In scope")
+    _add_spending(admin, other.id, item="Out of scope")
+    wb = _book(admin.get(f"/api/bulk/spendings/export.xlsx?season_id={season.id}").content)
+    ws = wb["spendings"]
+    items = [r[4] for r in ws.iter_rows(min_row=2, values_only=True)]
+    assert items == ["In scope"]
+    header = [c.value for c in ws[1]]
+    assert header[0] == "ID" and header[-1] == "Status"
+    row = next(ws.iter_rows(min_row=2, values_only=True))
+    assert row[header.index("Season")] == "S5"  # a label, not an id
+    assert isinstance(row[header.index("Count")], (int, float))  # a real number: formulas work
+    assert ws.data_validations.dataValidation  # dropdowns
+    assert wb["_meta"].sheet_state == "hidden"
+
+
+def test_untouched_cells_are_not_written_and_stale_cells_conflict(login, org, season, db_session):
+    admin = login("admin")
+    sid = _add_spending(admin, season.id, item="Gear", count="2")
+    content = admin.get(f"/api/bulk/spendings/export.xlsx?season_id={season.id}").content
+    # meanwhile someone edits count in the portal
+    admin.post("/api/bulk/spendings", json={"rows": [{"id": str(sid), "count": "4"}], "partial": True})
+
+    # the file only changes the note: applies cleanly and keeps count=4
+    wb = _book(content)
+    ws = wb["spendings"]
+    hdr = [c.value for c in ws[1]]
+    ws.cell(row=2, column=hdr.index("Note") + 1, value="from excel")
+    res = _upload(admin, "spendings", _save(wb), "?apply=true").json()
+    assert res["applied"], res
+    db_session.expire_all()
+    row = db_session.get(Spending, sid)
+    assert row.count == 4 and row.note == "from excel"
+
+    # a file that changes the stale count is a conflict, nothing written
+    wb = _book(content)
+    wb["spendings"].cell(row=2, column=hdr.index("Count") + 1, value=9)
+    prev = _upload(admin, "spendings", _save(wb)).json()
+    assert not prev["ok"] and prev["errors"][0]["code"] == "conflict"
+
+
+def test_foreign_file_headers_labels_and_mapping(login, org, season, db_session):
+    import openpyxl
+
+    admin = login("admin")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Item", "season", "Unit Cost", "Qty bought", "Paid with"])
+    ws.append(["Battery", "S5", 300, 2, "cash"])
+    content = _save(wb)
+    prev = _upload(admin, "spendings", content).json()
+    assert prev["unmatched"] == ["Qty bought", "Paid with"]
+    import json
+
+    prev = _upload(admin, "spendings", content, data={"mapping": json.dumps({"Qty bought": "count", "Paid with": "method_id"})}).json()
+    assert prev["ok"] and prev["new"] == 1, prev
+    res = _upload(admin, "spendings", content, "?apply=true",
+                  data={"mapping": json.dumps({"Qty bought": "count", "Paid with": "method_id"})}).json()
+    assert res["applied"]
+    sp = db_session.query(Spending).filter_by(item="Battery").one()
+    assert sp.count == 2 and sp.method_id is not None and sp.season_id == season.id
+
+
+def test_scoped_delete_missing_never_touches_other_scopes(login, org, season, db_session):
+    admin = login("admin")
+    other = FinanceSeason(name="Other", status="active")
+    db_session.add(other)
+    db_session.commit()
+    keep_other = _add_spending(admin, other.id, item="Other season")
+    _add_spending(admin, season.id, item="Delete me")
+    wb = _book(admin.get(f"/api/bulk/spendings/export.xlsx?season_id={season.id}").content)
+    wb["spendings"].delete_rows(2)
+    prev = _upload(admin, "spendings", _save(wb), "?delete_missing=true").json()
+    assert prev["will_delete"] == 1 and keep_other not in prev["missing_ids"]
+
+
+def test_annotated_workbook_marks_bad_rows(login, org, season):
+    import openpyxl
+
+    admin = login("admin")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Season", "Item", "Count"])
+    ws.append(["S5", "Fine", 1])
+    ws.append(["S5", "Bad", -3])
+    r = _upload(admin, "spendings", _save(wb), "?annotate=true")
+    assert r.status_code == 200
+    out = _book(r.content).active
+    status = [row[-1] for row in out.iter_rows(min_row=2, values_only=True)]
+    assert status[0] == "✓" and "at least 0" in status[1]
+
+
+def test_upload_row_cap(login, org, season, monkeypatch):
+    import openpyxl
+
+    from app.domains.bulk import service
+
+    monkeypatch.setattr(service, "UPLOAD_MAX_ROWS", 2)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Season", "Item"])
+    for i in range(3):
+        ws.append(["S5", f"x{i}"])
+    r = _upload(login("admin"), "spendings", _save(wb))
+    assert r.status_code == 400 and "more than 2 rows" in r.json()["detail"]

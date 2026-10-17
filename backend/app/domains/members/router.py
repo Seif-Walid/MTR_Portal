@@ -75,6 +75,22 @@ def _detail(db: DB, m: MemberProfile) -> MemberDetail:
     )
 
 
+def _redact(db: DB, user, out):
+    """Blank the roster fields this viewer may not see (column-level privileges)."""
+    from app.domains.bulk.registry import restricted_attrs
+
+    hidden = restricted_attrs("member_profiles", access.privileges_for(db, user))
+    if not hidden:
+        return out
+    if isinstance(out, list):
+        return [_redact_one(o, hidden) for o in out]
+    return _redact_one(out, hidden)
+
+
+def _redact_one(o, hidden: set[str]):
+    return o.model_copy(update={k: None for k in hidden if k in type(o).model_fields})
+
+
 def _get(db: DB, member_id: int) -> MemberProfile:
     m = db.get(MemberProfile, member_id)
     if m is None:
@@ -86,7 +102,7 @@ def _get(db: DB, member_id: int) -> MemberProfile:
 def list_members(db: DB, user: CurrentUser) -> list[MemberRow]:
     access.require_privilege(db, user, "members.view")
     parts = service.participations_by_member(db)
-    return [MemberRow(**_row(m, parts.get(m.id, []))) for m in service.roster(db)]
+    return _redact(db, user, [MemberRow(**_row(m, parts.get(m.id, []))) for m in service.roster(db)])
 
 
 @router.get("/stats")
@@ -114,7 +130,7 @@ def check_duplicate(payload: DuplicateCheckIn, db: DB, user: CurrentUser) -> lis
 @router.get("/{member_id}")
 def get_member(member_id: int, db: DB, user: CurrentUser) -> MemberDetail:
     access.require_privilege(db, user, "members.view")
-    return _detail(db, _get(db, member_id))
+    return _redact(db, user, _detail(db, _get(db, member_id)))
 
 
 def _apply(db: DB, m: MemberProfile, data: dict) -> None:

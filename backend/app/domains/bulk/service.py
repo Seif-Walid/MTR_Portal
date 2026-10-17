@@ -97,9 +97,8 @@ def read_table(db: Session, spec: TableSpec) -> dict:
     """Current DB rows for a table, plus the dropdown options every reference
     column needs. Row serialization is the exact same code the Excel export
     uses, so grid and file never disagree."""
-    header, rows = _export_for(db, spec)
     columns = [_column_payload(c) for c in spec.columns]
-    row_dicts = [dict(zip(header, r)) for r in rows]
+    row_dicts = table_rows(db, spec)
     return {
         "key": spec.key,
         "label": spec.label,
@@ -494,14 +493,15 @@ def _audit_changes(
     """One audit entry per touched row, in the grid's own cell format:
     updates carry {column: [old, new]}, creates and deletes the whole row (a
     delete's snapshot is what the recycle bin restores from)."""
+    full = spec.full or spec  # snapshots keep every column, even ones this editor can't see
     after = _rows_by_id(db, spec) if (created or updated) else {}
     for rid in created | updated:
         if rid not in after:  # e.g. deactivated by this very edit — no longer exported
             obj = db.get(spec.model, rid)
             if obj is not None:
-                after[rid] = _row_cells(db, spec, obj)
+                after[rid] = _row_cells(db, full, obj)
     for rid in sorted(created):
-        audit.log(db, actor_id, "bulk", "create", spec.key, rid, {"row": _editable(spec, after.get(rid, {}))})
+        audit.log(db, actor_id, "bulk", "create", spec.key, rid, {"row": _editable(full, after.get(rid, {}))})
     for rid in sorted(updated):
         old, new = before.get(rid, {}), after.get(rid, {})
         changes = {
@@ -513,12 +513,15 @@ def _audit_changes(
             audit.log(db, actor_id, "bulk", "update", spec.key, rid, {"changes": changes})
     for rid in deleted:
         audit.log(db, actor_id, "bulk", "delete", spec.key, rid,
-                  {"row": _editable(spec, before.get(rid, {})), "policy": spec.delete})
+                  {"row": _editable(full, before.get(rid, {})), "policy": spec.delete})
 
 
 def table_rows(db: Session, spec: TableSpec) -> list[dict]:
+    """Rows as the grid gets them — only the spec's columns (a viewer's spec may
+    have privileged columns removed; their values must not ride along)."""
     header, rows = _export_for(db, spec)
-    return [dict(zip(header, r)) for r in rows]
+    keep = {c.name for c in spec.columns} if not spec.read_only else set(header)
+    return [{k: v for k, v in zip(header, r) if k in keep} for r in rows]
 
 
 def _integrity_message(exc: IntegrityError) -> str:
@@ -627,91 +630,313 @@ TABLES["event_categories"].delete_guard = _guard_event_category
 
 
 # --- Excel round-trip -------------------------------------------------------
-# The whole workflow: download a real .xlsx of a table, edit it freely in Excel,
-# upload it back. We diff the file against the DB and apply
-# adds/updates (and, opt-in, delete rows the user removed from the sheet).
-def workbook_bytes(db: Session, spec: TableSpec) -> bytes:
+# The guided importer: download a real .xlsx of (a scope of) a table, edit it
+# freely in Excel / Sheets — formulas, fill-down, dropdowns — and upload it back.
+# The upload is matched to the table's columns (by name or label, or a mapping
+# the user picks), reference cells may hold labels, and a hidden copy of the
+# exported values means only cells the user actually changed are written —
+# a cell someone else changed in the portal since the download is a conflict,
+# not an overwrite. Nothing is written until the user confirms the preview, and
+# then all-or-nothing.
+UPLOAD_MAX_ROWS = 5000
+_META, _BASE, _LISTS = "_meta", "_base", "_lists"
+STATUS_HEADER = "Status"
+
+
+def _norm_header(text: str) -> str:
+    import re
+
+    return re.sub(r"[\s_\-]+", " ", str(text or "")).strip().lower()
+
+
+def _xlsx_value(col: Column, cell: str, labels: dict[str, str]):
+    """Grid string -> a typed Excel value (numbers stay numbers so formulas work)."""
+    if cell == "":
+        return None
+    if col.ref or col.choices:
+        return labels.get(cell, cell)
+    try:
+        if col.type == "int":
+            return int(float(cell))
+        if col.type == "number":
+            return float(cell)
+        if col.type == "bool":
+            return cell == "true"
+        if col.type == "date":
+            return date.fromisoformat(cell[:10])
+        if col.type == "datetime":
+            return datetime.fromisoformat(cell)
+    except ValueError:
+        pass
+    return cell
+
+
+def _grid_value(col: Column, value) -> str:
+    """An uploaded cell -> the grid's string convention for that column, so a
+    file value compares equal to the exported one when the user didn't touch it."""
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        if col.type == "date" or (value.hour == value.minute == value.second == 0 and col.type != "datetime"):
+            return value.date().isoformat()
+        return value.replace(tzinfo=None).isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    text = str(value).strip()
+    if col.type in ("int", "number") and not (col.ref or col.choices) and text:
+        try:
+            return _cell(float(text.replace(",", "")))
+        except ValueError:
+            return text
+    if col.ref and text.endswith(".0") and text[:-2].isdigit():
+        return text[:-2]  # an id Excel turned into a float
+    if col.type == "bool" and text:
+        return "true" if text.lower() in ("true", "1", "yes", "y", "x", "✓") else "false" if text.lower() in (
+            "false", "0", "no", "n", "") else text
+    return text
+
+
+def _label_maps(db: Session, spec: TableSpec) -> dict[str, tuple[dict[str, str], dict[str, str]]]:
+    """col -> ({stored value: label}, {lowercased label: stored value}) for every pick column."""
+    out = {}
+    opts = _ref_options(db, spec)
+    for c in spec.columns:
+        if c.ref:
+            pairs = [(str(o["value"]), str(o["label"])) for o in opts.get(c.name, [])]
+        elif c.choices:
+            pairs = [(v, v) for v in c.choices]
+        else:
+            continue
+        out[c.name] = ({v: l for v, l in pairs}, {l.strip().lower(): v for v, l in pairs})
+    return out
+
+
+def _scoped_rows(db: Session, spec: TableSpec, scope: dict[str, str]) -> list[dict]:
+    return [r for r in table_rows(db, spec) if all(str(r.get(k, "")) == str(v) for k, v in scope.items())]
+
+
+def workbook_bytes(db: Session, spec: TableSpec, scope: dict[str, str] | None = None) -> bytes:
     import io
+    import json
 
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.datavalidation import DataValidation
 
-    header = [c.name for c in spec.columns]
-    _, rows = _export_for(db, spec)
+    scope = {k: v for k, v in (scope or {}).items() if spec.column(k)}
+    cols = spec.columns
+    rows = _scoped_rows(db, spec, scope) if not spec.read_only else table_rows(db, spec)
+    labels = _label_maps(db, spec) if not spec.read_only else {}
 
     wb = Workbook()
     ws = wb.active
     ws.title = spec.key[:31]  # Excel caps sheet names at 31 chars
+    header = [c.header for c in cols] + ([STATUS_HEADER] if not spec.read_only else [])
     ws.append(header)
-    for cell in ws[1]:
+    for i, cell in enumerate(ws[1]):
+        locked = i < len(cols) and not cols[i].editable
         cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="1F4E78")
+        cell.fill = PatternFill("solid", fgColor="7F7F7F" if locked else "1F4E78")
     for r in rows:
-        ws.append(r)
-    ws.freeze_panes = "A2"
-    for i, name in enumerate(header, start=1):
-        longest = max([len(name)] + [len(str(r[i - 1])) for r in rows]) if rows else len(name)
+        ws.append([_xlsx_value(c, r.get(c.name, ""), labels.get(c.name, ({}, {}))[0]) for c in cols])
+    ws.freeze_panes = "B2"
+    for i, c in enumerate(cols, start=1):
+        longest = max([len(c.header)] + [len(str(r.get(c.name, ""))) for r in rows]) if rows else len(c.header)
         ws.column_dimensions[get_column_letter(i)].width = min(longest + 2, 48)
+
+    if not spec.read_only:
+        # dropdowns for every pick column, fed from a hidden list sheet
+        lists = wb.create_sheet(_LISTS)
+        lists.sheet_state = "hidden"
+        last = max(len(rows) + 500, 1000)
+        for j, c in enumerate([c for c in cols if c.name in labels and c.editable], start=1):
+            values = list(labels[c.name][0].values())
+            if not values:
+                continue
+            for k, v in enumerate(values, start=1):
+                lists.cell(row=k, column=j, value=v)
+            letter = get_column_letter(j)
+            dv = DataValidation(type="list", formula1=f"={_LISTS}!${letter}$1:${letter}${len(values)}",
+                                allow_blank=True, showErrorMessage=False)
+            col_letter = get_column_letter(cols.index(c) + 1)
+            dv.add(f"{col_letter}2:{col_letter}{last}")
+            ws.add_data_validation(dv)
+        # what was exported: which table and scope, and every value as it stood
+        meta = wb.create_sheet(_META)
+        meta.sheet_state = "hidden"
+        meta.append(["table", spec.key])
+        meta.append(["scope", json.dumps(scope)])
+        meta.append(["exported_at", datetime.now(timezone.utc).isoformat()])
+        base = wb.create_sheet(_BASE)
+        base.sheet_state = "hidden"
+        base.append([c.name for c in cols])
+        for r in rows:
+            base.append([r.get(c.name, "") for c in cols])
 
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
 
 
-def parse_upload(content: bytes, filename: str, spec: TableSpec) -> list[dict]:
-    """Read an uploaded .xlsx/.csv into row dicts keyed by this table's columns.
-    The file must keep every column from the downloaded template (so an update
-    never silently blanks a column that was dropped from the sheet)."""
+@dataclass
+class Upload:
+    """A parsed upload: rows keyed by column name (only the columns the file
+    has), each row's line in the sheet, and what the file says about itself."""
+
+    rows: list[dict]
+    lines: list[int]
+    headers: list[str]
+    matched: dict[str, str]  # file header -> column name
+    unmatched: list[str]  # file headers matched to no column
+    base: dict[int, dict] | None  # id -> exported grid values (our own template only)
+    scope: dict[str, str]
+    sheet: str | None
+
+
+def parse_upload(content: bytes, filename: str, spec: TableSpec, mapping: dict[str, str] | None = None) -> Upload:
+    """Read an uploaded .xlsx/.csv. Headers are matched to columns by name or
+    label (case/spacing-insensitive), or by an explicit {header: column} mapping;
+    unrecognised headers are reported and ignored. A missing column simply isn't
+    touched on existing rows (and must not be required for new ones)."""
     import csv
     import io
+    import json
 
     lower = filename.lower()
+    base: dict[int, dict] | None = None
+    scope: dict[str, str] = {}
+    sheet_name = None
     if lower.endswith((".xlsx", ".xlsm")):
         import openpyxl
 
-        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True, read_only=True)
-        ws = wb[spec.key] if spec.key in wb.sheetnames else wb[wb.sheetnames[0]]
-        grid = [[_cell_to_str(c) for c in row] for row in ws.iter_rows(values_only=True)]
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True, read_only=True)
+        except Exception as exc:  # corrupt / not really an xlsx
+            raise ValueError("That file could not be opened as an Excel workbook.") from exc
+        data_sheets = [n for n in wb.sheetnames if n not in (_META, _BASE, _LISTS)]
+        sheet_name = spec.key[:31] if spec.key[:31] in data_sheets else data_sheets[0]
+        grid = [list(row) for row in wb[sheet_name].iter_rows(values_only=True)]
+        if _META in wb.sheetnames:
+            meta = {str(r[0]): r[1] for r in wb[_META].iter_rows(values_only=True) if r and r[0]}
+            if meta.get("table") == spec.key:
+                try:
+                    scope = {str(k): str(v) for k, v in json.loads(meta.get("scope") or "{}").items()}
+                except ValueError:
+                    scope = {}
+                if _BASE in wb.sheetnames:
+                    brows = [list(r) for r in wb[_BASE].iter_rows(values_only=True)]
+                    if brows:
+                        bh = [str(h) for h in brows[0]]
+                        base = {}
+                        for br in brows[1:]:
+                            d = {h: ("" if v is None else str(v)) for h, v in zip(bh, br)}
+                            if d.get("id", "").isdigit():
+                                base[int(d["id"])] = d
     elif lower.endswith(".csv"):
         text = content.decode("utf-8-sig", errors="replace")
-        grid = [[c.strip() for c in row] for row in csv.reader(io.StringIO(text))]
+        grid = [list(row) for row in csv.reader(io.StringIO(text))]
     else:
         raise ValueError("Unsupported file — upload a .xlsx or .csv file.")
 
-    # find the header row (the first one containing 'id')
-    header_idx = next((i for i, row in enumerate(grid[:25]) if "id" in [c.strip() for c in row]), None)
+    by_key: dict[str, str] = {}
+    for c in spec.columns:
+        by_key.setdefault(_norm_header(c.name), c.name)
+        by_key.setdefault(_norm_header(c.header), c.name)
+    mapping = {k: v for k, v in (mapping or {}).items() if v == "" or spec.column(v)}
+
+    def match(h: str) -> str | None:
+        if h in mapping:
+            return mapping[h] or None  # "" = deliberately ignored
+        return by_key.get(_norm_header(h))
+
+    # the header row: the first of the top 25 rows matching the most columns
+    best, header_idx = 0, None
+    for i, row in enumerate(grid[:25]):
+        n = sum(1 for h in row if h is not None and str(h).strip() and match(str(h).strip()))
+        if n > best:
+            best, header_idx = n, i
     if header_idx is None:
-        raise ValueError("Could not find the header row — keep the first row of column names.")
-    header = [c.strip() for c in grid[header_idx]]
-    expected = [c.name for c in spec.columns]
-    missing = [c for c in expected if c not in header]
-    if missing:
-        raise ValueError(f"The sheet is missing column(s): {', '.join(missing)}. Keep every column.")
-    idx = {name: header.index(name) for name in expected}
+        header_idx = next((i for i, row in enumerate(grid[:25]) if sum(1 for h in row if h not in (None, "")) >= 2), None)
+    if header_idx is None:
+        raise ValueError("Could not find a header row — keep the first row of column names.")
+    headers = ["" if h is None else str(h).strip() for h in grid[header_idx]]
+
+    matched: dict[str, str] = {}
+    unmatched: list[str] = []
+    idx: dict[str, int] = {}
+    for j, h in enumerate(headers):
+        if not h or _norm_header(h) == _norm_header(STATUS_HEADER):
+            continue
+        name = match(h)
+        if name and name not in idx:
+            col = spec.column(name)
+            if col and (col.editable or name == "id"):
+                idx[name] = j
+                matched[h] = name
+            continue
+        if h not in mapping:
+            unmatched.append(h)
 
     rows: list[dict] = []
-    for raw in grid[header_idx + 1 :]:
-        if not any(c.strip() for c in raw):
+    lines: list[int] = []
+    for k, raw in enumerate(grid[header_idx + 1:], start=header_idx + 2):
+        if not any(v not in (None, "") and str(v).strip() for v in raw):
             continue  # skip fully blank lines
-        rows.append({name: (raw[idx[name]] if idx[name] < len(raw) else "") for name in expected})
-    return rows
+        row = {}
+        for name, j in idx.items():
+            col = spec.column(name)
+            row[name] = _grid_value(col, raw[j] if j < len(raw) else None)
+        row.setdefault("id", "")
+        rows.append(row)
+        lines.append(k)
+        if len(rows) > UPLOAD_MAX_ROWS:
+            raise ValueError(f"The file has more than {UPLOAD_MAX_ROWS} rows — split it into smaller files.")
+    return Upload(rows=rows, lines=lines, headers=headers, matched=matched, unmatched=unmatched,
+                  base=base, scope=scope, sheet=sheet_name)
 
 
-def _cell_to_str(value: object) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return str(value).strip()
+def prepare_upload(db: Session, spec: TableSpec, up: Upload, fixed: dict[str, str]) -> list[dict]:
+    """Turn parsed file rows into engine rows: pick labels -> stored values,
+    scope values filled into new rows, and — for our own exported template —
+    unchanged cells dropped and changed ones sent with their exported value as
+    the conflict base."""
+    labels = _label_maps(db, spec)
+    scope = {**up.scope, **fixed}
+    out = []
+    for row in up.rows:
+        r = dict(row)
+        for name, (_, by_label) in labels.items():
+            v = r.get(name)
+            if v:
+                hit = by_label.get(v.strip().lower())
+                if hit is not None:
+                    r[name] = hit
+        rid = r.get("id", "")
+        if rid and up.base is not None and rid.isdigit() and int(rid) in up.base:
+            exported = up.base[int(rid)]
+            changed = {k: v for k, v in r.items() if k != "id" and v != exported.get(k, "")}
+            r = {"id": rid, **changed, "_base": {k: exported.get(k, "") for k in changed}}
+        elif not rid:
+            for k, v in scope.items():
+                if spec.column(k) and not r.get(k):
+                    r[k] = v
+        out.append(r)
+    return out
 
 
-def plan_upload(db: Session, spec: TableSpec, rows: list[dict], delete_missing: bool) -> dict:
+def plan_upload(db: Session, spec: TableSpec, rows: list[dict], delete_missing: bool,
+                scope: dict[str, str] | None = None) -> dict:
     """Diff the uploaded rows against the DB without writing. Returns the counts
-    the confirm dialog shows, the ids that would be deleted, and any errors."""
+    the confirm dialog shows, the ids that would be deleted, and any errors.
+    Deletion candidates are limited to the file's scope (e.g. its season): a
+    one-season sheet never proposes deleting other seasons' rows."""
     coerced, errors, _ = validate(db, spec, rows, [])
-    existing_ids = _spec_ids(db, spec)
-    uploaded_ids = {c.id for c in coerced if c.id is not None}
+    scope = {k: v for k, v in (scope or {}).items() if spec.column(k)}
+    in_scope = {int(r["id"]) for r in _scoped_rows(db, spec, scope)}
+    uploaded_ids = {int(r["id"]) for r in rows if str(r.get("id", "")).isdigit()}
 
     new = changed = unchanged = 0
     for c in coerced:
@@ -724,9 +949,8 @@ def plan_upload(db: Session, spec: TableSpec, rows: list[dict], delete_missing: 
         else:
             unchanged += 1
 
-    # rows in the DB but absent from the uploaded file — candidate deletions
     can_delete = not (spec.append_only or spec.delete == "none")
-    missing_ids = sorted(existing_ids - uploaded_ids) if can_delete else []
+    missing_ids = sorted(in_scope - uploaded_ids) if can_delete else []
     return {
         "ok": not errors,
         "errors": errors,
@@ -739,14 +963,72 @@ def plan_upload(db: Session, spec: TableSpec, rows: list[dict], delete_missing: 
     }
 
 
+def annotated_workbook(content: bytes, filename: str, up: Upload, errors: list[dict]) -> bytes:
+    """The user's own file handed back with the Status column filled in: ✓ or
+    what is wrong on that line — fix the marked rows and upload again."""
+    import io
+
+    import openpyxl
+
+    by_line: dict[int, list[str]] = {}
+    general: list[str] = []
+    for e in errors:
+        msg = (f"{e['column']}: " if e.get("column") else "") + e["message"]
+        if e.get("row") is not None and e["row"] < len(up.lines):
+            by_line.setdefault(up.lines[e["row"]], []).append(msg)
+        else:
+            general.append(msg)
+
+    if filename.lower().endswith((".xlsx", ".xlsm")):
+        wb = openpyxl.load_workbook(io.BytesIO(content))  # keeps the user's formulas
+        ws = wb[up.sheet] if up.sheet in wb.sheetnames else wb.active
+    else:
+        import csv
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        for row in csv.reader(io.StringIO(content.decode("utf-8-sig", errors="replace"))):
+            ws.append(row)
+    from openpyxl.styles import Font, PatternFill
+
+    header_row = (up.lines[0] - 1) if up.lines else 1
+    status_col = next((j for j, h in enumerate(up.headers, start=1) if _norm_header(h) == _norm_header(STATUS_HEADER)),
+                      len(up.headers) + 1)
+    ws.cell(row=header_row, column=status_col, value=STATUS_HEADER).font = Font(bold=True)
+    bad = PatternFill("solid", fgColor="F8D7DA")
+    for line in up.lines:
+        msgs = by_line.get(line)
+        cell = ws.cell(row=line, column=status_col, value="; ".join(msgs) if msgs else "✓")
+        if msgs:
+            cell.fill = bad
+    if general:
+        ws.cell(row=max(header_row - 1, 1), column=status_col, value="; ".join(general)).fill = bad
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _cell_to_str(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
 # --- history / recycle bin ----------------------------------------------------
-def _entry(e, names: dict[int, str]) -> dict:
+def _entry(e, names: dict[int, str], spec: TableSpec | None = None) -> dict:
     import json
 
     try:
         detail = json.loads(e.detail or "{}")
     except ValueError:
         detail = {}
+    if spec is not None:  # only the columns this viewer may see
+        shown = {c.name for c in spec.columns}
+        for k in ("row", "changes"):
+            if isinstance(detail.get(k), dict):
+                detail[k] = {c: v for c, v in detail[k].items() if c in shown}
     return {
         "id": e.id, "action": e.action, "entity_id": e.entity_id, "detail": detail,
         "actor": names.get(e.actor_id) if e.actor_id else None,
@@ -771,7 +1053,8 @@ def row_history(db: Session, spec: TableSpec, rid: int) -> list[dict]:
         .order_by(AuditLog.id.desc())
     ))
     names = _actor_names(db, entries)
-    return [_entry(e, names) for e in entries]
+    return [h for h in (_entry(e, names, spec) for e in entries)
+            if h["action"] != "update" or h["detail"].get("changes")]
 
 
 def trash(db: Session, spec: TableSpec, limit: int = 200) -> list[dict]:
@@ -788,7 +1071,7 @@ def trash(db: Session, spec: TableSpec, limit: int = 200) -> list[dict]:
         if e.id not in restored
     ]
     names = _actor_names(db, entries)
-    return [_entry(e, names) for e in entries]
+    return [_entry(e, names, spec) for e in entries]
 
 
 def restore(db: Session, spec: TableSpec, audit_id: int, actor_id: int) -> dict:
@@ -805,6 +1088,7 @@ def restore(db: Session, spec: TableSpec, audit_id: int, actor_id: int) -> dict:
         return {"ok": False, "message": "That row was already restored."}
     rid = entry.entity_id
     detail = _entry(entry, {})["detail"]
+    spec = spec.full or spec  # the snapshot holds every column; restore all of them
     obj = db.get(spec.model, rid)
 
     if spec.delete in ("soft", "deactivate"):

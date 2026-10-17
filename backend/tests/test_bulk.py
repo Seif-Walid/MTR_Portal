@@ -201,7 +201,7 @@ def test_export_xlsx_has_header_and_rows(login, db_session):
     assert "spreadsheetml" in r.headers["content-type"]
     title, grid = _read_xlsx(r.content)
     assert title == "inventory_items"
-    assert grid[0][:2] == ["id", "name"]
+    assert grid[0][:2] == ["ID", "Name"]  # human headers; upload matches name or label
     assert any(row[1] == "Exported Widget" for row in grid[1:])
 
 
@@ -278,17 +278,17 @@ def test_upload_delete_missing_is_opt_in(login, db_session):
     assert db_session.get(InventoryItem, drop.id).deleted_at is not None
 
 
-def test_upload_missing_column_rejected(login, db_session):
+def test_upload_missing_required_column_blocks_new_rows(login, db_session):
     from app.domains.inventory.models import InventoryItem
 
     db_session.add(InventoryItem(name="X", quantity=1))
     db_session.commit()
-    # header without 'quantity'
+    # header without 'quantity': fine for updates (not touched), but a new row needs it
     content = _write_xlsx(["id", "name"], [["", "Nope"]])
     files = {"file": ("inventory_items.xlsx", content, "application/octet-stream")}
-    r = login("ceo").post("/api/bulk/inventory_items/upload", files=files)
-    assert r.status_code == 400
-    assert "quantity" in r.json()["detail"]
+    r = login("ceo").post("/api/bulk/inventory_items/upload", files=files).json()
+    assert r["ok"] is False
+    assert any(e["column"] == "quantity" for e in r["errors"])
 
 
 # --- the live grid: partial saves, patch updates, fresh rows back ------------

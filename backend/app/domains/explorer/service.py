@@ -222,6 +222,14 @@ def visible_tables(privileges: set[str]) -> set[str]:
     return {e.table for e in ENTITIES if e.privilege in privileges}
 
 
+def restricted_columns(table: str, privileges: set[str] | None) -> set[str]:
+    """Columns of `table` this viewer may not see — the bulk registry's
+    column-level view privileges (e.g. member contact details), applied here too."""
+    from app.domains.bulk.registry import restricted_attrs
+
+    return set() if privileges is None else restricted_attrs(table, privileges)
+
+
 def edit_keys(privileges: set[str]) -> dict[str, tuple[str, set[str]]]:
     """SQL table -> (bulk-editor table key, its editable columns) for every
     table this viewer may edit in place. Only whole-table specs count: a
@@ -362,12 +370,13 @@ def schema(db: Session, visible: set[str], editable: dict | None = None) -> dict
 
 
 # --- lists ------------------------------------------------------------------------
-def _search_clause(model, entity: Entity, q: str):
+def _search_clause(model, entity: Entity, q: str, privileges: set[str] | None = None):
     table = Base.metadata.tables[entity.table]
+    hidden = set(entity.hidden) | restricted_columns(entity.table, privileges)
     cols = []
     for name in (*entity.title, *entity.summary, "email", "mtr_id", "code", "phone"):
         col = table.columns.get(name)
-        if col is not None and isinstance(col.type, (String, Text)) and name not in entity.hidden:
+        if col is not None and isinstance(col.type, (String, Text)) and name not in hidden:
             cols.append(getattr(model, name))
     if q.isdigit():
         cols_id = [model.id == int(q)]
@@ -378,11 +387,12 @@ def _search_clause(model, entity: Entity, q: str):
     return or_(*clauses) if clauses else None
 
 
-def list_rows(db: Session, entity: Entity, q: str, offset: int, limit: int, visible: set[str]) -> dict:
+def list_rows(db: Session, entity: Entity, q: str, offset: int, limit: int, visible: set[str],
+              privileges: set[str] | None = None) -> dict:
     model = model_for(entity.table)
     query = select(model).where(*_live(model))
     if q:
-        clause = _search_clause(model, entity, q)
+        clause = _search_clause(model, entity, q, privileges)
         if clause is None:
             return {"total": 0, "rows": []}
         query = query.where(clause)
@@ -396,13 +406,13 @@ def list_rows(db: Session, entity: Entity, q: str, offset: int, limit: int, visi
     }
 
 
-def search(db: Session, q: str, visible: set[str], per_table: int = 6) -> list[dict]:
+def search(db: Session, q: str, visible: set[str], per_table: int = 6, privileges: set[str] | None = None) -> list[dict]:
     out = []
     for e in ENTITIES:
         if e.table not in visible or e.table in JOIN_TABLES:
             continue
         model = model_for(e.table)
-        clause = _search_clause(model, e, q)
+        clause = _search_clause(model, e, q, privileges)
         if clause is None:
             continue
         rows = list(db.scalars(select(model).where(clause, *_live(model)).limit(per_table)).unique())
@@ -481,7 +491,7 @@ def _incoming(db: Session, table: str, rid: int, visible: set[str], titles: Titl
     return groups
 
 
-def record(db: Session, entity: Entity, rid: int, visible: set[str]) -> dict | None:
+def record(db: Session, entity: Entity, rid: int, visible: set[str], privileges: set[str] | None = None) -> dict | None:
     model = model_for(entity.table)
     obj = db.get(model, rid)
     if obj is None:
@@ -491,7 +501,10 @@ def record(db: Session, entity: Entity, rid: int, visible: set[str]) -> dict | N
     # fields, with outgoing references resolved to links
     fields = []
     outgoing = []
+    restricted = restricted_columns(entity.table, privileges)
     for col in _columns(entity):
+        if col in restricted:
+            continue
         value = getattr(obj, col, None)
         link = _link_for(entity.table, col, obj)
         if link is not None:

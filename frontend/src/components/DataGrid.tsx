@@ -15,7 +15,7 @@ import {
   UndoOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
-import { Alert, Button, Input, Modal, Popover, Space, Switch, Tag, Tooltip, Typography, message, theme } from 'antd';
+import { Alert, Button, Input, Modal, Popover, Select, Space, Switch, Tag, Tooltip, Typography, message, theme } from 'antd';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
@@ -68,13 +68,18 @@ interface Pos {
 interface UploadPreview {
   applied: boolean;
   ok: boolean;
-  errors: { row: number | null; column: string | null; message: string }[];
+  errors: { row: number | null; line?: number; column: string | null; message: string; code?: string | null }[];
   new: number;
   changed: number;
   unchanged: number;
   missing_ids: number[];
   can_delete: boolean;
   will_delete: number;
+  columns: { name: string; label: string }[];
+  matched: Record<string, string>;
+  unmatched: string[];
+  template: boolean;
+  row_count: number;
 }
 
 const ROW_H = 32;
@@ -170,6 +175,7 @@ export default function DataGrid({
   const [preview, setPreview] = useState<UploadPreview | null>(null);
   const pendingFile = useRef<File | null>(null);
   const [alsoDelete, setAlsoDelete] = useState(false);
+  const [mapping, setMapping] = useState<Record<string, string>>({});
   const fileInput = useRef<HTMLInputElement | null>(null);
   const [historyOf, setHistoryOf] = useState<number | null>(null);
   const [binOpen, setBinOpen] = useState(false);
@@ -1029,23 +1035,50 @@ export default function DataGrid({
   const end = Math.min(nRows, Math.ceil((scroll.top + viewH) / ROW_H) + OVERSCAN);
 
   // --- Excel download / upload -----------------------------------------------------------
+  // the grid's fixed slice (e.g. one season) travels as query params, so the file
+  // covers just that slice and an upload's "missing rows" never reach outside it
+  const scopeQuery = () => new URLSearchParams(fixedRef.current ?? {}).toString();
+
+  const saveBlob = (blob: Blob, name: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const download = () => {
     setDownloading(true);
-    fetch(`/api/bulk/${table}/export.xlsx`, { credentials: 'include' })
+    const q = scopeQuery();
+    fetch(`/api/bulk/${table}/export.xlsx${q ? `?${q}` : ''}`, { credentials: 'include' })
       .then((r) => {
         if (!r.ok) throw new Error('Download failed');
         return r.blob();
       })
-      .then((blob) => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${table}.xlsx`;
-        a.click();
-        URL.revokeObjectURL(url);
-      })
+      .then((blob) => saveBlob(blob, `${table}.xlsx`))
       .catch((e) => message.error(e.message))
       .finally(() => setDownloading(false));
+  };
+
+  const uploadForm = (file: File, map: Record<string, string>) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (Object.keys(map).length) form.append('mapping', JSON.stringify(map));
+    return form;
+  };
+  const uploadUrl = (extra: Record<string, string>) => {
+    const q = new URLSearchParams({ ...(fixedRef.current ?? {}), ...extra }).toString();
+    return `/api/bulk/${table}/upload${q ? `?${q}` : ''}`;
+  };
+
+  const runPreview = (file: File, map: Record<string, string>) => {
+    setUploading(true);
+    api
+      .upload<UploadPreview>(uploadUrl({}), uploadForm(file, map))
+      .then(setPreview)
+      .catch((err) => message.error(err instanceof ApiError ? err.message : 'Could not read that file'))
+      .finally(() => setUploading(false));
   };
 
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1054,13 +1087,27 @@ export default function DataGrid({
     if (!file) return;
     pendingFile.current = file;
     setAlsoDelete(false);
+    setMapping({});
+    runPreview(file, {});
+  };
+
+  const remap = (header: string, column: string) => {
+    const next = { ...mapping, [header]: column };
+    setMapping(next);
+    if (pendingFile.current) runPreview(pendingFile.current, next);
+  };
+
+  const downloadChecked = () => {
+    const file = pendingFile.current;
+    if (!file) return;
     setUploading(true);
-    const form = new FormData();
-    form.append('file', file);
-    api
-      .upload<UploadPreview>(`/api/bulk/${table}/upload`, form)
-      .then(setPreview)
-      .catch((err) => message.error(err instanceof ApiError ? err.message : 'Could not read that file'))
+    fetch(uploadUrl({ annotate: 'true' }), { method: 'POST', body: uploadForm(file, mapping), credentials: 'include' })
+      .then((r) => {
+        if (!r.ok) throw new Error('Could not mark up the file');
+        return r.blob();
+      })
+      .then((blob) => saveBlob(blob, `${file.name.replace(/\.[^.]+$/, '')} - checked.xlsx`))
+      .catch((err) => message.error(err.message))
       .finally(() => setUploading(false));
   };
 
@@ -1068,12 +1115,10 @@ export default function DataGrid({
     const file = pendingFile.current;
     if (!file) return;
     setUploading(true);
-    const form = new FormData();
-    form.append('file', file);
     try {
       const res = await api.upload<UploadPreview>(
-        `/api/bulk/${table}/upload?apply=true&delete_missing=${alsoDelete}`,
-        form,
+        uploadUrl({ apply: 'true', delete_missing: String(alsoDelete) }),
+        uploadForm(file, mapping),
       );
       if (res.applied) {
         message.success(`Applied: ${res.new} added, ${res.changed} updated${res.will_delete ? `, ${res.will_delete} deleted` : ''}.`);
@@ -1082,6 +1127,7 @@ export default function DataGrid({
         await load();
         onChangedRef.current?.();
       } else {
+        setPreview(res);
         message.error(res.errors?.[0]?.message ?? 'The file has invalid data — fix it and re-upload.');
       }
     } catch (e) {
@@ -1682,50 +1728,93 @@ export default function DataGrid({
       <Modal
         open={preview != null}
         title="Review upload"
-        okText={preview?.ok ? 'Apply changes' : 'OK'}
-        okButtonProps={{ disabled: !preview?.ok, loading: uploading }}
+        width={640}
+        okText={preview?.ok ? 'Apply changes' : 'Close'}
+        okButtonProps={{ disabled: !preview?.ok || (preview.new === 0 && preview.changed === 0 && !alsoDelete), loading: uploading }}
         onOk={() => (preview?.ok ? applyUpload() : setPreview(null))}
         onCancel={() => setPreview(null)}
         confirmLoading={uploading}
       >
-        {preview &&
-          (preview.ok ? (
-            <>
-              <Typography.Paragraph>This file, diffed against the table:</Typography.Paragraph>
-              <Space size={8} wrap style={{ marginBottom: 12 }}>
-                <Tag color="success">{preview.new} new</Tag>
-                <Tag color="processing">{preview.changed} changed</Tag>
-                <Tag>{preview.unchanged} unchanged</Tag>
-                {preview.can_delete && <Tag color="error">{preview.missing_ids.length} missing from file</Tag>}
-              </Space>
-              {preview.can_delete && preview.missing_ids.length > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Switch checked={alsoDelete} onChange={setAlsoDelete} />
-                  <span>Also delete the {preview.missing_ids.length} row(s) that are in the table but missing from this file.</span>
-                </div>
-              )}
-              {preview.new === 0 && preview.changed === 0 && !alsoDelete && (
-                <Alert type="info" showIcon style={{ marginTop: 12 }} message="Nothing to apply — the file matches the table." />
-              )}
-            </>
-          ) : (
-            <Alert
-              type="error"
-              showIcon
-              message="The file has problems — nothing will be written"
-              description={
-                <ul style={{ margin: 0, paddingLeft: 18 }}>
-                  {preview.errors.slice(0, 20).map((e, i) => (
-                    <li key={i}>
-                      {e.row != null ? `Row ${e.row + 1}: ` : ''}
-                      {e.column ? `${e.column} — ` : ''}
-                      {e.message}
-                    </li>
-                  ))}
-                </ul>
-              }
-            />
-          ))}
+        {preview && (
+          <>
+            {preview.unmatched.length > 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="Some columns in the file weren’t recognised"
+                description={
+                  <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 12px', alignItems: 'center', marginTop: 4 }}>
+                    {preview.unmatched.map((h) => (
+                      <span key={h} style={{ display: 'contents' }}>
+                        <strong>{h}</strong>
+                        <Select
+                          size="small"
+                          placeholder="Ignore this column"
+                          value={mapping[h] || undefined}
+                          allowClear
+                          showSearch
+                          optionFilterProp="label"
+                          onChange={(v) => remap(h, v ?? '')}
+                          options={preview.columns
+                            .filter((c) => !Object.values(preview.matched).includes(c.name) || mapping[h] === c.name)
+                            .map((c) => ({ value: c.name, label: c.label }))}
+                        />
+                      </span>
+                    ))}
+                  </div>
+                }
+              />
+            )}
+            {preview.template && (
+              <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                This is a file downloaded from the portal: only the cells you changed in it will be saved.
+              </Typography.Paragraph>
+            )}
+            <Space size={8} wrap style={{ marginBottom: 12 }}>
+              <Tag color="success">{preview.new} new</Tag>
+              <Tag color="processing">{preview.changed} changed</Tag>
+              <Tag>{preview.unchanged} unchanged</Tag>
+              {preview.can_delete && <Tag color="error">{preview.missing_ids.length} missing from file</Tag>}
+              {!preview.ok && <Tag color="error">{preview.errors.length} problem{preview.errors.length > 1 ? 's' : ''}</Tag>}
+            </Space>
+            {preview.ok ? (
+              <>
+                {preview.can_delete && preview.missing_ids.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Switch checked={alsoDelete} onChange={setAlsoDelete} />
+                    <span>Also delete the {preview.missing_ids.length} row(s) that are in the table but missing from this file (they go to the recycle bin).</span>
+                  </div>
+                )}
+                {preview.new === 0 && preview.changed === 0 && !alsoDelete && (
+                  <Alert type="info" showIcon style={{ marginTop: 12 }} message="Nothing to apply — the file matches the table." />
+                )}
+              </>
+            ) : (
+              <Alert
+                type="error"
+                showIcon
+                message="Nothing will be written until every problem is fixed"
+                description={
+                  <>
+                    <ul style={{ margin: '4px 0 8px', paddingLeft: 18, maxHeight: 240, overflow: 'auto' }}>
+                      {preview.errors.map((e, i) => (
+                        <li key={i}>
+                          {e.line != null ? `Line ${e.line}: ` : e.row != null ? `Row ${e.row + 1}: ` : ''}
+                          {e.column ? `${preview.columns.find((c) => c.name === e.column)?.label ?? e.column} — ` : ''}
+                          {e.message}
+                        </li>
+                      ))}
+                    </ul>
+                    <Button size="small" icon={<DownloadOutlined />} loading={uploading} onClick={downloadChecked}>
+                      Download the file with problems marked
+                    </Button>
+                  </>
+                }
+              />
+            )}
+          </>
+        )}
       </Modal>
     </div>
   );
