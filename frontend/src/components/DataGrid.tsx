@@ -32,6 +32,7 @@ import {
   optionsFor,
   parseInput,
   parseTSV,
+  seriesValue,
   toTSV,
 } from './grid/sheet';
 
@@ -751,26 +752,20 @@ export default function DataGrid({
     setCells(cells);
   };
 
-  /** Fill-handle drag: repeat the selected block (or continue a number series) up to `to`. */
+  /** Fill-handle drag: continue a series (numbers, MTR-239 → MTR-240, dates) or repeat the block up to `to`. */
   const fillHandle = (to: number) => {
     if (to >= r1 && to <= r2) return;
     const srcH = Math.min(r2, visible.length - 1) - r1 + 1;
     if (srcH <= 0) return;
     const cells = [];
     const targets = to > r2 ? range(r2 + 1, to) : range(to, r1 - 1);
+    const lastSrc = r1 + srcH - 1;
     for (let c = c1; c <= c2; c++) {
       const col = columns[c];
-      const src = range(r1, r1 + srcH - 1).map((r) => visible[r].v[col.name] ?? '');
-      const nums = src.map(Number);
-      const series = isNumeric(col) && srcH >= 2 && src.every((x) => x !== '' && !Number.isNaN(Number(x)));
-      const step = series ? nums[nums.length - 1] - nums[nums.length - 2] : 0;
+      const src = range(r1, lastSrc).map((r) => visible[r].v[col.name] ?? '');
       for (const r of targets) {
-        let value: string;
-        if (series) {
-          value = String(to > r2 ? nums[nums.length - 1] + step * (r - (r1 + srcH - 1)) : nums[0] - step * (r1 - r));
-        } else {
-          value = src[(((r - r1) % srcH) + srcH) % srcH];
-        }
+        const k = to > r2 ? r - lastSrc : r - r1;
+        const value = seriesValue(col, src, k) ?? src[(((r - r1) % srcH) + srcH) % srcH];
         cells.push({ r, c, value });
       }
     }
@@ -1329,7 +1324,8 @@ export default function DataGrid({
         ['Ctrl+C / X / V', 'Copy / cut / paste (works with Sheets & Excel)'],
         ['Delete', 'Clear the selected cells'],
         ['Ctrl+D · Ctrl+R', 'Fill down · right'],
-        ['Drag the corner square', 'Fill (continues number series)'],
+        ['Drag the corner square', 'Fill — continues series: 1, 2, 3 · MTR-239 → MTR-240 · dates'],
+        ['= in a number cell', 'Calculate, e.g. =1200*3 or =15%*800 (the result is saved)'],
         ['Ctrl+Z · Ctrl+Y', 'Undo · redo'],
         ['Space', 'Tick / untick a checkbox'],
         ['Last row', 'Type in it to add a record'],

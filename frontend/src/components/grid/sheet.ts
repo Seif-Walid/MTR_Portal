@@ -155,6 +155,13 @@ function parseValue(col: ColumnMeta, raw: string, opts: Option[]): Parsed {
     };
   }
   if (isNumeric(col)) {
+    if (s.startsWith('=')) {
+      // a quick calculation, stored as its result: =1200*3, =(450+120)/2, =15%*800
+      const n = evalArithmetic(s.slice(1));
+      if (n === null) return { ok: false, error: `Can’t calculate “${s}” — use numbers with + − × ÷ % and brackets` };
+      if (col.type === 'int' && !Number.isInteger(n)) return { ok: false, error: `“${s}” = ${n}, which isn’t a whole number` };
+      return { ok: true, value: String(col.type === 'int' ? n : Math.round(n * 1e6) / 1e6) };
+    }
     let t = s.replace(/[,\s]|EGP|USD|\$|£|€/gi, '');
     if (/^\(.*\)$/.test(t)) t = `-${t.slice(1, -1)}`; // accounting negatives
     const pct = t.endsWith('%');
@@ -248,4 +255,104 @@ export function defaultWidth(c: ColumnMeta): number {
   if (c.ref) return 210;
   if (c.choices) return 140;
   return 180;
+}
+
+/** Evaluate + − × ÷ % and brackets over plain numbers (no cell references, no
+ *  code). Returns null for anything else, or a non-finite result. */
+export function evalArithmetic(expr: string): number | null {
+  const src = expr.replace(/[×xX]/g, '*').replace(/÷/g, '/').replace(/−/g, '-').replace(/,/g, '');
+  let i = 0;
+  const peek = () => {
+    while (src[i] === ' ') i++;
+    return src[i];
+  };
+  const number = (): number | null => {
+    peek();
+    const m = /^\d*\.?\d+(e[+-]?\d+)?/i.exec(src.slice(i));
+    if (!m) return null;
+    i += m[0].length;
+    let n = Number(m[0]);
+    if (peek() === '%') {
+      i++;
+      n /= 100;
+    }
+    return n;
+  };
+  const factor = (): number | null => {
+    const ch = peek();
+    if (ch === '-' || ch === '+') {
+      i++;
+      const f = factor();
+      return f === null ? null : ch === '-' ? -f : f;
+    }
+    if (ch === '(') {
+      i++;
+      const v = sum();
+      if (v === null || peek() !== ')') return null;
+      i++;
+      if (peek() === '%') {
+        i++;
+        return v / 100;
+      }
+      return v;
+    }
+    return number();
+  };
+  const product = (): number | null => {
+    let v = factor();
+    while (v !== null && (peek() === '*' || peek() === '/')) {
+      const op = src[i++];
+      const f = factor();
+      if (f === null) return null;
+      v = op === '*' ? v * f : v / f;
+    }
+    return v;
+  };
+  const sum = (): number | null => {
+    let v = product();
+    while (v !== null && (peek() === '+' || peek() === '-')) {
+      const op = src[i++];
+      const t = product();
+      if (t === null) return null;
+      v = op === '+' ? v + t : v - t;
+    }
+    return v;
+  };
+  const v = sum();
+  if (v === null || peek() !== undefined || !Number.isFinite(v)) return null;
+  return v;
+}
+
+/** Continue a series the way spreadsheets do when the fill handle is dragged:
+ *  numbers (2+ cells) by their step, text ending in a number (MTR-239 → MTR-240,
+ *  keeping zero padding) and dates by their step — or by 1 from a single cell.
+ *  `k` is the offset past the last source cell (negative = before the first).
+ *  Returns null when the cells aren't a series (the block is then repeated). */
+export function seriesValue(col: ColumnMeta, src: string[], k: number): string | null {
+  if (!src.length || src.some((x) => x === '')) return null;
+  const last = src[src.length - 1];
+  const first = src[0];
+  if (isNumeric(col)) {
+    if (src.length < 2 || src.some((x) => Number.isNaN(Number(x)))) return null;
+    const step = Number(last) - Number(src[src.length - 2]);
+    const n = k > 0 ? Number(last) + step * k : Number(first) + step * k;
+    return String(Math.round(n * 1e6) / 1e6);
+  }
+  if (col.type === 'date') {
+    const ds = src.map((x) => dayjs(x, 'YYYY-MM-DD', true));
+    if (ds.some((d) => !d.isValid())) return null;
+    const step = ds.length >= 2 ? ds[ds.length - 1].diff(ds[ds.length - 2], 'day') : 1;
+    return (k > 0 ? ds[ds.length - 1] : ds[0]).add(step * k, 'day').format('YYYY-MM-DD');
+  }
+  if (col.type === 'str' && !isPick(col)) {
+    const parts = src.map((x) => /^(.*?)(\d+)(\D*)$/.exec(x));
+    if (parts.some((p) => !p) || parts.some((p) => p![1] !== parts[0]![1] || p![3] !== parts[0]![3])) return null;
+    const nums = parts.map((p) => Number(p![2]));
+    const step = nums.length >= 2 ? nums[nums.length - 1] - nums[nums.length - 2] : 1;
+    const n = k > 0 ? nums[nums.length - 1] + step * k : nums[0] + step * k;
+    if (n < 0) return null;
+    const width = parts[k > 0 ? parts.length - 1 : 0]![2].length;
+    return `${parts[0]![1]}${String(n).padStart(width, '0')}${parts[0]![3]}`;
+  }
+  return null;
 }
