@@ -1055,7 +1055,9 @@ def _entry(e, names: dict[int, str], spec: TableSpec | None = None) -> dict:
     return {
         "id": e.id, "action": e.action, "entity_id": e.entity_id, "detail": detail,
         "actor": names.get(e.actor_id) if e.actor_id else None,
-        "at": e.created_at.isoformat() if e.created_at else None,
+        # SQLite hands timestamps back naive; they are stored in UTC
+        "at": (e.created_at if e.created_at.tzinfo else e.created_at.replace(tzinfo=timezone.utc)).isoformat()
+        if e.created_at else None,
     }
 
 
