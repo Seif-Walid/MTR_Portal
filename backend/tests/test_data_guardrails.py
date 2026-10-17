@@ -224,7 +224,7 @@ def _upload(client, table, content, query="", name="f.xlsx", data=None):
 
 def test_export_is_scoped_typed_and_has_dropdowns(login, org, season, db_session):
     admin = login("admin")
-    other = FinanceSeason(name="Old", status="closed")
+    other = FinanceSeason(name="Old", status="active")
     db_session.add(other)
     db_session.commit()
     _add_spending(admin, season.id, item="In scope")
@@ -331,3 +331,45 @@ def test_upload_row_cap(login, org, season, monkeypatch):
         ws.append(["S5", f"x{i}"])
     r = _upload(login("admin"), "spendings", _save(wb))
     assert r.status_code == 400 and "more than 2 rows" in r.json()["detail"]
+
+
+# --- phase 6: season lock + roll-forward ----------------------------------------------
+def test_closed_season_rows_are_frozen(login, org, season, db_session):
+    admin = login("admin")
+    sid = _add_spending(admin, season.id, item="Locked later")
+    season.status = "closed"
+    db_session.commit()
+    payload = admin.get("/api/bulk/spendings").json()
+    assert payload["locked"] == {"column": "season_id", "values": [str(season.id)]}
+    upd = admin.post("/api/bulk/spendings", json={"rows": [{"id": str(sid), "count": "9"}], "partial": True}).json()
+    assert not upd["ok"] and "closed" in upd["errors"][0]["message"]
+    add = admin.post("/api/bulk/spendings", json={"rows": [
+        {"id": "", "season_id": str(season.id), "item": "New"}], "partial": True}).json()
+    assert not add["ok"]
+    dele = admin.post("/api/bulk/spendings", json={"deletes": [sid]}).json()
+    assert not dele["ok"]
+    # reopening the season (an edit to the Seasons table itself) unlocks it
+    admin.post("/api/bulk/finance_seasons", json={"rows": [{"id": str(season.id), "status": "active"}], "partial": True})
+    assert admin.post("/api/bulk/spendings", json={"rows": [{"id": str(sid), "count": "9"}], "partial": True}).json()["ok"]
+
+
+def test_roll_forward_copies_plan_and_fees_not_money(login, org, season, db_session):
+    from app.domains.finance.models import BudgetLine, DuesTier
+
+    db_session.add_all([
+        BudgetLine(season_id=season.id, item="Thruster", unit_price=100, required_qty=2),
+        DuesTier(season_id=season.id, name="Active", monthly_fee=600, months=7),
+    ])
+    db_session.commit()
+    admin = login("admin")
+    _add_spending(admin, season.id, item="Spent")
+    res = admin.post(f"/api/finance/seasons/{season.id}/roll-forward", json={"name": "S6"})
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["copied"] == {"budget_lines": 1, "dues_tiers": 1, "dues_discounts": 0}
+    new = db_session.get(FinanceSeason, body["id"])
+    assert new.status == "planning" and new.usd_rate == season.usd_rate
+    assert db_session.query(BudgetLine).filter_by(season_id=new.id, item="Thruster").count() == 1
+    assert db_session.query(Spending).filter_by(season_id=new.id).count() == 0
+    assert admin.post(f"/api/finance/seasons/{season.id}/roll-forward", json={"name": "S6"}).status_code == 409
+    assert login("ceo").post(f"/api/finance/seasons/{season.id}/roll-forward", json={"name": "S7"}).status_code == 403

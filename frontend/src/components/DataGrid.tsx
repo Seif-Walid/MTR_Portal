@@ -209,11 +209,14 @@ export default function DataGrid({
   }, [colW]);
   const totalW = colLeft[colLeft.length - 1];
 
-  const readOnly = !!payload?.read_only;
+  // a slice pinned to a closed season (fixed season_id) is frozen as a whole
+  const frozenScope = !!(payload?.locked && fixed && payload.locked.values.includes(String(fixed[payload.locked.column] ?? '')));
+  const readOnly = !!payload?.read_only || frozenScope;
   const locked = useCallback(
     (row: Row | undefined, c: number) => {
       const col = columns[c];
       if (!col || !col.editable || readOnly) return true;
+      if (payload?.locked && row && !row.isNew && payload.locked.values.includes(row.v[payload.locked.column] ?? '')) return true;
       return !!(payload?.append_only && row && !row.isNew);
     },
     [columns, readOnly, payload],
@@ -1383,7 +1386,9 @@ export default function DataGrid({
             style={{ width: compact ? 160 : 200 }}
           />
           {readOnly ? (
-            <Tag icon={<LockOutlined />}>Read-only</Tag>
+            <Tooltip title={frozenScope ? 'Reopen the season on the Seasons table (Setup tab) to edit it.' : undefined}>
+              <Tag icon={<LockOutlined />}>{frozenScope ? 'Season closed — read-only' : 'Read-only'}</Tag>
+            </Tooltip>
           ) : (
             <>
               <Button

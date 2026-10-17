@@ -27,7 +27,8 @@ export default function RecordEditor({ table, id, onSaved }: { table: string; id
 
   const row = payload?.rows.find((r) => String(r.id) === String(id));
   const cols = (payload?.columns ?? []).filter((c) => c.name !== 'id');
-  const lockedAt = (i: number) => !cols[i]?.editable || !!payload?.read_only || !!payload?.append_only;
+  const frozen = !!(payload?.locked && row && payload.locked.values.includes(row[payload.locked.column] ?? ''));
+  const lockedAt = (i: number) => !cols[i]?.editable || !!payload?.read_only || !!payload?.append_only || frozen;
 
   const save = useCallback(
     async (col: string, value: string) => {

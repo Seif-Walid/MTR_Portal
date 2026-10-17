@@ -50,6 +50,8 @@ export interface TablePayload {
   read_only: boolean;
   group: string;
   description: string;
+  /** rows whose `column` holds one of `values` (a closed season) are read-only */
+  locked?: { column: string; values: string[] } | null;
 }
 
 export interface ApplyError {

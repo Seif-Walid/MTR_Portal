@@ -1,4 +1,5 @@
-import { Alert, Segmented, Select, Space, Table, Tabs, Tag, Tooltip, Typography, message, theme } from 'antd';
+import { PlusOutlined } from '@ant-design/icons';
+import { Alert, Button, Input, Modal, Segmented, Select, Space, Table, Tabs, Tag, Tooltip, Typography, message, theme } from 'antd';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -28,6 +29,35 @@ export default function FinancePage() {
   const [dues, setDues] = useState<DuesLedger | null>(null);
   const [tick, setTick] = useState(0);
   const refresh = useCallback(() => setTick((t) => t + 1), []);
+  const [rollOpen, setRollOpen] = useState(false);
+  const [rollFrom, setRollFrom] = useState<string>('');
+  const [rollName, setRollName] = useState('');
+  const [rolling, setRolling] = useState(false);
+
+  const openRoll = () => {
+    setRollFrom(season !== ALL ? season : String(seasons[seasons.length - 1]?.id ?? ''));
+    setRollName('');
+    setRollOpen(true);
+  };
+  const rollForward = async () => {
+    setRolling(true);
+    try {
+      const res = await api.post<{ id: number; name: string; copied: Record<string, number> }>(
+        `/api/finance/seasons/${rollFrom}/roll-forward`,
+        { name: rollName.trim() },
+      );
+      message.success(
+        `${res.name} started — ${res.copied.budget_lines} budget lines, ${res.copied.dues_tiers} dues tiers and ${res.copied.dues_discounts} discounts carried over.`,
+      );
+      setRollOpen(false);
+      refresh();
+      setSeason(String(res.id));
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : 'Could not start the season');
+    } finally {
+      setRolling(false);
+    }
+  };
 
   useEffect(() => {
     api
@@ -107,12 +137,44 @@ export default function FinancePage() {
             style={{ minWidth: 220 }}
             options={[
               { value: ALL, label: 'All seasons' },
-              ...seasons.map((s) => ({ value: String(s.id), label: s.name })),
+              ...seasons.map((s) => ({ value: String(s.id), label: s.status === 'closed' ? `${s.name} (closed)` : s.name })),
             ]}
           />
+          {canEdit && seasons.length > 0 && (
+            <Tooltip title="Start a new season from an existing one: its budget plan and dues fee schedule are copied; spending and payments are not.">
+              <Button icon={<PlusOutlined />} onClick={openRoll}>
+                New season
+              </Button>
+            </Tooltip>
+          )}
         </Space>
       </div>
       <Tabs activeKey={tab} onChange={setTab} items={items} destroyOnHidden />
+      <Modal
+        open={rollOpen}
+        title="Start a new season"
+        okText="Start season"
+        okButtonProps={{ disabled: !rollFrom || !rollName.trim(), loading: rolling }}
+        onOk={() => void rollForward()}
+        onCancel={() => setRollOpen(false)}
+      >
+        <Typography.Paragraph type="secondary">
+          The new season starts as <strong>planning</strong> with the same USD rate. Budget lines, dues tiers and loyalty
+          discounts are copied so you only adjust what changed. When the old season is done, set its status to
+          <strong> closed</strong> on the Setup tab and its rows become read-only.
+        </Typography.Paragraph>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <span className="u-label">Copy from</span>
+          <Select
+            value={rollFrom || undefined}
+            onChange={setRollFrom}
+            style={{ width: '100%' }}
+            options={seasons.map((s) => ({ value: String(s.id), label: s.name }))}
+          />
+          <span className="u-label">New season name</span>
+          <Input value={rollName} onChange={(e) => setRollName(e.target.value)} placeholder="e.g. Season 2027/2028 (S5)" onPressEnter={() => rollFrom && rollName.trim() && void rollForward()} />
+        </Space>
+      </Modal>
     </div>
   );
 }

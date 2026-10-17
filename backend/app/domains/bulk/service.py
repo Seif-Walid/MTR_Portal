@@ -110,7 +110,19 @@ def read_table(db: Session, spec: TableSpec) -> dict:
         "read_only": spec.read_only,
         "group": spec.group,
         "description": spec.description,
+        "locked": ({"column": spec.period_attr, "values": [str(i) for i in _closed_periods(db, spec)]}
+                   if spec.period_attr else None),
     }
+
+
+def _closed_periods(db: Session, spec: TableSpec) -> dict[int, str]:
+    """{season id: name} of the closed / cancelled seasons — their rows are frozen."""
+    if not spec.period_attr:
+        return {}
+    from app.domains.finance.models import FinanceSeason, SeasonStatus
+
+    frozen = (SeasonStatus.CLOSED.value, SeasonStatus.CANCELLED.value)
+    return {s.id: s.name for s in db.scalars(select(FinanceSeason).where(FinanceSeason.status.in_(frozen)))}
 
 
 def _column_payload(c: Column) -> dict:
@@ -274,6 +286,7 @@ def validate(
     # on since (someone else saved that cell), the cell is a conflict and is not
     # written; the row's other cells still are.
     current = _rows_by_id(db, spec) if any(isinstance(r.get("_base"), dict) for r in rows) else {}
+    closed = _closed_periods(db, spec)
 
     coerced: list[Coerced] = []
     adds = updates = 0
@@ -361,6 +374,14 @@ def validate(
 
         if not row_ok:
             continue
+        if closed:
+            was = getattr(db.get(spec.model, row_id), spec.period_attr, None) if row_id is not None else None
+            goes = fields.get(spec.period_attr, was)
+            frozen = was if was in closed else goes if goes in closed else None
+            if frozen is not None:
+                _err(errors, i, spec.period_attr if goes in closed and goes != was else None,
+                     f"Season “{closed[frozen]}” is closed — reopen it on the Seasons table to change its rows")
+                continue
         coerced.append(Coerced(index=i, id=row_id, fields=fields))
         if row_id is None:
             adds += 1
@@ -377,6 +398,8 @@ def validate(
             _err(errors, None, None, f"cannot delete id {did}: it does not exist")
             continue
         guard = spec.delete_guard(db, did) if spec.delete_guard else None
+        if closed and getattr(db.get(spec.model, did), spec.period_attr, None) in closed:
+            guard = f"cannot delete id {did}: its season is closed"
         if guard:
             _err(errors, None, None, guard)
             continue

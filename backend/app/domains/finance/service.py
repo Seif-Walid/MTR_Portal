@@ -384,3 +384,27 @@ def event_money(db: Session, event_id: int) -> dict:
         "spent": sum(s.net for s in spend),
         "budget_lines": len(lines),
     }
+
+
+# --- a new season ------------------------------------------------------------------
+ROLL_FORWARD = (BudgetLine, DuesTier, DuesDiscount)
+
+
+def roll_forward(db: Session, source: FinanceSeason, name: str) -> tuple[FinanceSeason, dict[str, int]]:
+    """Start a new season from an old one: a `planning` season with the same USD
+    rate, carrying over the plan (budget lines) and the fee schedule (dues tiers
+    and loyalty discounts). Money that actually moved — spendings, payments,
+    funding — never carries over. Caller commits."""
+    last = max((s.sort_order or 0 for s in db.scalars(select(FinanceSeason))), default=0)
+    season = FinanceSeason(name=name, status=SeasonStatus.PLANNING, usd_rate=source.usd_rate, sort_order=last + 1)
+    db.add(season)
+    db.flush()
+    copied: dict[str, int] = {}
+    for model in ROLL_FORWARD:
+        cols = [c.key for c in model.__table__.columns if c.key not in ("id", "season_id")]
+        rows = list(db.scalars(select(model).where(model.season_id == source.id).order_by(model.id)))
+        for r in rows:
+            db.add(model(season_id=season.id, **{c: getattr(r, c) for c in cols}))
+        copied[model.__tablename__] = len(rows)
+    db.flush()
+    return season, copied

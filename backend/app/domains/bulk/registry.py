@@ -177,6 +177,8 @@ class TableSpec:
     where: Callable[[], object] | None = field(default=None, repr=False)
     # fixed column values for inserted rows (e.g. list_key for a pick-list)
     insert_values: dict = field(default_factory=dict)
+    # the column tying a row to a finance season: rows of a closed season are read-only
+    period_attr: str | None = None
     # set on a viewer-narrowed copy (for_privileges): the table with every column
     full: "TableSpec | None" = field(default=None, repr=False, compare=False)
 
@@ -446,7 +448,7 @@ TABLES: dict[str, TableSpec] = {
     ),
     "budget_lines": TableSpec(
         key="budget_lines", label="Budget", model=BudgetLine,
-        privilege="finance.edit", delete="hard", group="Finance",
+        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
         description="What the season plans to buy. FMV = full worth; needed cost = what is still to buy after in-stock. Grey columns are computed.",
         columns=[
             Column("id", "int", editable=False),
@@ -470,7 +472,7 @@ TABLES: dict[str, TableSpec] = {
     ),
     "spendings": TableSpec(
         key="spendings", label="Spendings", model=Spending,
-        privilege="finance.edit", delete="hard", group="Finance",
+        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
         description="Money actually spent. Net = count × unit cost.",
         columns=[
             Column("id", "int", editable=False),
@@ -491,7 +493,7 @@ TABLES: dict[str, TableSpec] = {
     ),
     "dues_tiers": TableSpec(
         key="dues_tiers", label="Dues tiers", model=DuesTier,
-        privilege="finance.edit", delete="hard", group="Finance",
+        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
         description="Fee schedule per season: monthly fee × months, and/or a one-time fee.",
         columns=[
             Column("id", "int", editable=False),
@@ -505,7 +507,7 @@ TABLES: dict[str, TableSpec] = {
     ),
     "dues_discounts": TableSpec(
         key="dues_discounts", label="Dues discounts", model=DuesDiscount,
-        privilege="finance.edit", delete="hard", group="Finance",
+        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
         description="Loyalty discount by years with the team (0.5 = 50% off).",
         columns=[
             Column("id", "int", editable=False),
@@ -517,7 +519,7 @@ TABLES: dict[str, TableSpec] = {
     ),
     "dues_enrollments": TableSpec(
         key="dues_enrollments", label="Dues roster", model=DuesEnrollment,
-        privilege="finance.edit", delete="hard", group="Finance",
+        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
         description="Who owes dues this season and on which tier. Maturity is counted from the join date unless overridden.",
         columns=[
             Column("id", "int", editable=False),
@@ -531,7 +533,7 @@ TABLES: dict[str, TableSpec] = {
     ),
     "dues_payments": TableSpec(
         key="dues_payments", label="Dues collection", model=DuesPayment,
-        privilege="finance.edit", delete="hard", group="Finance",
+        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
         description="One row per payment. Positive = payment, negative = refund.",
         columns=[
             Column("id", "int", editable=False),
@@ -546,7 +548,7 @@ TABLES: dict[str, TableSpec] = {
     ),
     "funding_lines": TableSpec(
         key="funding_lines", label="Funding", model=FundingLine,
-        privilege="finance.edit", delete="hard", group="Finance",
+        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
         description="Money coming in besides dues (projected dues are added automatically on the dashboard).",
         columns=[
             Column("id", "int", editable=False),
@@ -560,7 +562,7 @@ TABLES: dict[str, TableSpec] = {
     ),
     "payables": TableSpec(
         key="payables", label="Payables", model=Payable,
-        privilege="finance.edit", delete="hard", group="Finance",
+        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
         description="Money the team owes.",
         columns=[
             Column("id", "int", editable=False),
