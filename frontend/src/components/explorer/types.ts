@@ -5,6 +5,8 @@ export interface ExploreEntity {
   group: string;
   count: number;
   summary: string[];
+  /** bulk-editor table key when the viewer may edit this kind of record */
+  edit?: string | null;
 }
 
 export interface ExploreSchema {
@@ -39,6 +41,17 @@ export interface RelatedGroup {
   total: number;
   columns: { name: string; label: string }[];
   rows: ExploreRow[];
+  /** editable in place: bulk table key + the column pointing at this record */
+  edit?: string;
+  fk?: string;
+}
+
+export interface AddableGroup {
+  key: string;
+  label: string;
+  table: string;
+  edit: string;
+  fk: string;
 }
 
 export interface ExploreRecord {
@@ -50,6 +63,8 @@ export interface ExploreRecord {
   fields: { name: string; label: string; value: Cell; link?: RecordRef; computed?: boolean }[];
   outgoing: RecordRef[];
   incoming: RelatedGroup[];
+  edit?: string | null;
+  addable?: AddableGroup[];
 }
 
 export interface SearchGroup {

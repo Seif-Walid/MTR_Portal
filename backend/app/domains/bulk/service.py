@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
@@ -253,6 +254,10 @@ def validate(
         for col in spec.columns:
             if not col.editable:
                 continue
+            # an update only touches the cells it sends (the grid sends just what
+            # changed); a new row is read in full, blanks included
+            if row_id is not None and col.name not in row:
+                continue
             try:
                 value = _coerce_scalar(row.get(col.name, ""), col)
             except (ValueError, TypeError):
@@ -326,45 +331,96 @@ def validate(
 
 
 # --- apply ------------------------------------------------------------------
-def apply(db: Session, spec: TableSpec, rows: list[dict], deletes: list[int], actor_id: int) -> dict:
-    """Re-validate, then upsert + delete in one transaction. Aborts wholesale
-    on any error (nothing written)."""
+def apply(
+    db: Session, spec: TableSpec, rows: list[dict], deletes: list[int], actor_id: int,
+    partial: bool = False,
+) -> dict:
+    """Re-validate, then upsert + delete in one transaction.
+
+    Default is all-or-nothing: any error aborts and nothing is written. With
+    `partial`, every row that validates is written and the rest come back as
+    errors — each row in its own savepoint, so a database constraint tripped by
+    one row (a duplicate unique value) only fails that row."""
     coerced, errors, _ = validate(db, spec, rows, deletes)
-    if errors:
-        return {"ok": False, "errors": errors, "summary": {"adds": 0, "updates": 0, "deletes": 0}}
+    blocked_deletes = any(e["row"] is None for e in errors)
+    if errors and not partial:
+        return {"ok": False, "errors": errors, "summary": {"adds": 0, "updates": 0, "deletes": 0}, "ids": {}}
 
     adds = updates = removed = 0
+    ids: dict[int, int] = {}
     for c in coerced:
-        if c.id is None:
-            db.add(spec.model(**_insert_defaults(spec, c.fields)))
-            adds += 1
-        else:
-            obj = db.get(spec.model, c.id)
-            changed = False
-            for attr, value in c.fields.items():
-                if getattr(obj, attr) != value:
-                    setattr(obj, attr, value)
-                    changed = True
-            if changed:  # untouched rows are a silent no-op — no churn, honest counts
-                updates += 1
+        try:
+            with db.begin_nested():
+                if c.id is None:
+                    obj = spec.model(**_insert_defaults(spec, c.fields))
+                    db.add(obj)
+                    db.flush()
+                    adds += 1
+                else:
+                    obj = db.get(spec.model, c.id)
+                    changed = False
+                    for attr, value in c.fields.items():
+                        if getattr(obj, attr) != value:
+                            setattr(obj, attr, value)
+                            changed = True
+                    if changed:  # untouched rows are a silent no-op — no churn, honest counts
+                        db.flush()
+                        updates += 1
+                ids[c.index] = obj.id
+        except IntegrityError as exc:
+            _err(errors, c.index, _constraint_column(spec, exc), _integrity_message(exc))
+            if not partial:
+                db.rollback()
+                return {"ok": False, "errors": errors, "summary": {"adds": 0, "updates": 0, "deletes": 0}, "ids": {}}
 
-    for did in deletes:
-        obj = db.get(spec.model, did)
-        if obj is None:
-            continue
-        if spec.delete == "deactivate":
-            obj.is_active = False
-        elif spec.delete == "soft":
-            obj.deleted_at = datetime.now(timezone.utc)
-        else:  # hard
-            db.delete(obj)
-        removed += 1
+    if not blocked_deletes:
+        for did in deletes:
+            obj = db.get(spec.model, did)
+            if obj is None:
+                continue
+            if spec.delete == "deactivate":
+                obj.is_active = False
+            elif spec.delete == "soft":
+                obj.deleted_at = datetime.now(timezone.utc)
+            else:  # hard
+                db.delete(obj)
+            removed += 1
 
     summary = {"adds": adds, "updates": updates, "deletes": removed}
     if adds or updates or removed:
         audit.log(db, actor_id, "bulk", "apply", spec.key, None, summary)
-    db.commit()
-    return {"ok": True, "errors": [], "summary": summary}
+    try:
+        db.commit()
+    except IntegrityError as exc:  # e.g. a delete still referenced by a foreign key
+        db.rollback()
+        return {"ok": False, "errors": [{"row": None, "column": None, "message": _integrity_message(exc)}],
+                "summary": {"adds": 0, "updates": 0, "deletes": 0}, "ids": {}}
+    return {"ok": not errors, "errors": errors, "summary": summary, "ids": ids}
+
+
+def table_rows(db: Session, spec: TableSpec) -> list[dict]:
+    header, rows = _export_for(db, spec)
+    return [dict(zip(header, r)) for r in rows]
+
+
+def _integrity_message(exc: IntegrityError) -> str:
+    text = str(exc.orig).lower()
+    if "unique" in text or "duplicate" in text:
+        return "This value is already used by another row (it must be unique)"
+    if "foreign key" in text:
+        return "Another record still points at this row"
+    if "not null" in text or "null value" in text:
+        return "A required value is missing"
+    return "The database refused this row"
+
+
+def _constraint_column(spec: TableSpec, exc: IntegrityError) -> str | None:
+    """Best effort: name the grid column the failed constraint is about."""
+    text = str(exc.orig)
+    for c in spec.columns:
+        if c.editable and (f".{c.model_attr}" in text or f"({c.model_attr})" in text):
+            return c.name
+    return None
 
 
 def _insert_defaults(spec: TableSpec, fields: dict) -> dict:

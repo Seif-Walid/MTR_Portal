@@ -47,7 +47,8 @@ def list_tables(db: DB, user: CurrentUser) -> list[TableSummary]:
         count = db.scalar(q) or 0
         out.append(TableSummary(key=spec.key, label=spec.label, row_count=count,
                                 append_only=spec.append_only, read_only=spec.read_only,
-                                group=spec.group, description=spec.description))
+                                group=spec.group, description=spec.description,
+                                table=spec.model.__table__.name))
     return out
 
 
@@ -70,7 +71,9 @@ def validate_table(table: str, payload: ApplyRequest, db: DB, user: CurrentUser)
 def apply_table(table: str, payload: ApplyRequest, db: DB, user: CurrentUser) -> ApplyResult:
     spec = _writable_or_400(_spec_or_404(table))
     access.require_privilege(db, user, spec.privilege)
-    result = service.apply(db, spec, payload.rows, payload.deletes, user.id)
+    result = service.apply(db, spec, payload.rows, payload.deletes, user.id, partial=payload.partial)
+    if payload.return_rows:
+        result["rows"] = service.table_rows(db, spec)
     return ApplyResult(**result)
 
 

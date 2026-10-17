@@ -1,5 +1,6 @@
 """The data explorer — browse every record the viewer may see and follow how
-records connect. Read-only; Board and above (dashboard.view), and each table is
+records connect. Editing goes through the bulk-editor endpoints; this side
+only says what the viewer may edit. Board and above (dashboard.view), and each table is
 still gated by its domain's view privilege."""
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -30,7 +31,8 @@ def _entity(table: str, visible: set[str]) -> service.Entity:
 @router.get("/schema")
 def schema(db: DB, user: CurrentUser) -> dict:
     """Every kind of record the viewer may see, with counts, and the relations between them."""
-    return service.schema(db, _visible(db, user))
+    visible = _visible(db, user)
+    return service.schema(db, visible, service.edit_keys(access.privileges_for(db, user)))
 
 
 @router.get("/search")
@@ -53,4 +55,4 @@ def get_record(table: str, record_id: int, db: DB, user: CurrentUser) -> dict:
     out = service.record(db, _entity(table, visible), record_id, visible)
     if out is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Record not found")
-    return out
+    return service.annotate_edit(out, service.edit_keys(access.privileges_for(db, user)), visible)

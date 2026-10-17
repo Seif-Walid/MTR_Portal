@@ -222,6 +222,58 @@ def visible_tables(privileges: set[str]) -> set[str]:
     return {e.table for e in ENTITIES if e.privilege in privileges}
 
 
+def edit_keys(privileges: set[str]) -> dict[str, tuple[str, set[str]]]:
+    """SQL table -> (bulk-editor table key, its editable columns) for every
+    table this viewer may edit in place. Only whole-table specs count: a
+    filtered one (a single pick-list of finance_options) can't stand for the
+    table."""
+    from app.domains.bulk.registry import REFS, TABLES
+
+    out: dict[str, tuple[str, set[str]]] = {}
+    for spec in TABLES.values():
+        if spec.read_only or spec.where is not None or spec.privilege not in privileges:
+            continue
+        # a column can pin a related list only if the grid stores the raw id under the SQL name
+        cols = {c.name for c in spec.columns if c.editable and c.name == c.model_attr
+                and (c.ref is None or REFS[c.ref].value_attr == "id")}
+        out.setdefault(spec.model.__table__.name, (spec.key, cols))
+    return out
+
+
+def annotate_edit(rec: dict, editable: dict[str, tuple[str, set[str]]], visible: set[str]) -> dict:
+    """Mark what of a record view can be edited in place: the record itself,
+    each related list whose rows point straight at it (edited with that pointer
+    fixed), and the related lists it has none of yet (offered as "add")."""
+    table, rid = rec["table"], rec["id"]
+    rec["edit"] = editable.get(table, (None,))[0]
+    shown: set[tuple[str, str]] = set()
+    for g in rec["incoming"]:
+        source, _, column = g["key"].partition(".")
+        if g["via"] or source in JOIN_TABLES:
+            continue
+        shown.add((source, column))
+        target = editable.get(source)
+        if target and column in target[1]:
+            g["edit"], g["fk"] = target[0], column
+    addable = []
+    for link in LINKS:
+        if link.target != table or link.where_col or link.source in JOIN_TABLES:
+            continue
+        if link.source not in visible or (link.source, link.column) in shown:
+            continue
+        target = editable.get(link.source)
+        if target and link.column in target[1]:
+            src = BY_TABLE[link.source]
+            many = sum(1 for l in LINKS if l.source == link.source and l.target == table) > 1
+            addable.append({
+                "key": f"{link.source}.{link.column}",
+                "label": f"{src.label} ({link.label.lower()})" if many else src.label,
+                "table": link.source, "edit": target[0], "fk": link.column, "id": rid,
+            })
+    rec["addable"] = addable
+    return rec
+
+
 # --- values -------------------------------------------------------------------
 def _json(value):
     if isinstance(value, (datetime, date)):
@@ -282,7 +334,8 @@ def summary_row(entity: Entity, obj) -> dict:
 
 
 # --- schema ---------------------------------------------------------------------
-def schema(db: Session, visible: set[str]) -> dict:
+def schema(db: Session, visible: set[str], editable: dict | None = None) -> dict:
+    editable = editable or {}
     entities = []
     for e in ENTITIES:
         if e.table not in visible:
@@ -292,6 +345,7 @@ def schema(db: Session, visible: set[str]) -> dict:
         entities.append({
             "table": e.table, "label": e.label, "singular": e.singular, "group": e.group,
             "count": count, "summary": list(e.summary),
+            "edit": editable.get(e.table, (None,))[0],
         })
     links = [
         {"source": l.source, "column": l.column, "target": l.target, "label": l.label}

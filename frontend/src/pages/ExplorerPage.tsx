@@ -1,13 +1,16 @@
-import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons';
-import { AutoComplete, Breadcrumb, Descriptions, Empty, Grid, Input, Select, Skeleton, Table, Tabs, Tag, Typography, theme } from 'antd';
+import { ArrowLeftOutlined, EditOutlined, PlusOutlined, SearchOutlined, TableOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { AutoComplete, Breadcrumb, Button, Descriptions, Empty, Grid, Input, Segmented, Select, Skeleton, Space, Table, Tabs, Tag, Typography, theme } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { api } from '../api/client';
 import { Panel } from '../components/charts';
+import DataGrid from '../components/DataGrid';
+import RecordEditor from '../components/grid/RecordEditor';
 import RecordGraph from '../components/explorer/RecordGraph';
 import SchemaMap from '../components/explorer/SchemaMap';
 import type {
+  AddableGroup,
   ExploreRecord,
   ExploreRow,
   ExploreSchema,
@@ -105,7 +108,7 @@ export default function ExplorerPage() {
               ]}
             />
           )}
-          {table && recordId == null && entity && <EntityList key={table} table={table} label={entity.label} onOpen={(id) => go(table, id)} />}
+          {table && recordId == null && entity && <EntityList key={table} table={table} label={entity.label} edit={entity.edit} onOpen={(id) => go(table, id)} />}
           {table && recordId != null && (
             <RecordView
               key={`${table}-${recordId}`}
@@ -189,7 +192,47 @@ function GlobalSearch({ onPick }: { onPick: (table: string, id: number) => void 
   );
 }
 
-function EntityList({ table, label, onOpen }: { table: string; label: string; onOpen: (id: number) => void }) {
+const MODE_KEY = 'explore-list-mode';
+
+function EntityList({ table, label, edit, onOpen }: { table: string; label: string; edit?: string | null; onOpen: (id: number) => void }) {
+  const [mode, setMode] = useState<'browse' | 'sheet'>(() => {
+    try {
+      return localStorage.getItem(MODE_KEY) === 'sheet' ? 'sheet' : 'browse';
+    } catch {
+      return 'browse';
+    }
+  });
+  const pickMode = (m: 'browse' | 'sheet') => {
+    setMode(m);
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {
+      /* storage unavailable */
+    }
+  };
+  const toggle = edit ? (
+    <Segmented
+      size="small"
+      value={mode}
+      onChange={(v) => pickMode(v as 'browse' | 'sheet')}
+      options={[
+        { value: 'browse', label: 'Browse', icon: <UnorderedListOutlined /> },
+        { value: 'sheet', label: 'Edit as sheet', icon: <TableOutlined /> },
+      ]}
+    />
+  ) : null;
+
+  if (edit && mode === 'sheet') {
+    return (
+      <Panel title={label} extra={toggle}>
+        <DataGrid table={edit} allowUpload onOpenRow={onOpen} showDescription height="68vh" />
+      </Panel>
+    );
+  }
+  return <EntityBrowse table={table} label={label} toggle={toggle} onOpen={onOpen} />;
+}
+
+function EntityBrowse({ table, label, toggle, onOpen }: { table: string; label: string; toggle: React.ReactNode; onOpen: (id: number) => void }) {
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
   const [data, setData] = useState<{ total: number; columns: { name: string; label: string }[]; rows: ExploreRow[] } | null>(null);
@@ -211,7 +254,12 @@ function EntityList({ table, label, onOpen }: { table: string; label: string; on
   return (
     <Panel
       title={label}
-      extra={data ? `${data.total.toLocaleString('en-US')} record${data.total === 1 ? '' : 's'}` : undefined}
+      extra={
+        <Space size={12}>
+          {data && <span>{`${data.total.toLocaleString('en-US')} record${data.total === 1 ? '' : 's'}`}</span>}
+          {toggle}
+        </Space>
+      }
     >
       <Input
         allowClear
@@ -271,7 +319,19 @@ function RecordView({
   const [rec, setRec] = useState<ExploreRecord | null>(null);
   const [missing, setMissing] = useState(false);
   const [showEmpty, setShowEmpty] = useState(false);
+  const [editFields, setEditFields] = useState(false);
+  const [sheets, setSheets] = useState<Set<string>>(new Set());
+  const [adding, setAdding] = useState<AddableGroup[]>([]); // related lists opened from "add", kept in place
+  const [tick, setTick] = useState(0);
+  const reload = useCallback(() => setTick((t) => t + 1), []);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const toggleSheet = (key: string) =>
+    setSheets((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   useEffect(() => {
     api
@@ -281,7 +341,7 @@ function RecordView({
         onLoaded(r);
       })
       .catch(() => setMissing(true));
-  }, [table, id, onLoaded]);
+  }, [table, id, onLoaded, tick]);
 
   if (missing) return <Empty description="This record doesn't exist or isn't visible to you" />;
   if (!rec) return <Skeleton active paragraph={{ rows: 10 }} />;
@@ -330,12 +390,24 @@ function RecordView({
 
       <Panel
         title="Details"
-        extra={emptyCount > 0 && (
-          <a onClick={() => setShowEmpty((v) => !v)}>
-            {showEmpty ? 'Hide empty fields' : `Show ${emptyCount} empty field${emptyCount === 1 ? '' : 's'}`}
-          </a>
-        )}
+        extra={
+          <Space size={12}>
+            {!editFields && emptyCount > 0 && (
+              <a onClick={() => setShowEmpty((v) => !v)}>
+                {showEmpty ? 'Hide empty fields' : `Show ${emptyCount} empty field${emptyCount === 1 ? '' : 's'}`}
+              </a>
+            )}
+            {rec.edit && (
+              <Button size="small" type={editFields ? 'primary' : 'default'} icon={<EditOutlined />} onClick={() => setEditFields((v) => !v)}>
+                {editFields ? 'Done' : 'Edit'}
+              </Button>
+            )}
+          </Space>
+        }
       >
+        {editFields && rec.edit ? (
+          <RecordEditor table={rec.edit} id={rec.id} onSaved={reload} />
+        ) : (
         <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 3 }} bordered>
           {fields.map((f) => (
             <Descriptions.Item key={f.name} label={f.computed ? <span>{f.label} <span style={{ opacity: 0.6 }}>(computed)</span></span> : f.label}>
@@ -347,6 +419,7 @@ function RecordView({
             </Descriptions.Item>
           ))}
         </Descriptions>
+        )}
         {rec.outgoing.some((o) => o.via) && (
           <div style={{ marginTop: 10, fontSize: 13, color: token.colorTextSecondary }}>
             Also, through the {rec.outgoing.find((o) => o.via)!.via!.toLowerCase()}:{' '}
@@ -360,12 +433,32 @@ function RecordView({
         )}
       </Panel>
 
-      {rec.incoming.map((g) => (
+      {rec.incoming.filter((g) => !adding.some((a) => a.key === g.key)).map((g) => (
         <div key={g.key} ref={(el) => (sectionRefs.current[g.key] = el)} style={{ scrollMarginTop: 80 }}>
           <Panel
             title={g.label}
-            extra={`${g.total.toLocaleString('en-US')}${g.total > g.rows.length ? ` · showing ${g.rows.length}` : ''}${g.via ? ` · via ${g.via.toLowerCase()}` : ` · as ${g.relation.toLowerCase()}`}`}
+            extra={
+              <Space size={12}>
+                <span>{`${g.total.toLocaleString('en-US')}${g.total > g.rows.length && !sheets.has(g.key) ? ` · showing ${g.rows.length}` : ''}${g.via ? ` · via ${g.via.toLowerCase()}` : ` · as ${g.relation.toLowerCase()}`}`}</span>
+                {g.edit && (
+                  <Button size="small" type={sheets.has(g.key) ? 'primary' : 'default'} icon={<TableOutlined />} onClick={() => toggleSheet(g.key)}>
+                    {sheets.has(g.key) ? 'Done' : 'Edit'}
+                  </Button>
+                )}
+              </Space>
+            }
           >
+            {g.edit && g.fk && sheets.has(g.key) ? (
+              <DataGrid
+                table={g.edit}
+                fixed={{ [g.fk]: String(rec.id) }}
+                compact
+                showDescription={false}
+                height="48vh"
+                onChanged={reload}
+                onOpenRow={(rid) => onGo(g.table, rid)}
+              />
+            ) : (
             <Table<ExploreRow>
               size="small"
               rowKey={(r) => `${r.id}`}
@@ -383,9 +476,43 @@ function RecordView({
                 })),
               ]}
             />
+            )}
           </Panel>
         </div>
       ))}
+
+      {adding.map((a) => (
+        <Panel
+          key={a.key}
+          title={a.label}
+          extra={
+            <Button size="small" type="primary" icon={<TableOutlined />} onClick={() => setAdding((xs) => xs.filter((x) => x.key !== a.key))}>
+              Done
+            </Button>
+          }
+        >
+          <DataGrid
+            table={a.edit}
+            fixed={{ [a.fk]: String(rec.id) }}
+            compact
+            showDescription={false}
+            height="48vh"
+            onChanged={reload}
+            onOpenRow={(rid) => onGo(a.table, rid)}
+          />
+        </Panel>
+      ))}
+
+      {!!rec.addable?.some((a) => !adding.some((x) => x.key === a.key)) && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Typography.Text type="secondary" style={{ fontSize: 13 }}>Add linked records:</Typography.Text>
+          {rec.addable.filter((a) => !adding.some((x) => x.key === a.key)).map((a) => (
+            <Button key={a.key} size="small" icon={<PlusOutlined />} onClick={() => setAdding((xs) => [...xs, a])}>
+              {a.label}
+            </Button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

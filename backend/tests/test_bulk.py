@@ -289,3 +289,50 @@ def test_upload_missing_column_rejected(login, db_session):
     r = login("ceo").post("/api/bulk/inventory_items/upload", files=files)
     assert r.status_code == 400
     assert "quantity" in r.json()["detail"]
+
+
+# --- the live grid: partial saves, patch updates, fresh rows back ------------
+def test_partial_save_writes_good_rows_and_reports_bad(login, db_session):
+    r = login("ceo").post("/api/bulk/inventory_items", json={
+        "rows": [
+            {"id": "", "name": "Partial Good", "quantity": "3"},
+            {"id": "", "name": "", "quantity": "1"},  # bad: name required
+        ],
+        "partial": True,
+        "return_rows": True,
+    }).json()
+    assert r["ok"] is False
+    assert [(e["row"], e["column"]) for e in r["errors"]] == [(1, "name")]
+    good = db_session.scalar(select(InventoryItem).where(InventoryItem.name == "Partial Good"))
+    assert good is not None
+    # the new row's id comes back keyed by its index, and the fresh rows include it
+    assert r["ids"] == {"0": good.id}
+    assert any(row["id"] == str(good.id) for row in r["rows"])
+
+
+def test_update_touches_only_the_cells_sent(login, db_session):
+    ceo = login("ceo")
+    ceo.post("/api/bulk/inventory_items", json={"rows": [
+        {"id": "", "name": "Patch Me", "quantity": "5", "category": "Sensors", "condition": "good"},
+    ]})
+    item = db_session.scalar(select(InventoryItem).where(InventoryItem.name == "Patch Me"))
+    r = ceo.post("/api/bulk/inventory_items", json={"rows": [{"id": str(item.id), "quantity": "9"}], "partial": True})
+    assert r.json()["ok"] is True
+    db_session.expire_all()
+    item = db_session.get(InventoryItem, item.id)
+    assert item.quantity == 9 and item.category == "Sensors" and item.condition == "good"
+
+
+def test_unique_clash_fails_only_that_row(login, db_session):
+    admin = login("admin")
+    admin.post("/api/bulk/finance_parties", json={"rows": [{"id": "", "name": "Taken Name"}]})
+    r = admin.post("/api/bulk/finance_parties", json={
+        "rows": [{"id": "", "name": "Taken Name"}, {"id": "", "name": "Fresh Name"}],
+        "partial": True,
+    }).json()
+    assert [e["row"] for e in r["errors"]] == [0]
+    assert "unique" in r["errors"][0]["message"]
+    assert list(r["ids"]) == ["1"]
+    # the all-or-nothing default refuses the same clash cleanly instead of a 500
+    r2 = admin.post("/api/bulk/finance_parties", json={"rows": [{"id": "", "name": "Taken Name"}]})
+    assert r2.status_code == 200 and r2.json()["ok"] is False

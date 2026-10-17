@@ -85,3 +85,23 @@ def test_search_and_list(login, org, db_session):
     page = admin.get("/api/explore/events?q=mrc").json()
     assert page["total"] == 1 and page["rows"][0]["title"] == "MRC 2025"
     assert admin.get("/api/explore/events/999999").status_code == 404
+
+
+def test_record_says_what_can_be_edited(login, org, db_session):
+    ev, team, m = _seed(db_session, org)
+    admin = login("admin")
+    schema = {e["table"]: e for e in admin.get("/api/explore/schema").json()["entities"]}
+    assert schema["member_profiles"]["edit"] == "member_profiles"
+    assert schema["audit_log"]["edit"] is None
+
+    rec = admin.get(f"/api/explore/member_profiles/{m.id}").json()
+    assert rec["edit"] == "member_profiles"
+    parts = next(g for g in rec["incoming"] if g["table"] == "event_participations" and not g["via"])
+    assert parts["edit"] == "event_participations" and parts["fk"] == "member_id"
+    # lists it has nothing in yet are offered as "add"
+    assert any(a["edit"] == "dues_payments" and a["fk"] == "member_id" for a in rec["addable"])
+
+    # Board with dashboard.view but no edit privileges sees no edit handles
+    _grant(db_session, org, "comp_member", "dashboard.view")
+    rec = login("comp_member").get(f"/api/explore/events/{ev.id}").json()
+    assert rec["edit"] is None and rec["addable"] == []
