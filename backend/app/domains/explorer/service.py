@@ -333,6 +333,11 @@ def summary_row(entity: Entity, obj) -> dict:
     return {"id": obj.id, "title": title_of(entity, obj), "fields": fields}
 
 
+def _live(model) -> list:
+    """Soft-deleted rows (deleted_at set) are gone as far as browsing goes."""
+    return [model.deleted_at.is_(None)] if hasattr(model, "deleted_at") else []
+
+
 # --- schema ---------------------------------------------------------------------
 def schema(db: Session, visible: set[str], editable: dict | None = None) -> dict:
     editable = editable or {}
@@ -341,7 +346,7 @@ def schema(db: Session, visible: set[str], editable: dict | None = None) -> dict
         if e.table not in visible:
             continue
         model = model_for(e.table)
-        count = db.scalar(select(func.count()).select_from(model)) or 0
+        count = db.scalar(select(func.count()).select_from(model).where(*_live(model))) or 0
         entities.append({
             "table": e.table, "label": e.label, "singular": e.singular, "group": e.group,
             "count": count, "summary": list(e.summary),
@@ -375,7 +380,7 @@ def _search_clause(model, entity: Entity, q: str):
 
 def list_rows(db: Session, entity: Entity, q: str, offset: int, limit: int, visible: set[str]) -> dict:
     model = model_for(entity.table)
-    query = select(model)
+    query = select(model).where(*_live(model))
     if q:
         clause = _search_clause(model, entity, q)
         if clause is None:
@@ -400,7 +405,7 @@ def search(db: Session, q: str, visible: set[str], per_table: int = 6) -> list[d
         clause = _search_clause(model, e, q)
         if clause is None:
             continue
-        rows = list(db.scalars(select(model).where(clause).limit(per_table)).unique())
+        rows = list(db.scalars(select(model).where(clause, *_live(model)).limit(per_table)).unique())
         if rows:
             out.append({
                 "table": e.table, "label": e.label, "group": e.group,
@@ -429,7 +434,7 @@ def _incoming(db: Session, table: str, rid: int, visible: set[str], titles: Titl
             continue
         src_entity = BY_TABLE[link.source]
         model = model_for(link.source)
-        cond = [getattr(model, link.column) == rid]
+        cond = [getattr(model, link.column) == rid, *_live(model)]
         if link.where_col:
             cond.append(getattr(model, link.where_col) == link.where_val)
         total = db.scalar(select(func.count()).select_from(model).where(*cond)) or 0

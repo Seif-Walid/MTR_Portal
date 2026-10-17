@@ -57,17 +57,11 @@ def _generic_export(db: Session, spec: TableSpec) -> tuple[list[str], list[list[
 
 
 def _spec_query(spec: TableSpec):
-    q = select(spec.model)
-    if spec.where is not None:
-        q = q.where(spec.where())
-    return q.order_by(spec.model.id)
+    return select(spec.model).where(*spec.filters()).order_by(spec.model.id)
 
 
 def _spec_ids(db: Session, spec: TableSpec) -> set[int]:
-    q = select(spec.model.id)
-    if spec.where is not None:
-        q = q.where(spec.where())
-    return {r[0] for r in db.execute(q).all()}
+    return {r[0] for r in db.execute(select(spec.model.id).where(*spec.filters())).all()}
 
 
 def _spec_export(db: Session, spec: TableSpec) -> tuple[list[str], list[list[str]]]:
@@ -346,8 +340,14 @@ def apply(
     if errors and not partial:
         return {"ok": False, "errors": errors, "summary": {"adds": 0, "updates": 0, "deletes": 0}, "ids": {}}
 
+    # grid-shaped rows before the write — the audit trail's "old" values and
+    # the full snapshot a deleted row can be restored from
+    before = _rows_by_id(db, spec) if (coerced or deletes) else {}
+
     adds = updates = removed = 0
     ids: dict[int, int] = {}
+    created: set[int] = set()
+    updated: set[int] = set()
     for c in coerced:
         try:
             with db.begin_nested():
@@ -356,6 +356,7 @@ def apply(
                     db.add(obj)
                     db.flush()
                     adds += 1
+                    created.add(obj.id)
                 else:
                     obj = db.get(spec.model, c.id)
                     changed = False
@@ -366,6 +367,7 @@ def apply(
                     if changed:  # untouched rows are a silent no-op — no churn, honest counts
                         db.flush()
                         updates += 1
+                        updated.add(obj.id)
                 ids[c.index] = obj.id
         except IntegrityError as exc:
             _err(errors, c.index, _constraint_column(spec, exc), _integrity_message(exc))
@@ -373,6 +375,7 @@ def apply(
                 db.rollback()
                 return {"ok": False, "errors": errors, "summary": {"adds": 0, "updates": 0, "deletes": 0}, "ids": {}}
 
+    deleted: list[int] = []
     if not blocked_deletes:
         for did in deletes:
             obj = db.get(spec.model, did)
@@ -385,10 +388,12 @@ def apply(
             else:  # hard
                 db.delete(obj)
             removed += 1
+            deleted.append(did)
 
     summary = {"adds": adds, "updates": updates, "deletes": removed}
     if adds or updates or removed:
-        audit.log(db, actor_id, "bulk", "apply", spec.key, None, summary)
+        db.flush()
+        _audit_changes(db, spec, actor_id, before, created, updated, deleted)
     try:
         db.commit()
     except IntegrityError as exc:  # e.g. a delete still referenced by a foreign key
@@ -396,6 +401,56 @@ def apply(
         return {"ok": False, "errors": [{"row": None, "column": None, "message": _integrity_message(exc)}],
                 "summary": {"adds": 0, "updates": 0, "deletes": 0}, "ids": {}}
     return {"ok": not errors, "errors": errors, "summary": summary, "ids": ids}
+
+
+def _rows_by_id(db: Session, spec: TableSpec) -> dict[int, dict]:
+    header, rows = _export_for(db, spec)
+    return {int(r[0]): dict(zip(header, r)) for r in rows if r and str(r[0]).isdigit()}
+
+
+def _row_cells(db: Session, spec: TableSpec, obj) -> dict:
+    """One object in grid cell format, straight off the column declarations."""
+    out = {}
+    for c in spec.columns:
+        value = getattr(obj, c.model_attr, None)
+        if c.ref and value is not None and REFS[c.ref].value_attr != "id":
+            target = db.get(REFS[c.ref].model, value)
+            value = getattr(target, REFS[c.ref].value_attr) if target is not None else value
+        out[c.name] = _cell(value)
+    return out
+
+
+def _editable(spec: TableSpec, row: dict) -> dict:
+    return {c.name: row.get(c.name, "") for c in spec.columns if c.editable or c.name == "id"}
+
+
+def _audit_changes(
+    db: Session, spec: TableSpec, actor_id: int, before: dict[int, dict],
+    created: set[int], updated: set[int], deleted: list[int],
+) -> None:
+    """One audit entry per touched row, in the grid's own cell format:
+    updates carry {column: [old, new]}, creates and deletes the whole row (a
+    delete's snapshot is what the recycle bin restores from)."""
+    after = _rows_by_id(db, spec) if (created or updated) else {}
+    for rid in created | updated:
+        if rid not in after:  # e.g. deactivated by this very edit — no longer exported
+            obj = db.get(spec.model, rid)
+            if obj is not None:
+                after[rid] = _row_cells(db, spec, obj)
+    for rid in sorted(created):
+        audit.log(db, actor_id, "bulk", "create", spec.key, rid, {"row": _editable(spec, after.get(rid, {}))})
+    for rid in sorted(updated):
+        old, new = before.get(rid, {}), after.get(rid, {})
+        changes = {
+            c.name: [old.get(c.name, ""), new.get(c.name, "")]
+            for c in spec.columns
+            if c.editable and old.get(c.name, "") != new.get(c.name, "")
+        }
+        if changes:
+            audit.log(db, actor_id, "bulk", "update", spec.key, rid, {"changes": changes})
+    for rid in deleted:
+        audit.log(db, actor_id, "bulk", "delete", spec.key, rid,
+                  {"row": _editable(spec, before.get(rid, {})), "policy": spec.delete})
 
 
 def table_rows(db: Session, spec: TableSpec) -> list[dict]:
@@ -619,3 +674,98 @@ def plan_upload(db: Session, spec: TableSpec, rows: list[dict], delete_missing: 
         "can_delete": can_delete,
         "will_delete": len(missing_ids) if delete_missing else 0,
     }
+
+
+# --- history / recycle bin ----------------------------------------------------
+def _entry(e, names: dict[int, str]) -> dict:
+    import json
+
+    try:
+        detail = json.loads(e.detail or "{}")
+    except ValueError:
+        detail = {}
+    return {
+        "id": e.id, "action": e.action, "entity_id": e.entity_id, "detail": detail,
+        "actor": names.get(e.actor_id) if e.actor_id else None,
+        "at": e.created_at.isoformat() if e.created_at else None,
+    }
+
+
+def _actor_names(db: Session, entries) -> dict[int, str]:
+    ids = {e.actor_id for e in entries if e.actor_id}
+    if not ids:
+        return {}
+    return {u.id: u.full_name for u in db.scalars(select(User).where(User.id.in_(ids)))}
+
+
+def row_history(db: Session, spec: TableSpec, rid: int) -> list[dict]:
+    """Every grid edit to one row, newest first."""
+    from app.domains.audit.models import AuditLog
+
+    entries = list(db.scalars(
+        select(AuditLog)
+        .where(AuditLog.domain == "bulk", AuditLog.entity_type == spec.key, AuditLog.entity_id == rid)
+        .order_by(AuditLog.id.desc())
+    ))
+    names = _actor_names(db, entries)
+    return [_entry(e, names) for e in entries]
+
+
+def trash(db: Session, spec: TableSpec, limit: int = 200) -> list[dict]:
+    """Deleted rows that haven't been restored since, newest first."""
+    from app.domains.audit.models import AuditLog
+
+    base = select(AuditLog).where(AuditLog.domain == "bulk", AuditLog.entity_type == spec.key)
+    restored = {
+        _entry(e, {})["detail"].get("audit_id")
+        for e in db.scalars(base.where(AuditLog.action == "restore"))
+    }
+    entries = [
+        e for e in db.scalars(base.where(AuditLog.action == "delete").order_by(AuditLog.id.desc()).limit(limit))
+        if e.id not in restored
+    ]
+    names = _actor_names(db, entries)
+    return [_entry(e, names) for e in entries]
+
+
+def restore(db: Session, spec: TableSpec, audit_id: int, actor_id: int) -> dict:
+    """Bring a deleted row back from its recycle-bin snapshot. A hard-deleted
+    row is re-inserted under its old id after re-validating the snapshot (a
+    record it pointed at may be gone since); a soft-deleted or deactivated row
+    just has the flag flipped back."""
+    from app.domains.audit.models import AuditLog
+
+    entry = db.get(AuditLog, audit_id)
+    if entry is None or entry.domain != "bulk" or entry.entity_type != spec.key or entry.action != "delete":
+        return {"ok": False, "message": "That deleted row is not in this table's recycle bin."}
+    if audit_id not in {t["id"] for t in trash(db, spec, limit=10_000)}:
+        return {"ok": False, "message": "That row was already restored."}
+    rid = entry.entity_id
+    detail = _entry(entry, {})["detail"]
+    obj = db.get(spec.model, rid)
+
+    if spec.delete in ("soft", "deactivate"):
+        if obj is None:
+            return {"ok": False, "message": "The row no longer exists in the database."}
+        if spec.delete == "soft":
+            obj.deleted_at = None
+        else:
+            obj.is_active = True
+    else:
+        if obj is not None:
+            return {"ok": False, "message": f"A row with id {rid} already exists."}
+        snapshot = {k: v for k, v in (detail.get("row") or {}).items() if k != "id"}
+        coerced, errors, _ = validate(db, spec, [{**snapshot, "id": ""}], [])
+        if errors or not coerced:
+            msg = errors[0]["message"] if errors else "The snapshot could not be read."
+            return {"ok": False, "message": f"Can't restore: {msg}"}
+        try:
+            with db.begin_nested():
+                db.add(spec.model(id=rid, **_insert_defaults(spec, coerced[0].fields)))
+                db.flush()
+        except IntegrityError as exc:
+            db.rollback()
+            return {"ok": False, "message": f"Can't restore: {_integrity_message(exc)}"}
+    audit.log(db, actor_id, "bulk", "restore", spec.key, rid, {"audit_id": audit_id})
+    db.commit()
+    return {"ok": True, "id": rid}

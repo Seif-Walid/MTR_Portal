@@ -1,6 +1,7 @@
 import {
   CheckCircleFilled,
   DeleteOutlined,
+  RestOutlined,
   DownloadOutlined,
   ExclamationCircleFilled,
   ExportOutlined,
@@ -18,6 +19,7 @@ import { Alert, Button, Input, Modal, Popover, Space, Switch, Tag, Tooltip, Typo
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
+import { RecycleBin, RowHistory } from './grid/AuditDrawers';
 import CellEditor, { Commit, EditorRect, Move } from './grid/CellEditor';
 import {
   ApplyResult,
@@ -165,6 +167,8 @@ export default function DataGrid({
   const pendingFile = useRef<File | null>(null);
   const [alsoDelete, setAlsoDelete] = useState(false);
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const [historyOf, setHistoryOf] = useState<number | null>(null);
+  const [binOpen, setBinOpen] = useState(false);
 
   const fixedKey = JSON.stringify(fixed ?? {});
   const fixedRef = useRef(fixed);
@@ -1303,6 +1307,11 @@ export default function DataGrid({
               </Tooltip>
             </>
           )}
+          {canDelete && !compact && (
+            <Tooltip title="Recycle bin — restore deleted rows">
+              <Button icon={<RestOutlined />} onClick={() => setBinOpen(true)} />
+            </Tooltip>
+          )}
           <Tooltip title="Refresh from the server (keeps unsaved edits)">
             <Button icon={<ReloadOutlined />} onClick={() => void load()} />
           </Tooltip>
@@ -1573,13 +1582,31 @@ export default function DataGrid({
               undefined,
               !nSel || !deletable,
             )}
-          {onOpenRow && activeRow && !activeRow.isNew && (
+          {activeRow && !activeRow.isNew && (
             <>
               <hr />
-              {menuItem('Open record', () => onOpenRow(Number(activeRow.v.id)))}
+              {menuItem('Row history', () => setHistoryOf(Number(activeRow.v.id)))}
+              {onOpenRow && menuItem('Open record', () => onOpenRow(Number(activeRow.v.id)))}
             </>
           )}
         </div>
+      )}
+
+      {payload && (
+        <>
+          <RowHistory table={table} columns={payload.columns} options={payload.options} rowId={historyOf} onClose={() => setHistoryOf(null)} />
+          <RecycleBin
+            table={table}
+            columns={payload.columns}
+            options={payload.options}
+            open={binOpen}
+            onClose={() => setBinOpen(false)}
+            onRestored={() => {
+              void load();
+              onChangedRef.current?.();
+            }}
+          />
+        </>
       )}
 
       <Modal

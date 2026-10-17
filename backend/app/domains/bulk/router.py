@@ -41,10 +41,7 @@ def list_tables(db: DB, user: CurrentUser) -> list[TableSummary]:
     for spec in TABLES.values():
         if not access.has_privilege(db, user, spec.privilege):
             continue
-        q = select(func.count()).select_from(spec.model)
-        if spec.where is not None:
-            q = q.where(spec.where())
-        count = db.scalar(q) or 0
+        count = db.scalar(select(func.count()).select_from(spec.model).where(*spec.filters())) or 0
         out.append(TableSummary(key=spec.key, label=spec.label, row_count=count,
                                 append_only=spec.append_only, read_only=spec.read_only,
                                 group=spec.group, description=spec.description,
@@ -57,6 +54,30 @@ def get_table(table: str, db: DB, user: CurrentUser) -> dict:
     spec = _spec_or_404(table)
     access.require_privilege(db, user, spec.privilege)
     return service.read_table(db, spec)
+
+
+@router.get("/{table}/trash")
+def get_trash(table: str, db: DB, user: CurrentUser) -> list[dict]:
+    spec = _writable_or_400(_spec_or_404(table))
+    access.require_privilege(db, user, spec.privilege)
+    return service.trash(db, spec)
+
+
+@router.post("/{table}/restore/{audit_id}")
+def restore_row(table: str, audit_id: int, db: DB, user: CurrentUser) -> dict:
+    spec = _writable_or_400(_spec_or_404(table))
+    access.require_privilege(db, user, spec.privilege)
+    result = service.restore(db, spec, audit_id, user.id)
+    if not result["ok"]:
+        raise HTTPException(status.HTTP_409_CONFLICT, result["message"])
+    return result
+
+
+@router.get("/{table}/{row_id}/history")
+def get_history(table: str, row_id: int, db: DB, user: CurrentUser) -> list[dict]:
+    spec = _spec_or_404(table)
+    access.require_privilege(db, user, spec.privilege)
+    return service.row_history(db, spec, row_id)
 
 
 @router.post("/{table}/validate")

@@ -172,6 +172,21 @@ class TableSpec:
     def column(self, name: str) -> Column | None:
         return next((c for c in self.columns if c.name == name), None)
 
+    def live_clause(self):
+        """The where-clause hiding rows this table's delete policy has retired
+        (soft-deleted / deactivated) — the same rows the exporters leave out, so
+        a retired row can't be edited, counted or "missing from the file"."""
+        if self.delete == "soft":
+            return self.model.deleted_at.is_(None)
+        if self.delete == "deactivate":
+            return self.model.is_active.is_(True)
+        return None
+
+    def filters(self) -> list:
+        out = [] if self.where is None else [self.where()]
+        live = self.live_clause()
+        return out if live is None else [*out, live]
+
 
 def _enum(e) -> tuple[str, ...]:
     return tuple(v.value for v in e)
