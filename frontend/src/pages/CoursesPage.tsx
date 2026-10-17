@@ -477,16 +477,7 @@ function MaterialViewer({ courseId, materialId }: { courseId: number; materialId
   };
 
   return (
-    <div
-      ref={viewerRef}
-      style={{
-        display: 'flex', flexDirection: 'column', gap: 12,
-        height: isFullscreen ? '100vh' : 'calc(100vh - 170px)',
-        minHeight: isFullscreen ? undefined : 520,
-        background: isFullscreen ? C.bgVoid : undefined,
-        padding: isFullscreen ? 16 : undefined,
-      }}
-    >
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: 'calc(100vh - 170px)', minHeight: 520 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate(`/courses/${course.id}`)} style={{ color: C.textMuted }}>
           {course.title}
@@ -515,11 +506,27 @@ function MaterialViewer({ courseId, materialId }: { courseId: number; materialId
           {m.completed ? 'Done' : 'Mark done'}
         </Button>
       </div>
+      <div
+        ref={viewerRef}
+        style={{
+          flex: 1, position: 'relative', display: 'flex', minHeight: 0,
+          background: isFullscreen ? C.bgVoid : undefined,
+        }}
+      >
+      {isFullscreen && (
+        <Button
+          icon={<FullscreenExitOutlined />}
+          onClick={toggleFullscreen}
+          aria-label="Exit full screen"
+          title="Exit full screen (Esc)"
+          style={{ position: 'absolute', top: 12, right: 12, zIndex: 2 }}
+        />
+      )}
       {m.is_link || (!inline(m.media_type) && !m.preview_url) ? (
         <div
           style={{
             flex: 1, display: 'grid', placeItems: 'center', textAlign: 'center',
-            border: `1px solid ${C.hairline}`, borderRadius: 12, background: C.bgPanel, padding: 24,
+            border: `1px solid ${C.hairline}`, borderRadius: isFullscreen ? 0 : 12, background: C.bgPanel, padding: 24,
           }}
         >
           <div>
@@ -549,9 +556,14 @@ function MaterialViewer({ courseId, materialId }: { courseId: number; materialId
         title={m.title}
         allow="fullscreen; clipboard-write"
         allowFullScreen
-        style={{ flex: 1, width: '100%', border: `1px solid ${C.hairline}`, borderRadius: 12, background: '#fff' }}
+        style={{
+          flex: 1, width: '100%', background: '#fff',
+          border: isFullscreen ? 'none' : `1px solid ${C.hairline}`,
+          borderRadius: isFullscreen ? 0 : 12,
+        }}
       />
       )}
+      </div>
     </div>
   );
 }
