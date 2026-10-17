@@ -135,6 +135,10 @@ export default function DataGrid({
   const [cellErrors, setCellErrors] = useState<Record<string, string>>({});
   const [tableErrors, setTableErrors] = useState<string[]>([]);
   const pending = useRef<Map<string, Set<string>>>(new Map()); // row key -> columns changed since last send
+  // row key -> column -> the server value the edit started from (sent as `_base` so a
+  // cell someone else saved in the meantime comes back as a conflict, not an overwrite)
+  const bases = useRef<Map<string, Record<string, string>>>(new Map());
+  const [conflicts, setConflicts] = useState<Record<string, { mine: string; current: string; by: string | null }>>({});
   const inflight = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
 
@@ -269,6 +273,8 @@ export default function DataGrid({
   useEffect(() => {
     setLoading(true);
     pending.current.clear();
+    bases.current.clear();
+    setConflicts({});
     undoStack.current = [];
     redoStack.current = [];
     setCellErrors({});
@@ -360,13 +366,20 @@ export default function DataGrid({
     }
     const editableCols = columns.filter((c) => c.editable).map((c) => c.name);
     const sent: { key: string; isNew: boolean; cols: string[] }[] = [];
+    const sentBases = new Map<string, Record<string, string>>();
     const body = batch.map((r) => {
       const cols = r.isNew ? editableCols : [...(pending.current.get(r.key) ?? [])];
       pending.current.delete(r.key);
       sent.push({ key: r.key, isNew: r.isNew, cols });
-      const out: Record<string, string> = { id: r.isNew ? '' : r.v.id };
+      const out: Record<string, unknown> = { id: r.isNew ? '' : r.v.id };
       for (const c of cols) out[c] = r.v[c] ?? '';
-      return r.isNew ? { ...out, ...fixedRef.current } : out;
+      if (r.isNew) return { ...out, ...fixedRef.current };
+      const b = bases.current.get(r.key) ?? {};
+      const base: Record<string, string> = {};
+      for (const c of cols) if (c in b) base[c] = b[c];
+      bases.current.delete(r.key);
+      sentBases.set(r.key, b);
+      return Object.keys(base).length ? { ...out, _base: base } : out;
     });
     const newKeys = new Set(sent.filter((s) => s.isNew).map((s) => s.key));
     if (newKeys.size) setRows(rowsRef.current.map((r) => (newKeys.has(r.key) ? { ...r, saving: true } : r)));
@@ -389,11 +402,20 @@ export default function DataGrid({
       setRows(rowsRef.current.map((r) => (newKeys.has(r.key) && !idUpdates[r.key] ? { ...r, saving: false } : r)));
       const errs: Record<string, string> = {};
       const te: string[] = [];
+      const conf: Record<string, { mine: string; current: string; by: string | null }> = {};
       for (const e of res.errors) {
         const s = e.row != null ? sent[e.row] : undefined;
-        if (s) errs[`${s.key}:${e.column && s.cols.includes(e.column) ? e.column : '*'}`] = e.message;
+        if (s && e.code === 'conflict' && e.column) {
+          conf[`${s.key}:${e.column}`] = { mine: String(body[e.row!][e.column] ?? ''), current: e.current ?? '', by: e.by ?? null };
+        } else if (s) errs[`${s.key}:${e.column && s.cols.includes(e.column) ? e.column : '*'}`] = e.message;
         else te.push(e.message);
       }
+      setConflicts((cf) => {
+        const next = { ...cf };
+        for (const s of sent) for (const c of s.cols) delete next[`${s.key}:${c}`];
+        return { ...next, ...conf };
+      });
+      if (Object.keys(conf).length) message.warning('Someone else changed a cell you edited — yours was not saved. Pick which value to keep.');
       setCellErrors((ce) => {
         const next = { ...ce };
         for (const s of sent) {
@@ -413,6 +435,8 @@ export default function DataGrid({
         const set = pending.current.get(s.key) ?? new Set<string>();
         s.cols.forEach((c) => set.add(c));
         pending.current.set(s.key, set);
+        const b = sentBases.get(s.key);
+        if (b) bases.current.set(s.key, { ...b, ...(bases.current.get(s.key) ?? {}) });
       }
       setRows(rowsRef.current.map((r) => (newKeys.has(r.key) ? { ...r, saving: false } : r)));
       setTableErrors([e instanceof ApiError ? e.message : 'Could not reach the server — your changes are kept and will retry.']);
@@ -459,11 +483,15 @@ export default function DataGrid({
           if (!mine) return r;
           const v = { ...r.v };
           const set = pending.current.get(r.key) ?? new Set<string>();
+          const base = bases.current.get(r.key) ?? {};
           for (const ch of mine) {
+            // not pending -> r.v still holds the server's value: that's what this edit starts from
+            if (!r.isNew && !set.has(ch.col) && !(ch.col in base)) base[ch.col] = r.v[ch.col] ?? '';
             v[ch.col] = ch.after;
             set.add(ch.col);
           }
           pending.current.set(r.key, set);
+          if (!r.isNew) bases.current.set(r.key, base);
           return { ...r, v };
         }),
       );
@@ -473,6 +501,12 @@ export default function DataGrid({
           delete next[`${ch.key}:${ch.col}`];
           delete next[`${ch.key}:*`];
         }
+        return next;
+      });
+      setConflicts((cf) => {
+        if (!changes.some((ch) => `${ch.key}:${ch.col}` in cf)) return cf;
+        const next = { ...cf };
+        for (const ch of changes) delete next[`${ch.key}:${ch.col}`];
         return next;
       });
       if (record) {
@@ -1065,6 +1099,22 @@ export default function DataGrid({
     : undefined;
   const draftCount = rows.filter((r) => r.isNew && !r.saving).length;
   const errorCount = Object.keys(cellErrors).length;
+  const activeConflict = activeRow && activeCol ? conflicts[`${activeRow.key}:${activeCol.name}`] : undefined;
+  const conflictCount = Object.keys(conflicts).length;
+
+  const keepMine = (key: string, col: string) => {
+    const cf = conflicts[`${key}:${col}`];
+    const row = rowsRef.current.find((r) => r.key === key);
+    if (!cf || !row) return;
+    // the row now shows the server's value, so re-applying ours sends it with that as the base
+    applyChanges([{ key, col, before: row.v[col] ?? '', after: cf.mine }], true);
+  };
+  const keepTheirs = (key: string, col: string) =>
+    setConflicts((c) => {
+      const next = { ...c };
+      delete next[`${key}:${col}`];
+      return next;
+    });
 
   const stats = useMemo(() => {
     if (r1 === r2 && c1 === c2) return null;
@@ -1086,6 +1136,12 @@ export default function DataGrid({
 
   const saveTag = () => {
     if (saveState === 'saving') return <Tag icon={<LoadingOutlined />} color="processing">Saving…</Tag>;
+    if (conflictCount)
+      return (
+        <Tag icon={<ExclamationCircleFilled />} color="warning">
+          {conflictCount} edit conflict{conflictCount > 1 ? 's' : ''}
+        </Tag>
+      );
     if (saveState === 'saved' && !errorCount) return <Tag icon={<CheckCircleFilled />} color="success">Saved</Tag>;
     if (saveState === 'error' || errorCount)
       return (
@@ -1119,6 +1175,7 @@ export default function DataGrid({
     .sg-td.inr { background: ${tint(14)}; }
     .sg-td.err { background: ${token.colorErrorBg}; box-shadow: inset 0 0 0 1px ${token.colorErrorBorder}; }
     .sg-td.miss { background: ${token.colorWarningBg}; }
+    .sg-td.conf { background: ${token.colorWarningBg}; box-shadow: inset 0 0 0 1px ${token.colorWarning}; }
     .sg-td.act { box-shadow: inset 0 0 0 2px ${token.colorPrimary}; }
     .sg-td.act.err { box-shadow: inset 0 0 0 2px ${token.colorError}; }
     .sg-td.fill { box-shadow: inset 0 0 0 1px ${token.colorPrimary}; background: ${tint(22)}; }
@@ -1142,6 +1199,7 @@ export default function DataGrid({
     const value = row?.v[col.name] ?? '';
     const isLocked = locked(row, c);
     const err = row ? cellErrors[`${row.key}:${col.name}`] : undefined;
+    const conf = row ? conflicts[`${row.key}:${col.name}`] : undefined;
     const inRange = r >= r1 && r <= r2 && c >= c1 && c <= c2;
     const active = r === focus.r && c === focus.c;
     const inFill =
@@ -1153,7 +1211,7 @@ export default function DataGrid({
       isLocked && row ? 'lock' : '',
       inRange && !active ? 'inr' : '',
       inFill ? 'fill' : '',
-      err ? 'err' : missing ? 'miss' : '',
+      err ? 'err' : conf ? 'conf' : missing ? 'miss' : '',
       active ? 'act' : '',
     ].join(' ');
     let content: React.ReactNode;
@@ -1183,7 +1241,7 @@ export default function DataGrid({
         key={col.name}
         data-cell={`${r}:${c}`}
         className={cls}
-        title={err ?? (typeof content === 'string' && content.length > 18 ? content : undefined)}
+        title={err ?? (conf ? `Not saved — ${conf.by ?? 'someone'} changed this. Your value: ${conf.mine || '(blank)'}` : undefined) ?? (typeof content === 'string' && content.length > 18 ? content : undefined)}
         onMouseDown={(e) => cellDown(e, { r, c })}
         onMouseEnter={() => cellEnter({ r, c })}
         onDoubleClick={() => startEdit({ r, c }, null)}
@@ -1506,7 +1564,19 @@ export default function DataGrid({
           }}
         >
           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {activeErr ? (
+            {activeConflict && activeRow && activeCol ? (
+              <span style={{ color: token.colorWarningText }}>
+                <ExclamationCircleFilled /> {activeConflict.by ?? 'Someone'} changed this to “{displayText(activeCol, activeConflict.current, colOpts[focus.c]) || 'blank'}” — your “
+                {displayText(activeCol, activeConflict.mine, colOpts[focus.c]) || 'blank'}” wasn’t saved.{' '}
+                <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => keepMine(activeRow.key, activeCol.name)}>
+                  Use mine
+                </Button>
+                {' · '}
+                <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => keepTheirs(activeRow.key, activeCol.name)}>
+                  Keep theirs
+                </Button>
+              </span>
+            ) : activeErr ? (
               <span style={{ color: token.colorError }}>
                 <ExclamationCircleFilled /> {activeErr}
               </span>

@@ -36,7 +36,7 @@ export default function RecordEditor({ table, id, onSaved }: { table: string; id
       setSaving((s) => new Set(s).add(col));
       try {
         const res = await api.post<ApplyResult>(`/api/bulk/${table}`, {
-          rows: [{ id: String(id), [col]: value }],
+          rows: [{ id: String(id), [col]: value, _base: { [col]: row[col] ?? '' } }],
           deletes: [],
           partial: true,
           return_rows: true,
@@ -44,7 +44,9 @@ export default function RecordEditor({ table, id, onSaved }: { table: string; id
         setErrors((e) => {
           const next = { ...e };
           delete next[col];
-          for (const er of res.errors) next[er.column ?? col] = er.message;
+          for (const er of res.errors)
+            next[er.column ?? col] =
+              er.code === 'conflict' ? `${er.by ?? 'Someone'} changed this meanwhile — now showing their value; edit again to overwrite.` : er.message;
           return next;
         });
         if (res.rows) setPayload((p) => (p ? { ...p, rows: res.rows! } : p));

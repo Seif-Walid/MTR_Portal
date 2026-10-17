@@ -32,9 +32,19 @@ export interface TablePayload {
   description: string;
 }
 
+export interface ApplyError {
+  row: number | null;
+  column: string | null;
+  message: string;
+  /** 'conflict': the cell changed under the editor; `current` is what the database holds now */
+  code?: string | null;
+  current?: string | null;
+  by?: string | null;
+}
+
 export interface ApplyResult {
   ok: boolean;
-  errors: { row: number | null; column: string | null; message: string }[];
+  errors: ApplyError[];
   summary: { adds: number; updates: number; deletes: number };
   ids: Record<string, number>;
   rows: Record<string, string>[] | null;

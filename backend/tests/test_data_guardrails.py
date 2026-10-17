@@ -95,3 +95,32 @@ def test_history_and_trash_need_table_privilege(login, org, season):
     sid = _add_spending(login("admin"), season.id)
     assert login("ceo").get(f"/api/bulk/spendings/{sid}/history").status_code == 403
     assert login("ceo").get("/api/bulk/spendings/trash").status_code == 403
+
+
+# --- phase 2: per-cell conflicts ------------------------------------------------
+def test_stale_cell_is_a_conflict_but_other_cells_save(login, org, season, db_session):
+    admin = login("admin")
+    sid = _add_spending(admin, season.id, item="Bolt", count="2")
+    # someone else changes count 2 -> 5
+    admin.post("/api/bulk/spendings", json={"rows": [{"id": str(sid), "count": "5"}], "partial": True})
+    # our editor still thinks count is 2, and also edits the note
+    res = admin.post("/api/bulk/spendings", json={"rows": [{
+        "id": str(sid), "count": "7", "note": "checked", "_base": {"count": "2", "note": ""},
+    }], "partial": True}).json()
+    conflict = next(e for e in res["errors"] if e["column"] == "count")
+    assert conflict["code"] == "conflict" and conflict["current"] == "5" and conflict["by"]
+    db_session.expire_all()
+    row = db_session.get(Spending, sid)
+    assert row.count == 5 and row.note == "checked"
+
+
+def test_matching_base_or_same_value_is_not_a_conflict(login, org, season):
+    admin = login("admin")
+    sid = _add_spending(admin, season.id, count="2")
+    ok = admin.post("/api/bulk/spendings", json={"rows": [{"id": str(sid), "count": "3", "_base": {"count": "2"}}],
+                                                  "partial": True}).json()
+    assert ok["ok"], ok
+    # stale base, but the cell already holds what we're writing
+    same = admin.post("/api/bulk/spendings", json={"rows": [{"id": str(sid), "count": "3", "_base": {"count": "2"}}],
+                                                    "partial": True}).json()
+    assert same["ok"], same

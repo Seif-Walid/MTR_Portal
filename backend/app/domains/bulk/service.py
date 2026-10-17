@@ -154,8 +154,23 @@ class Coerced:
     fields: dict
 
 
-def _err(errors: list[dict], index: int | None, column: str | None, message: str) -> None:
-    errors.append({"row": index, "column": column, "message": message})
+def _err(errors: list[dict], index: int | None, column: str | None, message: str, **extra) -> None:
+    errors.append({"row": index, "column": column, "message": message, **extra})
+
+
+def _last_editor(db: Session, spec: TableSpec, rid: int) -> str | None:
+    from app.domains.audit.models import AuditLog
+
+    entry = db.scalars(
+        select(AuditLog)
+        .where(AuditLog.domain == "bulk", AuditLog.entity_type == spec.key, AuditLog.entity_id == rid)
+        .order_by(AuditLog.id.desc())
+        .limit(1)
+    ).first()
+    if entry is None or entry.actor_id is None:
+        return None
+    user = db.get(User, entry.actor_id)
+    return user.full_name if user else None
 
 
 def _valid_ref_ids(db: Session, ref_key: str, deleted: dict[str, set[int]]) -> set[int]:
@@ -231,6 +246,12 @@ def validate(
         else:
             name_ref_maps.setdefault(col.ref, _name_map(db, col.ref))
 
+    # optimistic concurrency, per cell: an update may carry `_base` — the value
+    # each edited cell had when the editor loaded it. If the database has moved
+    # on since (someone else saved that cell), the cell is a conflict and is not
+    # written; the row's other cells still are.
+    current = _rows_by_id(db, spec) if any(isinstance(r.get("_base"), dict) for r in rows) else {}
+
     coerced: list[Coerced] = []
     adds = updates = 0
     for i, row in enumerate(rows):
@@ -243,11 +264,18 @@ def validate(
             # existing ledger rows are immutable — skip silently, no update
             continue
 
+        base = row.get("_base") if row_id is not None and isinstance(row.get("_base"), dict) else {}
         fields: dict = {}
         row_ok = True
         for col in spec.columns:
             if not col.editable:
                 continue
+            if col.name in base and col.name in row:
+                now = current.get(row_id, {}).get(col.name, "")
+                if now != str(base[col.name] or "") and now != str(row[col.name] or "").strip():
+                    _err(errors, i, col.name, "Someone else changed this cell since you loaded it",
+                         code="conflict", current=now, by=_last_editor(db, spec, row_id))
+                    continue
             # an update only touches the cells it sends (the grid sends just what
             # changed); a new row is read in full, blanks included
             if row_id is not None and col.name not in row:

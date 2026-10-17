@@ -16,6 +16,11 @@ class ValidationError(BaseModel):
     row: int | None = None  # index into the submitted rows array (None = whole-table, e.g. a delete)
     column: str | None = None
     message: str
+    # code="conflict": the cell changed under the editor — `current` is the
+    # value now in the database and `by` who last edited the row
+    code: str | None = None
+    current: str | None = None
+    by: str | None = None
 
 
 class ApplyResult(BaseModel):
