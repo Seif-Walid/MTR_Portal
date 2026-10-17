@@ -127,6 +127,12 @@ class Column:
     attr: str | None = None  # model attribute to write (defaults to `name`)
     choices: tuple[str, ...] | None = None  # fixed enum values
     label: str | None = None  # grid header; defaults to the prettified name
+    # input rules, enforced by the grid as you type and again by the server
+    min: float | None = None
+    max: float | None = None
+    max_length: int | None = None
+    pattern: str | None = None  # full-match regex for text cells
+    pattern_hint: str | None = None  # what a valid value looks like, e.g. "MTR-123"
 
     @property
     def model_attr(self) -> str:
@@ -192,6 +198,14 @@ def _enum(e) -> tuple[str, ...]:
     return tuple(v.value for v in e)
 
 
+# shared input rules
+_EMAIL = dict(pattern=r"[^@\s]+@[^@\s]+\.[^@\s]+", pattern_hint="an email address like name@gmail.com")
+_PHONE = dict(pattern=r"\+?\d[\d \-]{6,15}", pattern_hint="a phone number like 01012345678 or +966…")
+_PHONES = dict(pattern=r"\+?\d[\d \-]{6,15}(\s*[,/]\s*\+?\d[\d \-]{6,15})*",
+               pattern_hint="one or more phone numbers, separated by commas")
+_MONEY = dict(min=0)
+
+
 # --- the tables -------------------------------------------------------------
 # Column order mirrors the matching exporter header exactly.
 TABLES: dict[str, TableSpec] = {
@@ -200,8 +214,8 @@ TABLES: dict[str, TableSpec] = {
         key="people", label="People", model=User, privilege="users.manage", delete="deactivate",
         columns=[
             Column("id", "int", editable=False),
-            Column("email", "str", required=True),
-            Column("full_name", "str", required=True),
+            Column("email", "str", required=True, **_EMAIL),
+            Column("full_name", "str", required=True, max_length=150),
             Column("department", "str", choices=_enum(Department)),
             Column("access_level", ref="access_level", attr="access_level_id"),
             Column("manager_id", "int", ref="user"),
@@ -218,20 +232,20 @@ TABLES: dict[str, TableSpec] = {
         privilege="members.edit", delete="hard", group="Members",
         columns=[
             Column("id", "int", editable=False),
-            Column("mtr_id", "str", label="MTR ID"),
-            Column("full_name", "str", label="Name"),
-            Column("email", "str", label="Gmail"),
+            Column("mtr_id", "str", label="MTR ID", pattern=r"MTR-\d{3,}", pattern_hint="MTR- followed by the number, e.g. MTR-123"),
+            Column("full_name", "str", label="Name", max_length=150),
+            Column("email", "str", label="Gmail", **_EMAIL),
             Column("user_id", "int", ref="user", label="Portal account"),
-            Column("phone", "str"),
-            Column("national_id", "str", label="National ID"),
+            Column("phone", "str", **_PHONE),
+            Column("national_id", "str", label="National ID", pattern=r"\d{14}", pattern_hint="the 14-digit national ID"),
             Column("birthday", "date"),
             Column("location", "str", label="Governorate"),
             Column("university", "str"),
             Column("college", "str"),
             Column("major", "str"),
             Column("uni_id", "str", label="College ID"),
-            Column("graduating_year", "int", label="Grad year"),
-            Column("guardian_phone", "str", label="Guardian's number"),
+            Column("graduating_year", "int", label="Grad year", min=2000, max=2100),
+            Column("guardian_phone", "str", label="Guardian's number", **_PHONES),
             Column("guardian_kinship", "str", label="Guardian's kinship"),
             Column("joined_at", "datetime", label="First registration"),
             Column("data_confidence", "str", label="Confidence"),
@@ -300,9 +314,9 @@ TABLES: dict[str, TableSpec] = {
             Column("location", "str"),
             Column("tracks", "str", label="Categories / tracks"),
             Column("result", "str", label="Result / placement"),
-            Column("registered_count", "int", label="# Registered"),
-            Column("participants_count", "int", label="# Participants"),
-            Column("teams_count", "int", label="# Teams"),
+            Column("registered_count", "int", label="# Registered", min=0),
+            Column("participants_count", "int", label="# Participants", min=0),
+            Column("teams_count", "int", label="# Teams", min=0),
             Column("mentors", "str", label="Mentors / coaches"),
             Column("captains", "str", label="Team captain(s)"),
             Column("contact", "str", label="MTR contact"),
@@ -364,8 +378,8 @@ TABLES: dict[str, TableSpec] = {
             Column("category", "str"),
             Column("asset_tag", "str"),
             Column("sku", "str"),
-            Column("quantity", "int", required=True),
-            Column("low_stock_threshold", "int"),
+            Column("quantity", "int", required=True, min=0),
+            Column("low_stock_threshold", "int", min=0),
             Column("unit", "str"),
             Column("location", "str"),  # free-text location note, not the FK
             Column("condition", "str", choices=_enum(Condition)),
@@ -402,7 +416,7 @@ TABLES: dict[str, TableSpec] = {
             Column("status", "str", choices=_enum(SeasonStatus)),
             Column("start_date", "date", label="Start"),
             Column("end_date", "date", label="End"),
-            Column("usd_rate", "number", label="USD → EGP"),
+            Column("usd_rate", "number", label="USD → EGP", min=0),
             Column("notes", "str"),
             Column("sort_order", "int", label="Order"),
         ],
@@ -418,12 +432,12 @@ TABLES: dict[str, TableSpec] = {
             Column("subsystem_id", "int", ref="opt_subsystem", label="Subsystem"),
             Column("item", "str", required=True),
             Column("currency", "str", choices=_enum(Currency)),
-            Column("unit_price", "number", label="Unit price"),
+            Column("unit_price", "number", label="Unit price", min=0),
             Column("unit_price_egp", "number", editable=False, label="Unit EGP"),
-            Column("required_qty", "number", label="Required"),
-            Column("spare_qty", "number", label="Spare"),
+            Column("required_qty", "number", label="Required", min=0),
+            Column("spare_qty", "number", label="Spare", min=0),
             Column("total_qty", "number", editable=False, label="Total qty"),
-            Column("in_stock_qty", "number", label="In stock"),
+            Column("in_stock_qty", "number", label="In stock", min=0),
             Column("needed_qty", "number", editable=False, label="Needed qty"),
             Column("fmv", "number", editable=False, label="FMV (EGP)"),
             Column("needed_cost", "number", editable=False, label="Needed cost (EGP)"),
@@ -443,8 +457,8 @@ TABLES: dict[str, TableSpec] = {
             Column("item", "str", required=True),
             Column("category_id", "int", ref="opt_category", label="Category"),
             Column("subcategory_id", "int", ref="opt_subcategory", label="Sub-category"),
-            Column("count", "number"),
-            Column("unit_cost", "number", label="Unit cost"),
+            Column("count", "number", min=0),
+            Column("unit_cost", "number", label="Unit cost", min=0),
             Column("net", "number", editable=False, label="Net (EGP)"),
             Column("method_id", "int", ref="opt_payment_method", label="Method"),
             Column("paid_by_id", "int", ref="fin_party", label="Paid by"),
@@ -460,9 +474,9 @@ TABLES: dict[str, TableSpec] = {
             Column("id", "int", editable=False),
             Column("season_id", "int", ref="fin_season", required=True, label="Season"),
             Column("name", "str", required=True),
-            Column("monthly_fee", "number", label="Monthly fee"),
-            Column("months", "int"),
-            Column("one_time_fee", "number", label="One-time fee"),
+            Column("monthly_fee", "number", label="Monthly fee", min=0),
+            Column("months", "int", min=0, max=36),
+            Column("one_time_fee", "number", label="One-time fee", min=0),
             Column("sort_order", "int", label="Order"),
         ],
     ),
@@ -474,7 +488,7 @@ TABLES: dict[str, TableSpec] = {
             Column("id", "int", editable=False),
             Column("season_id", "int", ref="fin_season", required=True, label="Season"),
             Column("min_years", "int", label="From year"),
-            Column("discount", "number"),
+            Column("discount", "number", min=0, max=1),
             Column("label", "str"),
         ],
     ),
@@ -516,7 +530,7 @@ TABLES: dict[str, TableSpec] = {
             Column("season_id", "int", ref="fin_season", required=True, label="Season"),
             Column("source", "str", required=True),
             Column("type_id", "int", ref="opt_funding_type", label="Type"),
-            Column("amount", "number", label="Amount (EGP)"),
+            Column("amount", "number", label="Amount (EGP)", min=0),
             Column("status", "str", choices=_enum(FundingStatus)),
             Column("note", "str"),
         ],
@@ -530,7 +544,7 @@ TABLES: dict[str, TableSpec] = {
             Column("owed_to_id", "int", ref="fin_party", label="Owed to"),
             Column("description", "str", required=True),
             Column("season_id", "int", ref="fin_season", label="Season"),
-            Column("amount", "number", label="Amount (EGP)"),
+            Column("amount", "number", label="Amount (EGP)", min=0),
             Column("due_date", "date", label="Due"),
             Column("status", "str", choices=_enum(PayableStatus)),
             Column("note", "str"),
@@ -545,8 +559,8 @@ TABLES: dict[str, TableSpec] = {
             Column("transferred_on", "date", label="Date"),
             Column("from_party_id", "int", ref="fin_party", label="From"),
             Column("from_method_id", "int", ref="opt_payment_method", label="From method"),
-            Column("amount", "number", label="Amount (EGP)"),
-            Column("fees", "number", label="Fees (EGP)"),
+            Column("amount", "number", label="Amount (EGP)", min=0),
+            Column("fees", "number", label="Fees (EGP)", min=0),
             Column("to_party_id", "int", ref="fin_party", label="To"),
             Column("to_method_id", "int", ref="opt_payment_method", label="To method"),
             Column("note", "str"),
@@ -560,7 +574,7 @@ TABLES: dict[str, TableSpec] = {
             Column("id", "int", editable=False),
             Column("name", "str", required=True),
             Column("type_id", "int", ref="opt_party_type", label="Type"),
-            Column("phone", "str"),
+            Column("phone", "str", **_PHONE),
             Column("payment_handle", "str", label="Payment handle / account"),
             Column("is_active", "bool", label="Active"),
             Column("notes", "str"),

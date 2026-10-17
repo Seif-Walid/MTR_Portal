@@ -15,6 +15,26 @@ export interface ColumnMeta {
   required: boolean;
   ref: string | null;
   choices: string[] | null;
+  min?: number | null;
+  max?: number | null;
+  max_length?: number | null;
+  pattern?: string | null;
+  pattern_hint?: string | null;
+}
+
+/** The column's input rules (mirrors bulk/service.rule_error on the server). */
+function ruleError(col: ColumnMeta, value: string): string | null {
+  if (value === '') return null;
+  if (isNumeric(col)) {
+    const n = Number(value);
+    if (col.min != null && n < col.min) return `${col.label} must be at least ${col.min}`;
+    if (col.max != null && n > col.max) return `${col.label} must be at most ${col.max}`;
+  } else if (col.type === 'str') {
+    if (col.max_length != null && value.length > col.max_length) return `${col.label} must be at most ${col.max_length} characters`;
+    if (col.pattern && !new RegExp(`^(?:${col.pattern})$`).test(value.trim()))
+      return `${col.label} should be ${col.pattern_hint ?? 'in the expected format'}`;
+  }
+  return null;
 }
 
 export type Option = { value: string | number; label: string };
@@ -107,6 +127,13 @@ export type Parsed = { ok: true; value: string } | { ok: false; error: string };
 
 /** Turn typed / pasted text into a stored cell value, or say why it can't be. */
 export function parseInput(col: ColumnMeta, raw: string, opts: Option[]): Parsed {
+  const parsed = parseValue(col, raw, opts);
+  if (!parsed.ok) return parsed;
+  const broken = ruleError(col, parsed.value);
+  return broken ? { ok: false, error: broken } : parsed;
+}
+
+function parseValue(col: ColumnMeta, raw: string, opts: Option[]): Parsed {
   const s = (raw ?? '').replace(/\r/g, '').trim();
   if (s === '') return { ok: true, value: '' };
   if (isPick(col)) {

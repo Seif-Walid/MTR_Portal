@@ -123,6 +123,11 @@ def _column_payload(c: Column) -> dict:
         "required": c.required,
         "ref": c.ref,
         "choices": list(c.choices) if c.choices else None,
+        "min": c.min,
+        "max": c.max,
+        "max_length": c.max_length,
+        "pattern": c.pattern,
+        "pattern_hint": c.pattern_hint,
     }
 
 
@@ -208,6 +213,25 @@ def _column_info(model: type) -> dict[str, tuple[bool, object]]:
     return info
 
 
+def rule_error(col: Column, value) -> str | None:
+    """Why `value` breaks the column's input rules, or None."""
+    import re
+
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if col.min is not None and value < col.min:
+            return f"must be at least {col.min:g}"
+        if col.max is not None and value > col.max:
+            return f"must be at most {col.max:g}"
+    if isinstance(value, str):
+        if col.max_length is not None and len(value) > col.max_length:
+            return f"must be at most {col.max_length} characters"
+        if col.pattern and not re.fullmatch(col.pattern, value.strip()):
+            return f"should be {col.pattern_hint}" if col.pattern_hint else "is not in the expected format"
+    return None
+
+
 def _coerce_scalar(raw: str, col: Column):
     raw = (raw or "").strip()
     if raw == "":
@@ -289,6 +313,17 @@ def validate(
 
             if value is None and col.required:
                 _err(errors, i, col.name, f"{col.name} is required")
+                row_ok = False
+                continue
+            broken = rule_error(col, value)
+            if broken and row_id is not None:
+                # rules guard new input: a value already stored (legacy data) can be
+                # sent back untouched — e.g. by a whole-sheet upload — without failing
+                obj = db.get(spec.model, row_id)
+                if obj is not None and getattr(obj, col.model_attr, None) == value:
+                    broken = None
+            if broken:
+                _err(errors, i, col.name, f"{col.header} {broken}")
                 row_ok = False
                 continue
             if col.choices and value is not None and value not in col.choices:

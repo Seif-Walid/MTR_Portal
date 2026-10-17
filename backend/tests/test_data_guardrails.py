@@ -124,3 +124,25 @@ def test_matching_base_or_same_value_is_not_a_conflict(login, org, season):
     same = admin.post("/api/bulk/spendings", json={"rows": [{"id": str(sid), "count": "3", "_base": {"count": "2"}}],
                                                     "partial": True}).json()
     assert same["ok"], same
+
+
+# --- phase 3: input rules ---------------------------------------------------------
+def test_input_rules_are_enforced_and_described(login, org, season, db_session):
+    from app.domains.users.models import MemberProfile
+
+    admin = login("admin")
+    cols = {c["name"]: c for c in admin.get("/api/bulk/member_profiles").json()["columns"]}
+    assert cols["mtr_id"]["pattern"] and cols["mtr_id"]["pattern_hint"]
+    res = admin.post("/api/bulk/spendings", json={"rows": [
+        {"id": "", "season_id": str(season.id), "item": "X", "count": "-1"}], "partial": True}).json()
+    assert res["errors"][0]["column"] == "count" and "at least 0" in res["errors"][0]["message"]
+    res = admin.post("/api/bulk/member_profiles", json={"rows": [
+        {"id": "", "full_name": "A", "mtr_id": "123"}], "partial": True}).json()
+    assert res["errors"][0]["column"] == "mtr_id"
+    # a legacy value that breaks a rule can be sent back unchanged
+    m = MemberProfile(full_name="Legacy", phone="phone?")
+    db_session.add(m)
+    db_session.commit()
+    ok = admin.post("/api/bulk/member_profiles", json={"rows": [
+        {"id": str(m.id), "phone": "phone?", "university": "AUC"}], "partial": True}).json()
+    assert ok["ok"], ok
