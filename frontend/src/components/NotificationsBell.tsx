@@ -48,6 +48,7 @@ export default function NotificationsBell() {
     setOpen(false);
     if (n.task_id) navigate(`/tasks?task=${n.task_id}`);
     else if (n.request_id) navigate('/requests');
+    else if (n.type === 'application_received') navigate('/applications');
   };
 
   const content = (

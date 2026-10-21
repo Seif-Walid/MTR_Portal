@@ -39,6 +39,8 @@ services:
       # each worker is ~120-180 MB. Override per-deploy without a rebuild.
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
       FRONTEND_URL: "https://${SITE_ADDRESS}"
+      # Salts the IP hash that rate-limits the website's public join form.
+      APPLICATION_IP_SALT: ${APPLICATION_IP_SALT:-mtr-applications}
       # Must exactly match an Authorized redirect URI in Google Cloud Console.
       # Without this, the backend falls back to the localhost default and Google
       # bounces the browser to the user's own machine instead of the VM.

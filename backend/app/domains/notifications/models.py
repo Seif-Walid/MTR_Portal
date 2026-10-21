@@ -14,6 +14,7 @@ class NotificationType(StrEnum):
     REQUEST_RECEIVED = "request_received"
     REQUEST_ACCEPTED = "request_accepted"
     REQUEST_DECLINED = "request_declined"
+    APPLICATION_RECEIVED = "application_received"
 
 
 class Notification(Base):

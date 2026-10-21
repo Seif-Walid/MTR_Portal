@@ -862,3 +862,20 @@ automatic-role node in the org tree shows a kind tag.
   autosaving grid as Data Tables; the registry gained number columns,
   computed read-only columns, labels, and filtered references (a pick-list
   is a filtered view of the shared options table).
+
+## Website join applications land in the portal
+
+- **Why.** The website's join form used to hand the applicant off to Instagram
+  DMs (answers copied to the clipboard), so nothing was recorded unless the
+  applicant finished the DM by hand. Applications now post to the portal and
+  are stored as their own `applications` table.
+- **Not members yet.** An application is not a roster row: adding the
+  applicant to the roster is a deliberate step (`add-to-roster`), which links
+  to an existing member sharing the email or phone instead of duplicating them.
+- **No new privileges.** Applications are the same kind of personal data as
+  the roster, so `members.view` reads them and `members.edit` acts on them.
+- **One public write, still nothing public to read.** `POST
+  /public/applications` only answers "received". Abuse control stays cheap and
+  stateless across workers: a honeypot field and a per-connection hourly limit
+  counted from the table itself (a salted IP hash, never the raw address).
+

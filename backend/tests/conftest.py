@@ -11,6 +11,7 @@ from app.core.database import Base, get_db
 
 # import all model modules so create_all sees every table
 from app.domains.access import models as _access  # noqa: F401
+from app.domains.applications import models as _applications  # noqa: F401
 from app.domains.audit import models as _audit  # noqa: F401
 from app.domains.auth import models as _auth  # noqa: F401
 from app.domains.courses import models as _courses  # noqa: F401

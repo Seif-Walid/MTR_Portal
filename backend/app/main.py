@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.domains.access.router import router as access_router
+from app.domains.applications.router import router as applications_router
 from app.domains.archive.router import router as archive_router
 from app.domains.audit.router import router as audit_router
 from app.domains.bulk.router import router as bulk_router
@@ -56,6 +57,7 @@ for domain_router in (
     explorer_router,
     finance_router,
     members_router,
+    applications_router,
     positions_router,
     audit_router,
     bulk_router,

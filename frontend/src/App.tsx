@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { can, useAuth } from './auth/AuthContext';
 import AppLayout from './components/AppLayout';
 import AdminUsersPage from './pages/AdminUsersPage';
+import ApplicationsPage from './pages/ApplicationsPage';
 import ArchivePage from './pages/ArchivePage';
 import BulkDataPage from './pages/BulkDataPage';
 import AuditLogPage from './pages/AuditLogPage';
@@ -46,6 +47,7 @@ export default function App() {
           />
           <Route path="/insights" element={<Navigate to="/explore" replace />} />
           <Route path="/members" element={<MembersPage />} />
+          <Route path="/applications" element={<ApplicationsPage />} />
           <Route path="/finance" element={<FinancePage />} />
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/calendar" element={<CalendarPage />} />

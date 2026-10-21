@@ -1,6 +1,7 @@
 import { C, hexA } from '../theme/circuitTokens';
 import type {
   AllocationPurpose,
+  ApplicationStatus,
   Condition,
   Priority,
   RequestStatus,
@@ -72,6 +73,18 @@ const REQ_STATUS: Record<RequestStatus, { label: string; color: string }> = {
 
 export function RequestStatusTag({ status }: { status: RequestStatus }) {
   const meta = REQ_STATUS[status] ?? { label: status, color: C.textMuted };
+  return chip(meta.label, meta.color);
+}
+
+export const APPLICATION_STATUS: Record<ApplicationStatus, { label: string; color: string }> = {
+  new: { label: 'New', color: C.accent },
+  contacted: { label: 'Contacted', color: C.violet },
+  accepted: { label: 'Accepted', color: C.teal },
+  declined: { label: 'Declined', color: C.textMuted },
+};
+
+export function ApplicationStatusTag({ status }: { status: ApplicationStatus }) {
+  const meta = APPLICATION_STATUS[status] ?? { label: status, color: C.textMuted };
   return chip(meta.label, meta.color);
 }
 

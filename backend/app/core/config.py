@@ -33,6 +33,9 @@ class Settings(BaseSettings):
         "https://www.mindtechrobotics.com",
     ]
     frontend_url: str = "http://localhost:5173"
+    # Salt for hashing a website applicant's IP (used only to rate-limit the
+    # public join form). Set a random value per deploy.
+    application_ip_salt: str = "mtr-applications"
 
     @property
     def all_cors_origins(self) -> list[str]:

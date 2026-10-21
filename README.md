@@ -187,6 +187,21 @@ shape lives in `app/domains/events/hall_of_fame.py`, shared with the Archive so 
 and public views can never drift, and the headline counts (competitions, seasons, members,
 medals) are **computed from the records**, never kept by hand.
 
+## Join applications
+
+The website's "Join the team" form posts to **`POST /api/public/applications`** — the
+one write on the public surface. It answers only `{"received": true}`; nothing stored is
+read back out publicly. Bots are turned away by a hidden honeypot field (silently
+accepted, never stored) and a limit of 5 applications an hour per connection (a salted
+hash of the IP, `APPLICATION_IP_SALT`). Sending the form again within a day with the same
+email updates the earlier application instead of adding a second one.
+
+Reviewers work them at **People → Applications** (`/applications`): `members.view` reads
+them, `members.edit` changes status (new → contacted → accepted / declined), keeps notes,
+and **adds the applicant to the roster** — linking to an existing member who already
+shares the email or phone, otherwise creating one with the next MTR ID. Everyone holding
+`members.edit` gets an in-app notification for each new application.
+
 ## Calendar & team time blocks
 
 `/calendar` overlays dated items from several sources on one month view
@@ -514,7 +529,8 @@ backend/
       calendar/            multi-source calendar aggregator
       dashboard/           Home triage roll-up
       archive/             archived events: record + own participation
-      public/              unauthenticated, PII-free Hall of Fame for the website
+      public/              unauthenticated, PII-free Hall of Fame + the join form intake
+      applications/        join applications from the website: review, add to roster
       audit/               general audit log (domain/action/entity, JSON detail)
       bulk/                editable data tables + xlsx round-trip
     seed.py
@@ -582,7 +598,9 @@ deploy/                    Caddyfile + production runbook
   · `POST /archive/events/{id}/reactivate` · `PATCH /archive/events/{id}`
   · `PATCH /archive/teams/{id}` · `PATCH /archive/members/{id}`
 - `GET /public/hall-of-fame` · `GET /public/hall-of-fame/summary` — **unauthenticated**,
-  PII-free, for the marketing site
+  PII-free, for the marketing site · `POST /public/applications` — the website's join form
+- `GET /applications` (`members.view`) · `PATCH /applications/{id}` (status, notes)
+  · `POST /applications/{id}/add-to-roster` (`members.edit`)
 - `GET /org/tree` · `POST /org/positions` · `PATCH/DELETE /org/positions/{id}`
   (`occupant_ids: number[]` — a position can have zero, one, or many occupants)
   · `GET /org/audit`

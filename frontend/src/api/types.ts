@@ -733,3 +733,25 @@ export interface CourseDetail extends Course {
   can_manage: boolean;
   file_count: number | null;
 }
+
+export type ApplicationStatus = 'new' | 'contacted' | 'accepted' | 'declined';
+
+export interface Application {
+  id: number;
+  full_name: string;
+  email: string;
+  phone: string;
+  school: string;
+  year: string;
+  subteam: string | null;
+  motivation: string;
+  status: ApplicationStatus;
+  notes: string | null;
+  member_id: number | null;
+  member_mtr_id: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  roster_matches: { id: number; mtr_id: string | null; name: string; matched_on: string[] }[];
+}
