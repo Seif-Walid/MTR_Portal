@@ -197,7 +197,10 @@ def import_file(
     mapping: str = Form(...),
     sheet: str | None = Form(None),
     team_lead_id: int | None = Form(None),
-    upsert: bool = Form(True),
+    # A string, not `bool = Form(True)`: newer FastAPI reads an *absent* bool
+    # form field as an unticked checkbox (False) whatever its default, which
+    # silently turned a plain re-import into skip-everything. Absent = upsert.
+    upsert: str | None = Form(None),
 ) -> ImportResult:
     """Create (or upsert) inventory items from an uploaded .xlsx/.csv."""
     require_manage(db, user)
@@ -213,7 +216,8 @@ def import_file(
         _, _, rows = file_import.read_uploaded(data, file.filename or "", sheet)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
-    return _import_rows(db, rows, mapping_dict, resolved_lead_id, upsert)
+    do_upsert = upsert is None or upsert.strip().lower() not in ("false", "0", "no", "off")
+    return _import_rows(db, rows, mapping_dict, resolved_lead_id, do_upsert)
 
 
 # --- locations (whereabouts) ----------------------------------------------
