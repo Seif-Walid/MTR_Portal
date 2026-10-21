@@ -374,6 +374,9 @@ TABLES: dict[str, TableSpec] = {
             Column("id", "int", editable=False),
             Column("category_id", "int", ref="event_category", required=True),
             Column("name", "str", required=True),
+            # Sub-team nesting is shown, not edited, here: moving a team must
+            # also re-nest its role seats, which the event page does.
+            Column("parent_team_id", "int", ref="event_team", editable=False),
             # Per-team placement published in the Hall of Fame, e.g. "🥇 1st Place".
             Column("award", "str"),
         ],

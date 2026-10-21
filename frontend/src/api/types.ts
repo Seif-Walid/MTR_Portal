@@ -273,10 +273,12 @@ export interface EntityRole {
 export interface EventTeam {
   id: number;
   name: string;
+  parent_team_id: number | null; // the team (same category) this sub-team sits in; null = top level
   award?: string | null; // per-team placement shown in the public Hall of Fame
   roles: EntityRole[];
   members: EventMember[];
-  can_manage_members: boolean;
+  can_manage_members: boolean; // also: may add sub-teams
+  can_edit: boolean; // may rename / remove / set the placement
 }
 
 export interface EventCategory {

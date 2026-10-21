@@ -227,7 +227,7 @@ def edit_archived_team(
     return ArchivedGroupOut.model_validate(
         {
             "id": team.id,
-            "label": team.name,
+            "label": team.path_name,
             "sublabel": None if team.category.name == team.name else team.category.name,
             "award": team.award,
             "members": [
@@ -271,13 +271,14 @@ def archived_event_detail(event_id: int, db: DB, user: CurrentUser) -> ArchivedE
 
     # team_id -> name for every team in this event (incl. soft-deleted, so the
     # historical record stays complete)
-    team_names: dict[int, str] = dict(
-        db.execute(
-            select(EventTeam.id, EventTeam.name)
+    team_names: dict[int, str] = {
+        t.id: t.path_name
+        for t in db.scalars(
+            select(EventTeam)
             .join(EventCategory, EventTeam.category_id == EventCategory.id)
             .where(EventCategory.event_id == event_id)
-        ).all()
-    )
+        )
+    }
     if not team_names:
         return ArchivedEventDetailOut(event=out_event, groups=groups, teams=[], tasks=[])
 

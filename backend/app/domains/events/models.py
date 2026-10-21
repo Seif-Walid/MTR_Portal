@@ -133,6 +133,13 @@ class EventTeam(Base):
         ForeignKey("event_categories.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str] = mapped_column(String(255))
+    # Optional sub-team nesting: the team (same category) this one sits inside.
+    # NULL = a top-level team. People roll *up* (a sub-team's people are on its
+    # parent team too) and management flows *down* (whoever manages a team
+    # manages its sub-teams) — see events/service.py.
+    parent_team_id: Mapped[int | None] = mapped_column(
+        ForeignKey("event_teams.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     # Per-team placement shown in the public Hall of Fame, e.g. "🥇 1st Place".
     # NULL when the event records its results at the event level instead
     # (Event.awards). Only one of the two levels is typically populated.
@@ -143,9 +150,34 @@ class EventTeam(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     category: Mapped[EventCategory] = relationship(back_populates="teams")
+    parent: Mapped["EventTeam | None"] = relationship(remote_side="EventTeam.id", lazy="select")
     members: Mapped[list["EventTeamMember"]] = relationship(
         back_populates="team", cascade="all, delete-orphan", lazy="selectin"
     )
+
+    def ancestors(self) -> list["EventTeam"]:
+        """Parent first, then its parent, … up to the top-level team."""
+        out: list[EventTeam] = []
+        seen = {self.id}
+        node = self.parent
+        while node is not None and node.id not in seen:
+            out.append(node)
+            seen.add(node.id)
+            node = node.parent
+        return out
+
+    @property
+    def path_name(self) -> str:
+        """The team's name qualified by its parents, e.g. "Line1 › Software" —
+        how a sub-team reads anywhere it's shown out of its tree."""
+        return " › ".join([t.name for t in reversed(self.ancestors())] + [self.name])
+
+
+def tree_order(teams: list[EventTeam]) -> list[EventTeam]:
+    """Teams depth-first: each parent immediately followed by its sub-teams
+    (siblings by creation). Parents always precede their sub-teams, which is
+    also the order their role seats must be created in."""
+    return sorted(teams, key=lambda t: [a.id for a in reversed(t.ancestors())] + [t.id])
 
 
 class EventTeamMember(Base):

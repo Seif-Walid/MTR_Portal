@@ -14,6 +14,7 @@ from app.domains.events.models import (
     EventTeamMember,
     EventKind,
     EventParticipation,
+    tree_order,
 )
 from app.domains.events.role_sync import (
     lineage_for_event,
@@ -45,6 +46,7 @@ from app.domains.events.service import (
     require_manage_event,
     require_manage_team,
     require_view,
+    sub_team_ids,
 )
 from app.domains.inventory.models import InventoryAllocation
 from app.domains.positions import role_engine
@@ -179,6 +181,7 @@ def _team_out(db: DB, comp: Event, team: EventTeam, can_manage: bool, user: User
     return TeamOut(
         id=team.id,
         name=team.name,
+        parent_team_id=team.parent_team_id,
         award=team.award,
         roles=_entity_roles_out(db, "team_created", "team", team.id, names, comp.kind_id),
         members=[
@@ -186,11 +189,36 @@ def _team_out(db: DB, comp: Event, team: EventTeam, can_manage: bool, user: User
             for m in team.members
         ],
         can_manage_members=can_manage or can_manage_team(db, user, team),
+        can_edit=can_manage or _can_edit_team(db, user, team),
     )
 
 
+def _can_edit_team(db: DB, user: User, team: EventTeam) -> bool:
+    """A top-level team's record belongs to its event's managers; a sub-team's
+    also to whoever manages the team it sits in."""
+    if team.parent is not None and can_manage_team(db, user, team.parent):
+        return True
+    return can_manage_event(db, user, team.category.event_id)
+
+
+def _require_edit_team(db: DB, user: User, team: EventTeam) -> None:
+    if not _can_edit_team(db, user, team):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "You must manage this team's event (or its parent team)."
+        )
+
+
+def _parent_for(db: DB, team_id: int, category_id: int) -> EventTeam:
+    parent = _get_team(db, team_id)
+    if parent.category_id != category_id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "A sub-team must be in the same category as its parent."
+        )
+    return parent
+
+
 def _active_teams(cat: EventCategory) -> list[EventTeam]:
-    return [t for t in cat.teams if t.deleted_at is None]
+    return [t for t in tree_order(cat.teams) if t.deleted_at is None]
 
 
 def _counts(comp: Event) -> tuple[int, int]:
@@ -342,27 +370,38 @@ def add_team(category_id: int, payload: TeamCreate, db: DB, user: CurrentUser) -
     cat = db.get(EventCategory, category_id)
     if cat is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
-    require_manage_event(db, user, cat.event_id)
+    parent = None
+    if payload.parent_team_id is not None:
+        parent = _parent_for(db, payload.parent_team_id, category_id)
+        require_manage_team(db, user, parent)  # a team's managers may carve sub-teams
+    else:
+        require_manage_event(db, user, cat.event_id)
     comp = cat.event
-    team = EventTeam(category_id=category_id, name=payload.name)
-    db.add(team)
+    team = EventTeam(name=payload.name, parent_team_id=parent.id if parent else None)
+    cat.teams.append(team)  # keeps an already-loaded category's team list current
     db.flush()
     role_engine.apply_event(
         db, event="team_created", entity_type="team", entity_id=team.id,
         lineage=lineage_for_team(comp, team.id), names=_names(comp, team=team.name),
         kind_id=comp.kind_id, root_position_id=payload.role_root_position_id,
+        nest_in_id=team.parent_team_id,
     )
+    if parent is not None:
+        audit_log(db, user.id, "events", "sub_team_added", "event_team", team.id,
+                  {"team": team.name, "parent_team_id": parent.id})
     resync_managers(db)
     db.commit()
     db.refresh(team)
-    return _team_out(db, comp, team, True, user)
+    return _team_out(db, comp, team, can_manage_event(db, user, comp.id), user)
 
 
 @router.patch("/teams/{team_id}")
 def edit_team(team_id: int, payload: TeamEdit, db: DB, user: CurrentUser) -> TeamOut:
     team = _get_team(db, team_id)
     comp = _team_event(team)
-    require_manage_event(db, user, comp.id)
+    _require_edit_team(db, user, team)
+    if payload.clear_parent or payload.parent_team_id is not None:
+        _move_team(db, user, comp, team, None if payload.clear_parent else payload.parent_team_id)
     if payload.name is not None and payload.name != team.name:
         team.name = payload.name
         names = _names(comp, team=team.name)
@@ -378,7 +417,31 @@ def edit_team(team_id: int, payload: TeamEdit, db: DB, user: CurrentUser) -> Tea
     resync_managers(db)
     db.commit()
     db.refresh(team)
-    return _team_out(db, comp, team, True, user)
+    return _team_out(db, comp, team, can_manage_event(db, user, comp.id), user)
+
+
+def _move_team(db: DB, user: User, comp: Event, team: EventTeam, parent_id: int | None) -> None:
+    """Re-nest a team (with its own sub-teams) under another team of its
+    category, or back to the top level. Moving changes which tree the team
+    belongs to, so it's the event managers' call."""
+    if parent_id == team.parent_team_id:
+        return
+    require_manage_event(db, user, comp.id)
+    if parent_id is not None:
+        if parent_id == team.id or parent_id in sub_team_ids(db, team.id):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "A team can't be nested inside itself or its own sub-teams."
+            )
+        _parent_for(db, parent_id, team.category_id)
+    team.parent_team_id = parent_id
+    db.flush()
+    db.expire(team, ["parent"])
+    role_engine.resync_position_parent(
+        db, entity_type="team", entity_id=team.id,
+        lineage=lineage_for_team(comp, team.id), kind_id=comp.kind_id, nest_in_id=parent_id,
+    )
+    audit_log(db, user.id, "events", "team_moved", "event_team", team.id,
+              {"team": team.name, "parent_team_id": parent_id})
 
 
 @router.delete("/teams/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -389,8 +452,12 @@ def delete_team(team_id: int, db: DB, user: CurrentUser, permanent: bool = False
     are removed from the org chart — the chart only shows active work, the
     team row itself is what stays queryable on a soft delete."""
     team = _get_team(db, team_id)
-    comp = _team_event(team)
-    require_manage_event(db, user, comp.id)
+    _require_edit_team(db, user, team)
+    if sub_team_ids(db, team.id):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "This team still has sub-teams — remove or move them first.",
+        )
     member_ids = [m.id for m in team.members]
     if permanent:
         if not access.is_top(db, user):
@@ -591,13 +658,14 @@ def edit_event(
             lineage=lineage_for_event(comp), names=_names(comp), kind_id=comp.kind_id,
         )
         for cat in comp.categories:
-            for team in cat.teams:
+            for team in tree_order(cat.teams):  # parents first: sub-team seats nest under theirs
                 if team.deleted_at is not None:
                     continue
                 names = _names(comp, team=team.name)
                 role_engine.apply_event(
                     db, event="team_created", entity_type="team", entity_id=team.id,
                     lineage=lineage_for_team(comp, team.id), names=names, kind_id=comp.kind_id,
+                    nest_in_id=team.parent_team_id,
                 )
                 for member in team.members:
                     role_engine.apply_event(

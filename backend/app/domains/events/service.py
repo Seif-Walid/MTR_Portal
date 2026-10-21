@@ -26,20 +26,39 @@ from app.domains.positions.role_engine import occupied_seat_level_ids
 from app.domains.users.models import User
 
 
+def sub_team_ids(db: Session, team_id: int) -> set[int]:
+    """Every live team nested (at any depth) beneath `team_id`, excluding it."""
+    out: set[int] = set()
+    frontier = {team_id}
+    while frontier:
+        children = set(
+            db.scalars(
+                select(EventTeam.id).where(
+                    EventTeam.parent_team_id.in_(frontier), EventTeam.deleted_at.is_(None)
+                )
+            )
+        ) - out - {team_id}
+        out |= children
+        frontier = children
+    return out
+
+
 def team_member_user_ids(db: Session, team_id: int) -> set[int]:
     """Everyone on an event team: occupants of its team-scoped role seats
     (coach / assistant / lead / member) plus any explicit membership rows.
     Leadership here is expressed through role-seat occupancy, so a team's
-    people are not only its EventTeamMember rows."""
+    people are not only its EventTeamMember rows. A sub-team is part of its
+    parent, so its people count as the parent's people too."""
+    team_ids = {team_id} | sub_team_ids(db, team_id)
     seat_users = set(
         db.scalars(
             select(PositionOccupant.user_id)
             .join(Position, Position.id == PositionOccupant.position_id)
-            .where(Position.entity_type == "team", Position.entity_id == team_id)
+            .where(Position.entity_type == "team", Position.entity_id.in_(team_ids))
         )
     )
     membership_users = set(
-        db.scalars(select(EventTeamMember.user_id).where(EventTeamMember.team_id == team_id))
+        db.scalars(select(EventTeamMember.user_id).where(EventTeamMember.team_id.in_(team_ids)))
     )
     return seat_users | membership_users
 
@@ -67,11 +86,18 @@ def user_event_team_ids(db: Session, user_id: int) -> set[int]:
     - an explicit membership row, and
     - an *event*-scoped seat (e.g. "{event} PM"), which outranks the team seats
       chained beneath it: holding it puts the user on every team of that event.
+
+    Being on a sub-team also puts the user on every team it is nested in.
     """
     by_seat = user_seat_entity_ids(db, user_id, "team")
     by_membership = set(
         db.scalars(select(EventTeamMember.team_id).where(EventTeamMember.user_id == user_id))
     )
+    by_nesting: set[int] = set()
+    for tid in by_seat | by_membership:
+        team = db.get(EventTeam, tid)
+        if team is not None:
+            by_nesting.update(t.id for t in team.ancestors() if t.deleted_at is None)
     by_event = set()
     event_ids = user_seat_entity_ids(db, user_id, "event")
     if event_ids:
@@ -85,7 +111,7 @@ def user_event_team_ids(db: Session, user_id: int) -> set[int]:
                 )
             )
         )
-    return by_seat | by_membership | by_event
+    return by_seat | by_membership | by_nesting | by_event
 
 # Sample event kinds — used ONLY by the demo seed (`app.seed --demo`) and the
 # test fixtures. A clean install ships with NO event kinds: Events is empty
@@ -127,8 +153,11 @@ def can_manage_event(db: Session, user: User, event_id: int) -> bool:
 
 
 def can_manage_team(db: Session, user: User, team: EventTeam) -> bool:
-    if _manages_via_seat(db, user, "team", team.id):
-        return True
+    """A team's managers: a managing seat on it or on any team it is nested in
+    (a team's managers run its sub-teams too), or its event's managers."""
+    for t in [team, *team.ancestors()]:
+        if _manages_via_seat(db, user, "team", t.id):
+            return True
     return can_manage_event(db, user, team.category.event_id)
 
 

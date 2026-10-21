@@ -24,6 +24,7 @@ from app.domains.events.models import (
     EventStatus,
     EventTeam,
     EventTeamMember,
+    tree_order,
 )
 
 # The kind whose archived events make up the Hall of Fame. Training seasons and
@@ -70,7 +71,7 @@ def _group_out(category_name: str, team: EventTeam, with_ids: bool) -> dict:
     # repeat of the team name.
     sublabel = None if category_name == team.name else category_name
     out = {
-        "label": team.name,
+        "label": team.path_name,
         "sublabel": sublabel,
         "award": team.award,
         "members": [_member_out(m, with_ids) for m in team.members],
@@ -89,7 +90,7 @@ def event_groups(event: Event, with_ids: bool = False) -> list[dict]:
     return [
         _group_out(category.name, team, with_ids)
         for category in event.categories
-        for team in category.teams
+        for team in tree_order(category.teams)
         if team.deleted_at is None
     ]
 

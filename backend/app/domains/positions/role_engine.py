@@ -281,6 +281,31 @@ def _find_chain_parent(
     return None, saw_eligible
 
 
+def _chain_parent(
+    db: Session, *, template: RoleTemplate, entity_type: str, entity_id: int,
+    lineage: dict[str, int], kind_id: int | None, nest_in_id: int | None,
+) -> tuple[int | None, bool]:
+    """_find_chain_parent, plus nesting for an entity that sits inside another
+    entity of its *own* type (a sub-team inside its parent team, whose
+    lineage can only name one team). When the chain finds no earlier seat of
+    this entity's own, the seat goes under the same template's seat on the
+    enclosing entity instead of jumping up to the shallower ancestor — so a
+    sub-team's "{team} Coach" sits under its parent team's Coach, and the
+    rest of the sub-team's seats chain beneath that as usual."""
+    parent_id, blocked = _find_chain_parent(
+        db, before_order=template.sort_order, lineage=lineage, kind_id=kind_id
+    )
+    if nest_in_id is None:
+        return parent_id, blocked
+    parent = db.get(Position, parent_id) if parent_id is not None else None
+    if parent is not None and parent.entity_type == entity_type and parent.entity_id == entity_id:
+        return parent_id, blocked
+    outer = get_role_position(db, template.id, entity_type, nest_in_id)
+    if outer is not None:
+        return outer.id, False
+    return parent_id, blocked
+
+
 def _seed_occupants(db: Session, position: Position, user_ids: list[int]) -> None:
     """Add-only — used right after creating a position, which has no
     occupants yet, so there's nothing to remove first."""
@@ -296,19 +321,22 @@ def apply_event(
     lineage: dict[str, int], names: dict[str, str], kind_id: int | None,
     member_id: int | None = None,
     root_position_id: int | None = None,
+    nest_in_id: int | None = None,
 ) -> None:
     """Ensures a position exists for every template matching `event` and the
     event's kind (`kind_id`), for this (entity_type, entity_id). Idempotent —
     a template that already has a position for this entity is left alone. A
     template whose chain has a missing link for this lineage (see
-    _find_chain_parent) is skipped, not forced to root."""
+    _find_chain_parent) is skipped, not forced to root. `nest_in_id` names an
+    enclosing entity of the same type (see _chain_parent)."""
     for template in list_templates(db):
         if template.event != event or not _kind_ok(template.event_kind_id, kind_id):
             continue
         if get_role_position(db, template.id, entity_type, entity_id) is not None:
             continue
-        parent_id, blocked = _find_chain_parent(
-            db, before_order=template.sort_order, lineage=lineage, kind_id=kind_id
+        parent_id, blocked = _chain_parent(
+            db, template=template, entity_type=entity_type, entity_id=entity_id,
+            lineage=lineage, kind_id=kind_id, nest_in_id=nest_in_id,
         )
         if blocked:
             continue
@@ -353,7 +381,8 @@ def delete_positions_for_entity(db: Session, entity_type: str, entity_id: int) -
 
 
 def resync_position_parent(
-    db: Session, *, entity_type: str, entity_id: int, lineage: dict[str, int], kind_id: int | None
+    db: Session, *, entity_type: str, entity_id: int, lineage: dict[str, int], kind_id: int | None,
+    nest_in_id: int | None = None,
 ) -> None:
     """Re-derive parent_id for this entity's own role positions from the
     current template chain — call after a template's order changes or a
@@ -380,8 +409,9 @@ def resync_position_parent(
         if pos.parent is not None and pos.parent.role_template is not None \
                 and pos.parent.role_template.archived:
             continue
-        new_parent_id, blocked = _find_chain_parent(
-            db, before_order=pos.role_template.sort_order, lineage=lineage, kind_id=kind_id
+        new_parent_id, blocked = _chain_parent(
+            db, template=pos.role_template, entity_type=entity_type, entity_id=entity_id,
+            lineage=lineage, kind_id=kind_id, nest_in_id=nest_in_id,
         )
         if blocked:
             continue

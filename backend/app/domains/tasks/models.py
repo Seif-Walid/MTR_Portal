@@ -69,7 +69,7 @@ class Task(Base):
 
     @property
     def event_team_name(self) -> str | None:
-        return self.event_team.name if self.event_team is not None else None
+        return self.event_team.path_name if self.event_team is not None else None
     attachments: Mapped[list["TaskAttachment"]] = relationship(
         back_populates="task", lazy="selectin", cascade="all, delete-orphan"
     )

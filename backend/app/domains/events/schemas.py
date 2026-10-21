@@ -52,11 +52,14 @@ class TeamOut(BaseModel):
 
     id: int
     name: str
+    # The team (same category) this sub-team sits inside; None = top level.
+    parent_team_id: int | None = None
     # Per-team placement shown in the public Hall of Fame (e.g. "🥇 1st Place").
     award: str | None = None
     roles: list[EntityRoleOut] = []
     members: list[MemberOut] = []
-    can_manage_members: bool = False  # for the current user
+    can_manage_members: bool = False  # for the current user (also: may add sub-teams)
+    can_edit: bool = False  # may rename / remove / set the placement of this team
 
 
 class CategoryOut(BaseModel):
@@ -144,6 +147,8 @@ class CategoryEdit(BaseModel):
 
 class TeamCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
+    # Optional: create it as a sub-team of this team (same category).
+    parent_team_id: int | None = None
     role_root_position_id: int | None = None
 
 
@@ -152,6 +157,10 @@ class TeamEdit(BaseModel):
     # Per-team Hall-of-Fame placement. `award` sets it; `clear_award` blanks it.
     award: str | None = Field(default=None, max_length=255)
     clear_award: bool = False
+    # Move the team: `parent_team_id` nests it inside that team (same
+    # category); `clear_parent` makes it a top-level team again.
+    parent_team_id: int | None = None
+    clear_parent: bool = False
 
 
 class MemberAdd(BaseModel):

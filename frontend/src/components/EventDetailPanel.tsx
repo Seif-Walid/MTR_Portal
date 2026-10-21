@@ -3,7 +3,7 @@ import { Button, Card, Divider, Empty, Input, Popconfirm, Select, Space, Tag, Ty
 import { useCallback, useEffect, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
-import type { EventDetail, EntityRole, RoleRoot, UserBrief } from '../api/types';
+import type { EventDetail, EventTeam, EntityRole, RoleRoot, UserBrief } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import PositionPicker from './PositionPicker';
 import EventRecord from './EventRecord';
@@ -165,16 +165,52 @@ function RolesEditor({ roles, dir, canManage, onChanged }: {
   );
 }
 
-function TeamCard({ team, dir, canManageComp, isAdmin, onChanged }: {
-  team: EventDetail['categories'][number]['teams'][number];
+/** Ids of every team nested (at any depth) under `teamId`. */
+function subTreeIds(teams: EventTeam[], teamId: number): Set<number> {
+  const out = new Set<number>();
+  let frontier = [teamId];
+  while (frontier.length) {
+    frontier = teams.filter((t) => t.parent_team_id !== null && frontier.includes(t.parent_team_id) && !out.has(t.id)).map((t) => t.id);
+    frontier.forEach((id) => out.add(id));
+  }
+  return out;
+}
+
+function TeamCard({ team, teams, categoryId, teamLabel, dir, canManageComp, isAdmin, onChanged }: {
+  team: EventTeam;
+  teams: EventTeam[]; // the whole category — for this team's sub-teams and where it may move
+  categoryId: number;
+  teamLabel: string;
   dir: UserBrief[];
   canManageComp: boolean;
   isAdmin: boolean;
   onChanged: () => void;
 }) {
   const [memberId, setMemberId] = useState<number>();
+  const [subName, setSubName] = useState('');
+  const [addingSub, setAddingSub] = useState(false);
   const canMembers = team.can_manage_members;
+  const canEdit = team.can_edit;
+  // a sub-team's seats are appointed by whoever runs the team it sits in
+  const canRoles = canManageComp || (team.parent_team_id !== null && canEdit);
   const taken = new Set([...team.roles.flatMap((r) => r.occupants.map((o) => o.id)), ...team.members.map((m) => m.user.id)]);
+  const children = teams.filter((t) => t.parent_team_id === team.id);
+  const label = teamLabel.toLowerCase();
+  const blocked = subTreeIds(teams, team.id).add(team.id);
+  const moveOptions = [
+    { value: 0, label: 'Top level' },
+    ...teams.filter((t) => !blocked.has(t.id)).map((t) => ({ value: t.id, label: t.name })),
+  ];
+
+  const addSub = () => {
+    const name = subName.trim();
+    if (!name) return;
+    run(
+      api.post(`/api/events/categories/${categoryId}/teams`, { name, parent_team_id: team.id }),
+      `Sub-${label} added`,
+      () => { setSubName(''); setAddingSub(false); onChanged(); },
+    );
+  };
 
   return (
     <Card
@@ -183,7 +219,7 @@ function TeamCard({ team, dir, canManageComp, isAdmin, onChanged }: {
       title={
         <Typography.Text
           strong
-          editable={canManageComp ? {
+          editable={canEdit ? {
             tooltip: 'Rename',
             onChange: (val) => {
               const name = val.trim();
@@ -196,8 +232,20 @@ function TeamCard({ team, dir, canManageComp, isAdmin, onChanged }: {
         </Typography.Text>
       }
       extra={
-        canManageComp && (
+        canEdit && (
           <Space>
+            {canManageComp && (
+              <Select
+                size="small" style={{ minWidth: 130 }} title={`Nest this ${label} inside another`}
+                value={team.parent_team_id ?? 0} options={moveOptions}
+                popupMatchSelectWidth={false}
+                onChange={(v: number) => run(
+                  api.patch(`/api/events/teams/${team.id}`, v ? { parent_team_id: v } : { clear_parent: true }),
+                  v ? `Moved under ${teams.find((t) => t.id === v)?.name}` : 'Moved to top level',
+                  onChanged,
+                )}
+              />
+            )}
             <Popconfirm
               title="Remove this team?"
               description="It's kept for history but hidden everywhere."
@@ -220,7 +268,7 @@ function TeamCard({ team, dir, canManageComp, isAdmin, onChanged }: {
     >
       <AwardField
         value={team.award}
-        canManage={canManageComp}
+        canManage={canEdit}
         onSave={(award) =>
           run(
             api.patch(`/api/events/teams/${team.id}`, award ? { award } : { clear_award: true }),
@@ -229,7 +277,7 @@ function TeamCard({ team, dir, canManageComp, isAdmin, onChanged }: {
           )
         }
       />
-      <RolesEditor roles={team.roles} dir={dir} canManage={canManageComp} onChanged={onChanged} />
+      <RolesEditor roles={team.roles} dir={dir} canManage={canRoles} onChanged={onChanged} />
       <Divider style={{ margin: '8px 0' }} />
       <Space direction="vertical" size={4} style={{ width: '100%' }}>
         {team.members.length === 0 && <Typography.Text type="secondary">No members yet.</Typography.Text>}
@@ -278,6 +326,33 @@ function TeamCard({ team, dir, canManageComp, isAdmin, onChanged }: {
             Add
           </Button>
         </Space.Compact>
+      )}
+      {canMembers && !addingSub && (
+        <Button size="small" type="link" icon={<PlusOutlined />} style={{ paddingInline: 0, marginTop: 6 }}
+          onClick={() => setAddingSub(true)}>
+          Sub-{label}
+        </Button>
+      )}
+      {(children.length > 0 || addingSub) && (
+        <div style={{ marginTop: 12, paddingLeft: 12, borderLeft: '2px solid var(--ant-color-border-secondary, #f0f0f0)' }}>
+          {children.length > 0 && (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>Sub-{label}s</Typography.Text>
+          )}
+          {children.map((c) => (
+            <TeamCard key={c.id} team={c} teams={teams} categoryId={categoryId} teamLabel={teamLabel}
+              dir={dir} canManageComp={canManageComp} isAdmin={isAdmin} onChanged={onChanged} />
+          ))}
+          {canMembers && addingSub && (
+            <Space.Compact style={{ marginTop: 8, width: '100%', maxWidth: 420 }}>
+              <Input size="small" autoFocus placeholder={`New sub-${label} name`} value={subName}
+                onChange={(e) => setSubName(e.target.value)} onPressEnter={addSub}
+                onKeyDown={(e) => e.key === 'Escape' && setAddingSub(false)} />
+              <Button size="small" icon={<PlusOutlined />} disabled={!subName.trim()} onClick={addSub}>
+                Add sub-{label}
+              </Button>
+            </Space.Compact>
+          )}
+        </div>
       )}
     </Card>
   );
@@ -393,8 +468,9 @@ export default function EventDetailPanel({ eventId, onChanged }: {
               onClick={() => run(api.delete(`/api/events/categories/${cat.id}`), 'Category removed', refresh)} />
           )}
         >
-          {cat.teams.map((t) => (
-            <TeamCard key={t.id} team={t} dir={dir} canManageComp={canManage} isAdmin={isAdmin} onChanged={refresh} />
+          {cat.teams.filter((t) => t.parent_team_id === null || !cat.teams.some((p) => p.id === t.parent_team_id)).map((t) => (
+            <TeamCard key={t.id} team={t} teams={cat.teams} categoryId={cat.id} teamLabel={teamLabel}
+              dir={dir} canManageComp={canManage} isAdmin={isAdmin} onChanged={refresh} />
           ))}
           {canManage && (
             <Space direction="vertical" size={6} style={{ marginTop: 10, width: '100%', maxWidth: 460 }}>

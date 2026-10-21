@@ -264,7 +264,7 @@ def my_teams(db: DB, user: CurrentUser) -> list[TeamBlockOut]:
             TeamBlockOut(
                 kind="event",
                 team_id=team.id,
-                name=team.name,
+                name=team.path_name,
                 event_name=event.name,
                 event_id=event.id,
                 members=_members_out(

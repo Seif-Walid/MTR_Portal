@@ -81,22 +81,22 @@ def shared_team_options(db: Session, user: User, assignee_ids: list[int]) -> lis
         return []
     mine = my_team_ids(db, user)
     rows = db.execute(
-        select(EventTeam.id, EventTeam.name, EventCategory.name, Event.name)
+        select(EventTeam, EventCategory.name, Event.name)
         .join(EventCategory, EventTeam.category_id == EventCategory.id)
         .join(Event, EventCategory.event_id == Event.id)
         .where(EventTeam.id.in_(common))
-        .order_by(Event.name, EventCategory.name, EventTeam.name)
     )
-    return [
+    out = [
         {
-            "team_id": team_id,
-            "name": team_name,
+            "team_id": team.id,
+            "name": team.path_name,
             "category_name": category_name,
             "event_name": event_name,
-            "shared_with_me": team_id in mine,
+            "shared_with_me": team.id in mine,
         }
-        for team_id, team_name, category_name, event_name in rows
+        for team, category_name, event_name in rows
     ]
+    return sorted(out, key=lambda o: (o["event_name"], o["category_name"], o["name"]))
 
 
 def visible_tasks_query(db: Session, user: User, include_archived: bool = False):

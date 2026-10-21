@@ -38,6 +38,7 @@ def resync_all(db: Session) -> None:
                 role_engine.resync_position_parent(
                     db, entity_type="team", entity_id=team.id,
                     lineage=lineage_for_team(comp, team.id), kind_id=kind_id,
+                    nest_in_id=team.parent_team_id,
                 )
                 for member in team.members:
                     role_engine.resync_position_parent(

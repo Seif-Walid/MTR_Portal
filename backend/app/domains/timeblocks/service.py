@@ -176,7 +176,7 @@ def block_display(db: Session, block: TimeBlock) -> tuple[str, str | None]:
     detail is the event name (event teams) or 'Org' (org units)."""
     if block.team_type == "event":
         team = db.get(EventTeam, block.event_team_id) if block.event_team_id else None
-        name = team.name if team else "Team"
+        name = team.path_name if team else "Team"
         event_name = None
         if team and team.category and team.category.event:
             event_name = team.category.event.name
