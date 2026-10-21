@@ -130,3 +130,21 @@ def test_sub_team_seats_nest_under_the_parent_teams_seats(login, org):
     login("cto").patch(f"/api/events/teams/{sub['id']}", json={"clear_parent": True})
     tree = _tree_by_title(login)
     assert tree["Software Lead"]["parent_id"] == tree["Line1 Lead"]["parent_id"]
+
+
+def test_hall_of_fame_skips_empty_container_teams(login, org, db_session):
+    from app.domains.events.hall_of_fame import event_groups
+    from app.domains.events.models import Event
+
+    cid, cat, parent = _setup(login)
+    sub = _sub(login, cat["id"], parent["id"], name="Software").json()
+    login("cto").post(f"/api/events/teams/{sub['id']}/members", json={"user_id": org["student"].id})
+    event = db_session.get(Event, cid)
+    db_session.expire_all()
+    assert [g["label"] for g in event_groups(event)] == ["Line1 › Software"]
+    # the archive (with ids) still lists the container, to edit its placement
+    assert [g["label"] for g in event_groups(event, with_ids=True)] == ["Line1", "Line1 › Software"]
+    # a container with its own placement is shown publicly
+    login("cto").patch(f"/api/events/teams/{parent['id']}", json={"award": "8th place"})
+    db_session.expire_all()
+    assert [g["label"] for g in event_groups(event)] == ["Line1", "Line1 › Software"]

@@ -86,13 +86,21 @@ def event_groups(event: Event, with_ids: bool = False) -> list[dict]:
 
     `with_ids` adds the team and membership row ids — needed by the Archive so
     it can edit a placement or a role in place, and deliberately left out of the
-    public projection."""
-    return [
-        _group_out(category.name, team, with_ids)
-        for category in event.categories
-        for team in tree_order(category.teams)
-        if team.deleted_at is None
-    ]
+    public projection.
+
+    Publicly, a parent team that is only a container — no members and no
+    placement of its own, everyone sits in its sub-teams — is left out: its
+    sub-teams already carry its name ("MTR › Software"). The Archive keeps
+    it, so a placement can still be set on it."""
+    out = []
+    for category in event.categories:
+        live = [t for t in tree_order(category.teams) if t.deleted_at is None]
+        parents = {t.parent_team_id for t in live}
+        for team in live:
+            if not with_ids and team.id in parents and not team.members and not team.award:
+                continue
+            out.append(_group_out(category.name, team, with_ids))
+    return out
 
 
 def year_of(event: Event) -> int | None:
