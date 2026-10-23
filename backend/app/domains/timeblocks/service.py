@@ -3,7 +3,7 @@ who may create one, and how the two team flavours (event team / org unit)
 resolve to a name, a membership test, and a manage gate.
 """
 
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -43,6 +43,18 @@ def expand_block(
             out.append((d, None))
         d += timedelta(days=1)
     return out
+
+
+def check_times(start: time | None, end: time | None) -> None:
+    """A block is either all-day (no times) or has both, with end after start."""
+    if start is None and end is None:
+        return
+    if start is None or end is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Give both a start and end time, or neither."
+        )
+    if end <= start:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "End time must be after start.")
 
 
 def _occupied_position_ids(db: Session, user_id: int) -> set[int]:

@@ -1,5 +1,5 @@
 import { CalendarOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Checkbox, DatePicker, Form, Input, Modal, Popconfirm, Radio, Space, message } from 'antd';
+import { Button, Checkbox, DatePicker, Form, Input, Modal, Popconfirm, Radio, Space, TimePicker, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -14,6 +14,13 @@ const WEEKDAYS = [
   { label: 'Mon', bit: 0 }, { label: 'Tue', bit: 1 }, { label: 'Wed', bit: 2 },
   { label: 'Thu', bit: 3 }, { label: 'Fri', bit: 4 }, { label: 'Sat', bit: 5 }, { label: 'Sun', bit: 6 },
 ];
+
+// "16:00:00" → "4:00 PM"; blocks without times are all-day
+function timeLabel(b: TimeBlock): string | null {
+  if (!b.start_time || !b.end_time) return null;
+  const f = (t: string) => dayjs(`2000-01-01T${t}`).format('h:mm A');
+  return `${f(b.start_time)} – ${f(b.end_time)}`;
+}
 
 function maskLabel(mask: number): string {
   if (mask === 0) return 'Every day';
@@ -68,6 +75,9 @@ export default function TimeBlockPanel({ block }: { block: TeamBlock }) {
       title: b.title,
       range: [dayjs(b.start_date), dayjs(b.end_date)],
       weekdays: WEEKDAYS.filter((w) => b.weekday_mask & (1 << w.bit)).map((w) => w.bit),
+      hours: b.start_time && b.end_time
+        ? [dayjs(`2000-01-01T${b.start_time}`), dayjs(`2000-01-01T${b.end_time}`)]
+        : undefined,
     });
     setOpen(true);
   };
@@ -81,6 +91,11 @@ export default function TimeBlockPanel({ block }: { block: TeamBlock }) {
       ? (v.weekdays as number[] ?? []).reduce((m, bit) => m | (1 << bit), 0)
       : 0;
     if (mode === 'weekly' && mask === 0) { message.error('Pick at least one weekday'); return; }
+    const hours = v.hours as [Dayjs, Dayjs] | null | undefined;
+    const times = {
+      start_time: hours ? hours[0].format('HH:mm') : null,
+      end_time: hours ? hours[1].format('HH:mm') : null,
+    };
     setSaving(true);
     try {
       if (editing) {
@@ -89,6 +104,7 @@ export default function TimeBlockPanel({ block }: { block: TeamBlock }) {
           start_date: start.format('YYYY-MM-DD'),
           end_date: end.format('YYYY-MM-DD'),
           weekday_mask: mask,
+          ...times,
         });
         message.success('Time block updated');
       } else {
@@ -100,6 +116,7 @@ export default function TimeBlockPanel({ block }: { block: TeamBlock }) {
           start_date: start.format('YYYY-MM-DD'),
           end_date: end.format('YYYY-MM-DD'),
           weekday_mask: mask,
+          ...times,
         });
         message.success('Time block added');
       }
@@ -138,6 +155,9 @@ export default function TimeBlockPanel({ block }: { block: TeamBlock }) {
             <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase', color: AMBER, border: `1px solid rgba(255,178,107,.3)`, padding: '1px 7px', borderRadius: 5 }}>
               {maskLabel(b.weekday_mask)}
             </span>
+            {timeLabel(b) && (
+              <span style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(224,236,252,.75)' }}>{timeLabel(b)}</span>
+            )}
             <span style={{ flex: 1 }} />
             {block.can_schedule && (
               <>
@@ -175,6 +195,13 @@ export default function TimeBlockPanel({ block }: { block: TeamBlock }) {
               <Checkbox.Group options={WEEKDAYS.map((w) => ({ label: w.label, value: w.bit }))} />
             </Form.Item>
           )}
+          <Form.Item name="hours" label="Time of day (optional — leave empty for all day)"
+            rules={[{
+              validator: (_, val?: [Dayjs, Dayjs] | null) =>
+                !val || val[1].isAfter(val[0]) ? Promise.resolve() : Promise.reject(new Error('End must be after start')),
+            }]}>
+            <TimePicker.RangePicker format="h:mm A" use12Hours minuteStep={15} style={{ width: '100%' }} order={false} />
+          </Form.Item>
         </Form>
       </Modal>
     </div>

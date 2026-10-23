@@ -50,6 +50,7 @@ def list_blocks(
 def create_block(body: TimeBlockCreate, db: DB, user: CurrentUser) -> TimeBlockOut:
     if body.end_date < body.start_date:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "End date is before start.")
+    service.check_times(body.start_time, body.end_time)
     service.require_manage_target(
         db, user, body.team_type, body.event_team_id, body.position_id
     )
@@ -65,6 +66,8 @@ def create_block(body: TimeBlockCreate, db: DB, user: CurrentUser) -> TimeBlockO
         start_date=body.start_date,
         end_date=body.end_date,
         weekday_mask=body.weekday_mask,
+        start_time=body.start_time,
+        end_time=body.end_time,
         created_by=user.id,
     )
     db.add(block)
@@ -91,6 +94,10 @@ def edit_block(
         block.end_date = body.end_date
     if body.weekday_mask is not None:
         block.weekday_mask = body.weekday_mask
+    if "start_time" in body.model_fields_set or "end_time" in body.model_fields_set:
+        service.check_times(body.start_time, body.end_time)
+        block.start_time = body.start_time
+        block.end_time = body.end_time
     if block.end_date < block.start_date:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "End date is before start.")
     if block.team_type == "event":

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, time
 
 from pydantic import BaseModel
 
@@ -16,3 +16,6 @@ class CalendarItem(BaseModel):
     kind: str | None = None  # event-kind name, task/request status, or "needed"/"return"
     detail: str | None = None
     overdue: bool = False
+    # time of day on each day the item covers; both None = all-day
+    start_time: time | None = None
+    end_time: time | None = None

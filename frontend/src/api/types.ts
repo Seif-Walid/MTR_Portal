@@ -175,6 +175,8 @@ export interface TimeBlock {
   start_date: string; // ISO date
   end_date: string; // ISO date
   weekday_mask: number; // 0 = whole span; else bit i (Mon=0..Sun=6)
+  start_time: string | null; // "HH:MM:SS"; both null = all-day
+  end_time: string | null;
 }
 
 export interface ArchivedEvent {
@@ -530,6 +532,8 @@ export interface CalendarItem {
   kind: string | null;
   detail: string | null;
   overdue: boolean;
+  start_time: string | null; // "HH:MM:SS"; both null = all-day
+  end_time: string | null;
 }
 
 // --- finance books ----------------------------------------------------------

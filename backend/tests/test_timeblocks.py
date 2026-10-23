@@ -124,3 +124,37 @@ def test_delete_block(login, org):
     }).json()
     assert login("cto").delete(f"/api/timeblocks/{block['id']}").status_code == 204
     assert _cal(login, "cto", "general", "teams") == []
+
+
+def test_timed_block_marks_each_day_with_hours(login, org):
+    team = _team_with_member(login, org)
+    r = login("cto").post("/api/timeblocks", json={
+        "team_type": "event", "event_team_id": team["id"], "title": "Practice",
+        "start_date": "2026-09-07", "end_date": "2026-09-09", "weekday_mask": 0,
+        "start_time": "16:00", "end_time": "20:00",
+    })
+    assert r.status_code == 201, r.text
+    assert r.json()["start_time"] == "16:00:00"
+
+    items = [i for i in _cal(login, "cfo", "general", "teams") if i["title"] == "Practice"]
+    assert [i["start"] for i in items] == ["2026-09-07", "2026-09-08", "2026-09-09"]
+    assert all(i["end"] is None for i in items)
+    assert all((i["start_time"], i["end_time"]) == ("16:00:00", "20:00:00") for i in items)
+
+    # clearing both times makes it an all-day span again
+    r = login("cto").patch(f"/api/timeblocks/{r.json()['id']}", json={"start_time": None, "end_time": None})
+    assert r.status_code == 200, r.text
+    items = [i for i in _cal(login, "cfo", "general", "teams") if i["title"] == "Practice"]
+    assert len(items) == 1 and items[0]["start_time"] is None
+
+
+def test_block_times_validated(login, org):
+    team = _team_with_member(login, org)
+    base = {
+        "team_type": "event", "event_team_id": team["id"],
+        "start_date": "2026-09-07", "end_date": "2026-09-09",
+    }
+    r = login("cto").post("/api/timeblocks", json={**base, "start_time": "16:00"})
+    assert r.status_code == 400
+    r = login("cto").post("/api/timeblocks", json={**base, "start_time": "16:00", "end_time": "15:00"})
+    assert r.status_code == 400

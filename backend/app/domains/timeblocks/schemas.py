@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, time
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -14,6 +14,8 @@ class TimeBlockOut(BaseModel):
     start_date: date
     end_date: date
     weekday_mask: int  # 0 = whole span; else bit i (Mon=0..Sun=6)
+    start_time: time | None = None  # both None = all-day
+    end_time: time | None = None
 
 
 class TimeBlockCreate(BaseModel):
@@ -24,6 +26,8 @@ class TimeBlockCreate(BaseModel):
     start_date: date
     end_date: date
     weekday_mask: int = Field(default=0, ge=0, le=127)
+    start_time: time | None = None
+    end_time: time | None = None
 
 
 class TimeBlockEdit(BaseModel):
@@ -31,3 +35,6 @@ class TimeBlockEdit(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     weekday_mask: int | None = Field(default=None, ge=0, le=127)
+    # times are always sent together; clearing both makes the block all-day
+    start_time: time | None = None
+    end_time: time | None = None

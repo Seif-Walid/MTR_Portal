@@ -6,7 +6,7 @@ caller can't view is silently skipped, and the frontend picks which sources
 to request.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -208,11 +208,21 @@ def _teams(db: Session, user: User, scope: str, start, end) -> list[CalendarItem
             ):
                 continue
         title, detail = timeblocks.block_display(db, block)
-        for s, e in timeblocks.expand_block(block, start, end):
+        marks = timeblocks.expand_block(block, start, end)
+        if block.start_time is not None:
+            # a timed block recurs at that hour on every day it covers, so a
+            # span becomes one mark per day rather than one long bar
+            marks = [
+                (s + timedelta(days=i), None)
+                for s, e in marks
+                for i in range(((e or s) - s).days + 1)
+            ]
+        for s, e in marks:
             out.append(CalendarItem(
                 source="team", id=block.id, title=title,
                 start=s, end=e if e and e != s else None,
                 kind=block.team_type, detail=detail,
+                start_time=block.start_time, end_time=block.end_time,
             ))
     return out
 

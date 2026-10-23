@@ -9,13 +9,16 @@ occupies time in one of two shapes, chosen by `weekday_mask`:
 - mask != 0  → only the selected weekdays inside [start_date, end_date]
   ("all the Mondays in the project"). Bit i (0..6) = Python weekday, Monday=0.
 
+`start_time`/`end_time` optionally pin the block to a time of day (e.g. practice
+16:00-20:00) on each day it occupies; both NULL means all-day.
+
 The calendar aggregator (app/domains/calendar) expands a block into concrete
 CalendarItems; nothing else stores the per-day rows.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Time
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -39,6 +42,9 @@ class TimeBlock(Base):
     start_date: Mapped[date] = mapped_column(Date)
     end_date: Mapped[date] = mapped_column(Date)
     weekday_mask: Mapped[int] = mapped_column(Integer, default=0)  # 0 = whole span
+    # time of day on each occupied day; both NULL = all-day
+    start_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
 
     created_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
