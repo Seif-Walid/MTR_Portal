@@ -37,6 +37,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/reset-password" element={<LoginPage />} />
       {me ? (
         <Route element={<AppLayout />}>
           <Route path="/home" element={<HomePage />} />

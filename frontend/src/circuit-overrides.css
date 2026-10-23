@@ -398,3 +398,11 @@
   .mtr-course-hero { grid-template-columns: 1fr !important; }
   .mtr-course-hero > div:last-child { padding: 0 18px 20px !important; }
 }
+
+/* Login page: "Forgot password?" / "Back to sign in" text links */
+.mtr-forgot-link {
+  font-family: 'Geist Variable', 'Geist', system-ui, sans-serif;
+  font-size: 11.5px; letter-spacing: 0; text-transform: none;
+  color: #5cc6ff; cursor: pointer; text-decoration: none;
+}
+.mtr-forgot-link:hover { color: #9ad8ff; text-decoration: underline; }

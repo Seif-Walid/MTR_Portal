@@ -55,6 +55,19 @@ class Settings(BaseSettings):
     # personal accounts deliberately rather than by accident.
     google_allowed_domains: str = ""
 
+    # Outbound mail (see app/core/mail.py). `disabled` | `cloudflare` | `smtp`.
+    mail_backend: str = "disabled"
+    mail_from_address: str = "portal@mindtechrobotics.com"
+    mail_from_name: str = "MindTech Robotics"
+    mail_reply_to: str = "support@mindtechrobotics.com"
+    cloudflare_account_id: str = ""
+    cloudflare_api_token: str = ""  # needs Email Sending permission
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_ssl: bool = False  # True = implicit TLS (port 465); False = STARTTLS
+
     @property
     def google_allowed_domains_list(self) -> list[str]:
         return [d.strip().lower() for d in self.google_allowed_domains.split(",") if d.strip()]

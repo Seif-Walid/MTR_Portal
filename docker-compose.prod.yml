@@ -45,6 +45,9 @@ services:
       # Without this, the backend falls back to the localhost default and Google
       # bounces the browser to the user's own machine instead of the VM.
       GOOGLE_REDIRECT_URI: "https://${SITE_ADDRESS}/api/auth/google/callback"
+      # Outbound mail (MAIL_BACKEND, SMTP_*) is deliberately NOT set here: an
+      # `environment:` entry would override backend/.env on the VM, which is
+      # where those secrets live. See deploy/EMAIL_SETUP.md.
       # Google SSO credentials. Set here in the compose `environment:` block so
       # they always win over any stale backend/.env on the VM. The Client ID is
       # public (it travels in the OAuth redirect URL); the secret must NEVER be

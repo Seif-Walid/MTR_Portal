@@ -1,20 +1,29 @@
+import hashlib
+import html as html_lib
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Cookie, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Cookie, HTTPException, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.mail import send_email
 from app.core.security import hash_password, new_session_token, verify_password
 from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
-from app.domains.auth.models import AuthSession
-from app.domains.auth.schemas import ChangePasswordIn, LoginIn, RegisterIn
+from app.domains.auth.models import AuthSession, PasswordResetToken
+from app.domains.auth.schemas import (
+    ChangePasswordIn,
+    ForgotPasswordIn,
+    LoginIn,
+    RegisterIn,
+    ResetPasswordIn,
+)
 from app.domains.hierarchy.service import taskable_user_ids
 from app.domains.positions.models import Position, PositionOccupant
 from app.domains.users.models import User
@@ -161,6 +170,90 @@ def change_password(payload: ChangePasswordIn, db: DB, user: CurrentUser) -> Non
             status.HTTP_400_BAD_REQUEST, "New password must differ from the current one"
         )
     user.hashed_password = hash_password(payload.new_password)
+    db.commit()
+
+
+RESET_TTL = timedelta(hours=1)
+RESET_COOLDOWN = timedelta(minutes=2)
+
+
+def _hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)  # SQLite drops tzinfo
+
+
+def _send_reset_email(to: str, name: str, link: str) -> None:
+    text = (
+        f"Hi {name},\n\n"
+        "Someone asked to reset the password for your MindTech Robotics portal account.\n"
+        f"Open this link within an hour to choose a new one:\n\n{link}\n\n"
+        "If it wasn't you, ignore this email; your password stays the same."
+    )
+    html = (
+        f"<p>Hi {html_lib.escape(name)},</p>"
+        "<p>Someone asked to reset the password for your MindTech Robotics portal account. "
+        "Open this link within an hour to choose a new one:</p>"
+        f'<p><a href="{html_lib.escape(link)}">Reset my password</a></p>'
+        "<p>If it wasn't you, ignore this email; your password stays the same.</p>"
+    )
+    send_email(to, "Reset your MindTech portal password", text, html)
+
+
+@router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
+def forgot_password(payload: ForgotPasswordIn, background: BackgroundTasks, db: DB) -> None:
+    """Email a one-hour reset link. Always 204, whether or not the email has an
+    account, so the endpoint can't be used to probe who's registered; the mail
+    goes out in the background so response timing doesn't leak it either."""
+    user = db.scalar(select(User).where(User.email == payload.email.lower()))
+    if user is None or not user.is_active:
+        return
+    now = datetime.now(timezone.utc)
+    latest = db.scalar(
+        select(PasswordResetToken.created_at)
+        .where(PasswordResetToken.user_id == user.id)
+        .order_by(PasswordResetToken.created_at.desc())
+        .limit(1)
+    )
+    if latest is not None and now - _aware(latest) < RESET_COOLDOWN:
+        return  # one email per cooldown window, so the form can't spam an inbox
+    token = secrets.token_urlsafe(32)
+    db.add(
+        PasswordResetToken(
+            token_hash=_hash_reset_token(token), user_id=user.id, expires_at=now + RESET_TTL
+        )
+    )
+    db.commit()
+    link = f"{settings.frontend_url}/reset-password?token={token}"
+    background.add_task(_send_reset_email, user.email, user.full_name, link)
+
+
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+def reset_password(payload: ResetPasswordIn, db: DB) -> None:
+    """Redeem an emailed link: set the new password, burn every outstanding
+    link for the account and sign out all its sessions."""
+    row = db.get(PasswordResetToken, _hash_reset_token(payload.token))
+    now = datetime.now(timezone.utc)
+    if row is None or row.used_at is not None or _aware(row.expires_at) < now:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "This reset link is invalid or has expired"
+        )
+    user = db.get(User, row.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "This reset link is invalid or has expired"
+        )
+    user.hashed_password = hash_password(payload.new_password)
+    for other in db.scalars(
+        select(PasswordResetToken).where(
+            PasswordResetToken.user_id == user.id, PasswordResetToken.used_at.is_(None)
+        )
+    ):
+        other.used_at = now
+    for session in db.scalars(select(AuthSession).where(AuthSession.user_id == user.id)):
+        db.delete(session)
     db.commit()
 
 

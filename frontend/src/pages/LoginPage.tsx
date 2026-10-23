@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -9,6 +9,9 @@ import { LogoImage } from '../components/Logo';
    CIRCUIT login — bespoke prototype layout. Auth flow is unchanged:
    useAuth().login / register, GET /api/auth/config for the Google button,
    the SSO error map, and the redirect to /tasks all behave exactly as before.
+   Forgot password: the 'forgot' mode posts /api/auth/forgot-password; the
+   emailed link lands on /reset-password?token=… (this same page, 'reset'
+   mode), which posts /api/auth/reset-password.
    Only presentation changed: segmented pill tabs, mono field labels, animated
    PCB-trace background, MIND·TECH wordmark, footer. Needs the .mtr-field /
    .mtr-trace / .mtr-seg-tab classes in circuit-overrides.css.
@@ -43,6 +46,8 @@ function GoogleIcon() {
   );
 }
 
+type Mode = 'signin' | 'register' | 'forgot' | 'reset';
+
 const fieldLabel: React.CSSProperties = {
   fontFamily: MONO,
   fontSize: 10,
@@ -56,12 +61,15 @@ export default function LoginPage() {
   const { me, login, register } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [mode, setMode] = useState<'signin' | 'register'>('signin');
+  const location = useLocation();
+  const resetToken = location.pathname === '/reset-password' ? searchParams.get('token') : null;
+  const [mode, setMode] = useState<Mode>(resetToken ? 'reset' : 'signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState<boolean | null>(null);
 
@@ -73,6 +81,11 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
+    if (searchParams.get('reset')) {
+      setNotice('Password updated. Sign in with your new password.');
+      setSearchParams({}, { replace: true });
+      return;
+    }
     const code = searchParams.get('error');
     if (code) {
       setError(SSO_ERRORS[code] ?? 'Sign-in failed — please try again.');
@@ -80,7 +93,7 @@ export default function LoginPage() {
     }
   }, [searchParams, setSearchParams]);
 
-  if (me) return <Navigate to="/tasks" replace />;
+  if (me && mode !== 'reset') return <Navigate to="/tasks" replace />;
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -99,6 +112,15 @@ export default function LoginPage() {
     e.preventDefault();
     if (busy) return;
     const em = email.trim();
+    if (mode === 'forgot') {
+      if (!em) return setError('Enter your email.');
+      return sendResetLink(em);
+    }
+    if (mode === 'reset') {
+      if (password.length < 8) return setError('Password must be at least 8 characters.');
+      if (password !== confirm) return setError('Passwords do not match.');
+      return resetPassword(password);
+    }
     if (mode === 'signin') {
       if (!em || !password) return setError('Enter your email and password.');
       return run(() => login(em, password));
@@ -111,12 +133,47 @@ export default function LoginPage() {
     run(() => register(em, fullName.trim(), password));
   };
 
-  const switchMode = (m: 'signin' | 'register') => {
-    setMode(m);
+  const sendResetLink = async (em: string) => {
+    setBusy(true);
     setError(null);
+    try {
+      await api.post('/api/auth/forgot-password', { email: em });
+      setNotice(`If ${em} has an account, a reset link is on its way. It works for one hour.`);
+      setMode('signin');
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Something went wrong');
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const submitLabel = mode === 'signin' ? 'Sign in →' : 'Create account →';
+  const resetPassword = async (pw: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post('/api/auth/reset-password', { token: resetToken, new_password: pw });
+      // the reset signed every session out, so drop any stale signed-in state
+      window.location.replace('/login?reset=1');
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Something went wrong');
+      setBusy(false);
+    }
+  };
+
+  const switchMode = (m: Mode) => {
+    setMode(m);
+    setError(null);
+    setNotice(null);
+    setPassword('');
+    setConfirm('');
+  };
+
+  const submitLabel = {
+    signin: 'Sign in →',
+    register: 'Create account →',
+    forgot: 'Send reset link →',
+    reset: 'Set new password →',
+  }[mode];
 
   return (
     <div
@@ -184,10 +241,28 @@ export default function LoginPage() {
           </div>
 
           {/* segmented tabs */}
+          {mode === 'forgot' || mode === 'reset' ? (
+            <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 17, color: '#eaf2ff', marginBottom: 6 }}>
+              {mode === 'forgot' ? 'Reset your password' : 'Choose a new password'}
+            </div>
+          ) : (
           <div style={{ display: 'flex', gap: 6, marginBottom: 22, background: 'rgba(8,11,17,.6)', border: '1px solid rgba(120,170,230,.12)', borderRadius: 10, padding: 4 }}>
             <div className={`mtr-seg-tab${mode === 'signin' ? ' active' : ''}`} onClick={() => switchMode('signin')}>Sign in</div>
             <div className={`mtr-seg-tab${mode === 'register' ? ' active' : ''}`} onClick={() => switchMode('register')}>Create account</div>
           </div>
+          )}
+          {mode === 'forgot' && (
+            <div style={{ fontSize: 12.5, color: 'rgba(224,236,252,.55)', marginBottom: 18, lineHeight: 1.5 }}>
+              Enter your account email and we'll send you a link to choose a new password.
+            </div>
+          )}
+          {mode === 'reset' && <div style={{ marginBottom: 18 }} />}
+
+          {notice && (
+            <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 9, border: '1px solid rgba(92,198,255,.35)', background: 'rgba(92,198,255,.08)', color: '#9ad8ff', fontSize: 12.5, lineHeight: 1.45 }}>
+              {notice}
+            </div>
+          )}
 
           {error && (
             <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 9, border: '1px solid rgba(255,90,110,.35)', background: 'rgba(255,59,78,.08)', color: '#ff8090', fontSize: 12.5, lineHeight: 1.45 }}>
@@ -203,13 +278,26 @@ export default function LoginPage() {
               </>
             )}
 
-            <div style={fieldLabel}>Email</div>
-            <input className="mtr-field" style={{ marginBottom: 16 }} type="email" placeholder="you@mtr.eg" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" autoFocus />
+            {mode !== 'reset' && (
+              <>
+                <div style={fieldLabel}>Email</div>
+                <input className="mtr-field" style={{ marginBottom: mode === 'forgot' ? 22 : 16 }} type="email" placeholder="you@mtr.eg" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" autoFocus />
+              </>
+            )}
 
-            <div style={fieldLabel}>Password</div>
-            <input className="mtr-field" style={{ marginBottom: mode === 'register' ? 16 : 22 }} type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} />
+            {mode !== 'forgot' && (
+              <>
+                <div style={{ ...fieldLabel, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{mode === 'reset' ? 'New password' : 'Password'}</span>
+                  {mode === 'signin' && (
+                    <a className="mtr-forgot-link" onClick={() => switchMode('forgot')}>Forgot password?</a>
+                  )}
+                </div>
+                <input className="mtr-field" style={{ marginBottom: mode === 'signin' ? 22 : 16 }} type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} autoFocus={mode === 'reset'} />
+              </>
+            )}
 
-            {mode === 'register' && (
+            {(mode === 'register' || mode === 'reset') && (
               <>
                 <div style={fieldLabel}>Confirm password</div>
                 <input className="mtr-field" style={{ marginBottom: 22 }} type="password" placeholder="••••••••" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
@@ -245,6 +333,16 @@ export default function LoginPage() {
             </div>
           )}
 
+          {(mode === 'forgot' || mode === 'reset') && (
+            <div style={{ textAlign: 'center', marginTop: 18 }}>
+              <a className="mtr-forgot-link" onClick={() => { switchMode('signin'); if (mode === 'reset') navigate('/login', { replace: true }); }}>
+                ← Back to sign in
+              </a>
+            </div>
+          )}
+
+          {(mode === 'signin' || mode === 'register') && (
+          <>
           {/* divider */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0' }}>
             <span style={{ flex: 1, height: 1, background: 'rgba(120,170,230,.14)' }} />
@@ -264,6 +362,8 @@ export default function LoginPage() {
             <GoogleIcon />
             Continue with Google
           </button>
+          </>
+          )}
         </div>
 
         <div style={{ textAlign: 'center', fontFamily: MONO, fontSize: 10, letterSpacing: '.16em', color: 'rgba(224,236,252,.28)', marginTop: 18 }}>
