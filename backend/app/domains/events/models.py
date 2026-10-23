@@ -225,3 +225,55 @@ class EventParticipation(Base):
 
     event: Mapped[Event] = relationship(lazy="joined")
     member = relationship("MemberProfile", lazy="joined")
+
+
+class EventSeatRecord(Base):
+    """Who held which automatic-role seat in an event, frozen when the event
+    was archived.
+
+    Role seats (a "{event} PM", a "{team} coach", a "{team} member" roster …)
+    are live org-chart positions, and archiving takes them off the chart — the
+    org chart only shows active work. Without this record their occupants would
+    go with them, and the archive would forget who coached, led and managed the
+    event. So archiving copies every seat's occupants here first; reactivating
+    puts them back into the rebuilt seats (see events/lifecycle.py).
+
+    Managers can also add and remove rows by hand from the Archive — the only
+    way to restore staff an event lost before this record existed.
+
+    Seats on a team's *memberships* are not copied: their occupant is the
+    member, whose EventTeamMember row already survives archiving."""
+
+    __tablename__ = "event_seat_records"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[int] = mapped_column(
+        ForeignKey("events.id", ondelete="CASCADE"), index=True
+    )
+    # The team the seat belonged to; NULL for an event-wide seat (e.g. a PM).
+    team_id: Mapped[int | None] = mapped_column(
+        ForeignKey("event_teams.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Which seat this was — the (template, entity) pair that identifies a role
+    # position — so reactivating can seat the person back into the same one.
+    # NULL for rows added by hand, and once the template itself is gone.
+    role_template_id: Mapped[int | None] = mapped_column(
+        ForeignKey("role_templates.id", ondelete="SET NULL"), nullable=True
+    )
+    entity_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The role with the event/team names taken out ("coach", "PM"), so the
+    # record still reads right after a rename.
+    role: Mapped[str] = mapped_column(String(255))
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # The person's name as it was — survives their account being removed, and
+    # lets a manager record someone who never had an account.
+    user_name: Mapped[str] = mapped_column(String(255))
+    # The template's chain position when it was copied: PM before coach before
+    # lead, the same order the org chart nests them in.
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )

@@ -183,12 +183,17 @@ export interface ArchivedEvent {
   id: number;
   name: string;
   full_name?: string | null; // official long-form title, e.g. "MATE ROV Competition"
+  kind_id?: number | null;
+  kind_slug?: string | null;
   kind_name: string | null;
   kind_label: string | null;
+  team_label?: string | null; // what this kind calls a team ("Group" for Training)
+  member_label?: string | null;
   start_date: string | null;
   end_date: string | null;
   awards?: string[] | null; // event-wide placements shown in the public Hall of Fame
-  can_manage?: boolean;
+  can_manage?: boolean; // may reactivate
+  can_edit?: boolean; // may edit the record (archive.edit)
 }
 
 /** What the whole archived record adds up to — the headline the public site
@@ -201,6 +206,25 @@ export interface ArchiveSummary {
   silver: number;
   bronze: number;
   special: number; // judged awards that name no placement
+}
+
+/** One event kind as a section of the archive, with its archived-event count. */
+export interface ArchiveKind {
+  id: number;
+  slug: string;
+  name: string;
+  event_label: string;
+  count: number;
+}
+
+/** Someone who held one of an archived event's role seats (PM, coach, lead …),
+ * recorded when it was archived — or added by hand from the archive. */
+export interface ArchivedStaff {
+  id: number; // the record row id
+  role: string;
+  name: string;
+  user_id?: number | null;
+  team?: string | null; // only for a seat whose team has since been deleted
 }
 
 export interface ArchivedTask {
@@ -222,10 +246,14 @@ export interface ArchivedGroup {
   sublabel?: string | null;
   award?: string | null;
   members: ArchivedMember[];
+  staff: ArchivedStaff[]; // the team's role seats: coach, lead, …
 }
 
 export interface ArchivedEventDetail {
   event: ArchivedEvent;
+  staff: ArchivedStaff[]; // event-wide seats, e.g. the PMs
+  mentors?: string | null; // the event record's free-text staff fields
+  captains?: string | null;
   groups: ArchivedGroup[]; // the whole roster — what the public site publishes
   teams: string[]; // the viewer's teams within this event
   tasks: ArchivedTask[];

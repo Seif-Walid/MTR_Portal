@@ -22,11 +22,11 @@ def test_summary_counts_medals_at_both_levels(login, org, db_session, client):
     """An event either announces its placements itself or leaves them on its
     teams; both conventions count."""
     cid, team = _published(login, org, db_session)
-    login("cto").patch(
+    login("admin").patch(
         f"/api/archive/events/{cid}",
         json={"awards": ["🥇 1st Place — Sumo 1", "🥉 3rd Place — Line 2", "8th Place — Pioneer"]},
     )
-    login("cto").patch(f"/api/archive/teams/{team['id']}", json={"award": "🥈 2nd Place"})
+    login("admin").patch(f"/api/archive/teams/{team['id']}", json={"award": "🥈 2nd Place"})
 
     s = login("comp_member").get("/api/archive/summary").json()
     assert (s["gold"], s["silver"], s["bronze"]) == (1, 1, 1)
@@ -38,7 +38,7 @@ def test_summary_counts_medals_at_both_levels(login, org, db_session, client):
 
 def test_judged_awards_count_as_special(login, org, db_session, client):
     cid, _team = _published(login, org, db_session)
-    login("cto").patch(
+    login("admin").patch(
         f"/api/archive/events/{cid}", json={"awards": ["🏆 Best Documentation Award"]}
     )
 
@@ -57,8 +57,8 @@ def test_portal_and_website_see_the_same_numbers(login, org, db_session, client)
     """The portal's overview and the public one are the same projection — if
     they could drift, the site would print a number the portal can't explain."""
     cid, team = _published(login, org, db_session)
-    login("cto").patch(f"/api/archive/events/{cid}", json={"awards": ["🥇 1st Place"]})
-    login("cto").patch(f"/api/archive/teams/{team['id']}", json={"award": "🥈 2nd Place"})
+    login("admin").patch(f"/api/archive/events/{cid}", json={"awards": ["🥇 1st Place"]})
+    login("admin").patch(f"/api/archive/teams/{team['id']}", json={"award": "🥈 2nd Place"})
 
     assert client.get("/api/public/hall-of-fame/summary").json() == login("comp_member").get(
         "/api/archive/summary"

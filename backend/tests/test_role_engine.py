@@ -226,21 +226,19 @@ def test_archive_removes_the_whole_subtree_and_reactivate_rebuilds_it(login, org
     # gone from the org chart entirely — it only shows active work
     assert "Doomed PM" not in tree and "Squad Lead" not in tree and stud not in tree
 
-    # reactivating rebuilds the structure: seats come back vacant (occupancy
-    # isn't remembered), except member seats — the membership itself says who
-    # sits there
+    # reactivating rebuilds the structure, and the people archiving recorded
+    # go back into their seats — member seats re-fill from the memberships
     login("admin").patch(f"/api/events/{comp['id']}", json={"status": "active"})
     tree = _tree_by_title(login)
     assert tree["Doomed PM"]["parent_id"] == root
-    assert tree["Doomed PM"]["occupants"] == []
+    assert [u["id"] for u in tree["Doomed PM"]["occupants"]] == [org["cto"].id]
     assert tree["Squad Lead"]["parent_id"] == tree["Doomed PM"]["id"]
+    assert tree["Squad Lead"]["occupants"] == []  # was vacant, stays vacant
     assert tree[stud]["parent_id"] == tree["Squad Lead"]["id"]
     assert [u["id"] for u in tree[stud]["occupants"]] == [org["student"].id]
-    # cto's PM seat was not restored, so their authority is gone until
-    # someone re-appoints them — only manage_any levels can act meanwhile
-    assert login("cto").delete(f"/api/events/{comp['id']}").status_code == 403
+    # cto's PM seat came back, and their authority with it
 
-    assert login("admin").delete(f"/api/events/{comp['id']}").status_code == 204
+    assert login("cto").delete(f"/api/events/{comp['id']}").status_code == 204
     tree = _tree_by_title(login)
     assert "Doomed PM" not in tree and "Squad Lead" not in tree and stud not in tree
 

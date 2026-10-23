@@ -74,6 +74,13 @@ def _safe_title(template: str, names: dict[str, str]) -> str:
     return template.format_map(_SafeDict(names))
 
 
+def role_name(title_template: str) -> str:
+    """The role a template describes with every entity name taken out —
+    "{team} coach" -> "coach", "{event} PM" -> "PM". Empty for a template that
+    is nothing but a name (e.g. "{member}")."""
+    return " ".join(_safe_title(title_template, {}).split())
+
+
 # --- template CRUD ----------------------------------------------------------
 def list_templates(db: Session) -> list[RoleTemplate]:
     """Live (non-archived) templates only, in chain order. Archived templates

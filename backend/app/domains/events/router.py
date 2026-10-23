@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from app.domains.access import service as access
 from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, CurrentUser
+from app.domains.events import lifecycle
 from app.domains.events.models import (
     Event,
     EventCategory,
@@ -635,47 +636,14 @@ def edit_event(
     elif payload.awards is not None:
         comp.awards = payload.awards
     status_changed = payload.status is not None and payload.status != comp.status
-    if payload.status is not None:
-        comp.status = payload.status
     comp.start_date = None if payload.clear_start_date else (payload.start_date or comp.start_date)
     comp.end_date = None if payload.clear_end_date else (payload.end_date or comp.end_date)
-    if status_changed and comp.status == EventStatus.ARCHIVED:
-        # archiving removes every role position this event produced, at
-        # every level — the org chart only shows active work. Occupancy is
-        # not remembered: reactivating rebuilds the positions from whatever
-        # templates exist then, vacant except member seats (the membership
-        # itself identifies who sits there).
-        for cat in comp.categories:
-            for team in cat.teams:
-                for member in team.members:
-                    role_engine.delete_positions_for_entity(db, "membership", member.id)
-                role_engine.delete_positions_for_entity(db, "team", team.id)
-        role_engine.delete_positions_for_entity(db, "event", comp.id)
-        resync_managers(db)
-    elif status_changed and comp.status == EventStatus.ACTIVE:
-        role_engine.apply_event(
-            db, event="event_created", entity_type="event", entity_id=comp.id,
-            lineage=lineage_for_event(comp), names=_names(comp), kind_id=comp.kind_id,
-        )
-        for cat in comp.categories:
-            for team in tree_order(cat.teams):  # parents first: sub-team seats nest under theirs
-                if team.deleted_at is not None:
-                    continue
-                names = _names(comp, team=team.name)
-                role_engine.apply_event(
-                    db, event="team_created", entity_type="team", entity_id=team.id,
-                    lineage=lineage_for_team(comp, team.id), names=names, kind_id=comp.kind_id,
-                    nest_in_id=team.parent_team_id,
-                )
-                for member in team.members:
-                    role_engine.apply_event(
-                        db, event="team_member_added", entity_type="membership",
-                        entity_id=member.id,
-                        lineage=lineage_for_membership(comp, team.id, member.id),
-                        names={**names, "member": member.user.full_name},
-                        kind_id=comp.kind_id, member_id=member.user_id,
-                    )
-        resync_managers(db)
+    if status_changed and payload.status == EventStatus.ARCHIVED:
+        # the seats leave the org chart — the org chart only shows active
+        # work — but who sat in them is kept on the event's record
+        lifecycle.archive_event(db, comp)
+    elif status_changed and payload.status == EventStatus.ACTIVE:
+        lifecycle.reactivate_event(db, comp)
     db.commit()
     db.refresh(comp)
     return _list_out(db, user, comp)
@@ -695,12 +663,7 @@ def delete_event(event_id: int, db: DB, user: CurrentUser) -> None:
             status.HTTP_400_BAD_REQUEST,
             f"{in_use} allocation(s) reference this event — archive it instead.",
         )
-    for cat in comp.categories:
-        for team in cat.teams:
-            for member in team.members:
-                role_engine.delete_positions_for_entity(db, "membership", member.id)
-            role_engine.delete_positions_for_entity(db, "team", team.id)
-    role_engine.delete_positions_for_entity(db, "event", comp.id)
+    lifecycle.remove_event_seats(db, comp)
     db.delete(comp)
     resync_managers(db)
     db.commit()

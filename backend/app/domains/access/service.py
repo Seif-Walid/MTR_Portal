@@ -26,6 +26,7 @@ PRIVILEGES: list[tuple[str, str]] = [
     ("events.manage_seated", "Manage events where seated"),
     ("events.create", "Create events"),
     ("events.manage_any", "Manage any event"),
+    ("archive.edit", "Edit the archived record"),
     ("tasks.use", "Use tasks"),
     ("tasks.assign", "Assign tasks"),
     ("tasks.assign_any", "Assign tasks to anyone"),
@@ -51,7 +52,9 @@ ALL_PRIVILEGE_KEYS: set[str] = {key for key, _ in PRIVILEGES}
 # regardless.
 PRESET_LEVELS: list[tuple[int, str, list[str]]] = [
     (1, "Admin", sorted(ALL_PRIVILEGE_KEYS)),
-    (2, "Board", sorted(ALL_PRIVILEGE_KEYS - {"users.manage"})),
+    # The archived record is history: correcting it is admin-only until a
+    # level is given archive.edit on purpose.
+    (2, "Board", sorted(ALL_PRIVILEGE_KEYS - {"users.manage", "archive.edit"})),
     (3, "Lead", [
         "inventory.view", "inventory.request", "inventory.approve", "inventory.edit",
         "events.view", "events.manage_seated", "events.create",
