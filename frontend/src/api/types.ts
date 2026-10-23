@@ -466,6 +466,12 @@ export interface AuditEntry {
   created_at: string;
 }
 
+export interface AuditPage {
+  items: AuditEntry[];
+  total: number;
+  domains: string[];
+}
+
 export interface AppNotification {
   id: number;
   type: string;

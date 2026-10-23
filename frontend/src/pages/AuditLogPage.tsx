@@ -1,10 +1,10 @@
 import { ReloadOutlined } from '@ant-design/icons';
-import { Button, Segmented, Space, Table, Tag, Typography, message } from 'antd';
+import { Button, Select, Space, Table, Tag, Typography, message } from 'antd';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useState } from 'react';
 
 import { api } from '../api/client';
-import type { AuditEntry } from '../api/types';
+import type { AuditEntry, AuditPage } from '../api/types';
 
 const DOMAIN_COLOR: Record<string, string> = {
   users: 'geekblue',
@@ -23,19 +23,32 @@ function detailSummary(detail: string): string {
 }
 
 export default function AuditLogPage() {
-  const [domain, setDomain] = useState<'all' | 'users' | 'inventory' | 'events'>('all');
+  const [domain, setDomain] = useState<string>('all');
+  const [domains, setDomains] = useState<string[]>([]);
   const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
 
+  // Paged server-side so "All" reaches every entry, not just the newest batch.
   const load = useCallback(() => {
     setLoading(true);
-    const params = domain === 'all' ? '' : `?domain=${domain}`;
+    const params = new URLSearchParams({
+      limit: String(pageSize),
+      offset: String((page - 1) * pageSize),
+    });
+    if (domain !== 'all') params.set('domain', domain);
     api
-      .get<AuditEntry[]>(`/api/audit${params}`)
-      .then(setEntries)
+      .get<AuditPage>(`/api/audit?${params}`)
+      .then((r) => {
+        setEntries(r.items);
+        setTotal(r.total);
+        setDomains(r.domains);
+      })
       .catch((e) => message.error(e.message))
       .finally(() => setLoading(false));
-  }, [domain]);
+  }, [domain, page, pageSize]);
 
   useEffect(load, [load]);
 
@@ -47,19 +60,21 @@ export default function AuditLogPage() {
             Audit Log
           </Typography.Title>
           <Typography.Text type="secondary">
-            Every permission change, inventory quantity change, and event-role change.
+            Every recorded change across the portal, newest first.
             Org-structure changes have their own log on the Organization page.
           </Typography.Text>
         </div>
         <Space>
-          <Segmented
+          <Select
+            style={{ minWidth: 160 }}
             value={domain}
-            onChange={(v) => setDomain(v as typeof domain)}
+            onChange={(v) => {
+              setDomain(v as string);
+              setPage(1);
+            }}
             options={[
               { label: 'All', value: 'all' },
-              { label: 'Users', value: 'users' },
-              { label: 'Inventory', value: 'inventory' },
-              { label: 'Events', value: 'events' },
+              ...domains.map((d) => ({ label: d.charAt(0).toUpperCase() + d.slice(1), value: d })),
             ]}
           />
           <Button icon={<ReloadOutlined />} onClick={load} />
@@ -70,7 +85,18 @@ export default function AuditLogPage() {
         rowKey="id"
         loading={loading}
         dataSource={entries}
-        pagination={{ defaultPageSize: 20, hideOnSinglePage: true }} scroll={{ x: 'max-content' }}
+        pagination={{
+          current: page,
+          pageSize,
+          total,
+          hideOnSinglePage: true,
+          showSizeChanger: true,
+          showTotal: (t) => `${t} entries`,
+          onChange: (p, s) => {
+            setPage(s !== pageSize ? 1 : p);
+            setPageSize(s);
+          },
+        }} scroll={{ x: 'max-content' }}
         columns={[
           {
             title: 'When',

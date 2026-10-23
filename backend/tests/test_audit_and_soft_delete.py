@@ -103,15 +103,27 @@ def test_audit_log_records_quantity_role_and_occupant_changes(login, org):
         json={"user_ids": [org["cto"].id, org["sw_emp"].id]},
     )
 
-    entries = login("admin").get("/api/audit").json()
+    entries = login("admin").get("/api/audit").json()["items"]
     actions = {e["action"] for e in entries}
     assert {"quantity_changed", "level_changed", "role_occupants_changed"} <= actions
 
-    inv_only = login("admin").get("/api/audit?domain=inventory").json()
+    inv_only = login("admin").get("/api/audit?domain=inventory").json()["items"]
     assert inv_only and all(e["domain"] == "inventory" for e in inv_only)
     qty_entry = next(e for e in entries if e["action"] == "quantity_changed")
     detail = json.loads(qty_entry["detail"])
     assert detail["before"] == 10 and detail["after"] == 20
+
+    # "All" pages through every entry: total matches the per-domain sums,
+    # and offset reaches rows beyond the first page
+    everything = login("admin").get("/api/audit?limit=500").json()
+    assert everything["total"] == len(everything["items"])
+    assert {"inventory", "users"} <= set(everything["domains"])
+    assert sum(
+        login("admin").get(f"/api/audit?domain={d}").json()["total"]
+        for d in everything["domains"]
+    ) == everything["total"]
+    page2 = login("admin").get("/api/audit?limit=1&offset=1").json()["items"]
+    assert page2[0]["id"] == everything["items"][1]["id"]
 
     # non-admin cannot read the audit log
     assert login("cto").get("/api/audit").status_code == 403
