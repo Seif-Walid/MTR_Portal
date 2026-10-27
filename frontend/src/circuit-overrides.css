@@ -418,3 +418,8 @@
   color: #5cc6ff; cursor: pointer; text-decoration: none;
 }
 .mtr-forgot-link:hover { color: #9ad8ff; text-decoration: underline; }
+
+/* Dropdown option highlight — never the default light fill. Covers antd Select
+   (hover/keyboard-active) and any list using the control-item tokens. */
+.ant-select-item-option-active:not(.ant-select-item-option-disabled) { background: rgba(92, 198, 255, .10); }
+.ant-select-item-option-selected:not(.ant-select-item-option-disabled) { color: var(--c-text); }

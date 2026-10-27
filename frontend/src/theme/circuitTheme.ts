@@ -28,6 +28,9 @@ export const circuitTheme: ThemeConfig = {
     colorBgContainer: 'rgba(15,20,29,.55)',
     colorBgElevated: '#0f141d',
     colorBorder: 'rgba(120,170,230,.12)',
+    controlItemBgHover: 'rgba(92,198,255,.10)',
+    controlItemBgActive: 'rgba(92,198,255,.16)',
+    controlItemBgActiveHover: 'rgba(92,198,255,.22)',
     colorBorderSecondary: 'rgba(120,170,230,.07)',
 
     colorText: '#eaf2ff',
@@ -59,6 +62,6 @@ export const circuitTheme: ThemeConfig = {
     Tabs: { inkBarColor: '#5cc6ff', itemActiveColor: '#5cc6ff', itemSelectedColor: '#eaf2ff' },
     Modal: { contentBg: '#0f141d', headerBg: '#0f141d' },
     Input: { colorBgContainer: 'rgba(8,11,17,.7)' },
-    Select: { colorBgContainer: 'rgba(8,11,17,.7)', optionSelectedBg: 'rgba(92,198,255,.12)' },
+    Select: { colorBgContainer: 'rgba(8,11,17,.7)', optionSelectedBg: 'rgba(92,198,255,.16)', optionActiveBg: 'rgba(92,198,255,.10)', optionSelectedColor: '#eaf2ff' },
   },
 };
