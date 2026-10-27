@@ -9,6 +9,7 @@ from app.domains.audit.router import router as audit_router
 from app.domains.bulk.router import router as bulk_router
 from app.domains.calendar.router import router as calendar_router
 from app.domains.dashboard.router import router as dashboard_router
+from app.domains.drive.router import router as drive_router
 from app.domains.auth.router import router as auth_router
 from app.domains.courses.router import router as courses_router
 from app.domains.events.router import router as events_router
@@ -66,6 +67,7 @@ for domain_router in (
     archive_router,
     timeblocks_router,
     public_router,
+    drive_router,
 ):
     app.include_router(domain_router, prefix="/api")
 

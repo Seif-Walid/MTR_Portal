@@ -56,3 +56,28 @@ def test_user_management_is_a_privilege_not_a_title(login, org):
     assert r.status_code == 200
     # ...but an Exec without users.manage does not, whatever their position
     assert login("ceo").get("/api/users").status_code == 403
+
+
+def test_levels_add_up_across_seats_and_override(login, org, db_session):
+    """Holding two levels gives the union of both — an Instructor who is also a
+    Lead has each level's privileges, not just the higher-ranked one's."""
+    import json
+    from app.domains.access.models import AccessLevel
+    from app.domains.positions.models import Position, PositionOccupant
+
+    rank = max(lvl.rank for lvl in db_session.query(AccessLevel)) + 1
+    instructor = AccessLevel(rank=rank, name="Instructor",
+                             privileges=json.dumps(["courses.manage"]))
+    db_session.add(instructor)
+    db_session.flush()
+    seat = Position(title="Instructor", access_level_id=instructor.id)
+    db_session.add(seat)
+    db_session.flush()
+    db_session.add(PositionOccupant(position_id=seat.id, user_id=org["cto"].id))
+    db_session.commit()
+
+    me = login("cto").get("/api/auth/me").json()
+    assert set(me["levels"]) == {"Lead", "Instructor"}
+    assert me["level"]["name"] == "Lead"  # strongest held, as a label
+    assert "tasks.assign" in me["privileges"]  # from Lead
+    assert "courses.manage" in me["privileges"]  # from Instructor, ranked lower

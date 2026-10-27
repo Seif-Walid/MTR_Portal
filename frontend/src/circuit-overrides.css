@@ -273,6 +273,18 @@
 .mtr-nav-chevron:hover { opacity:1; background:rgba(92,198,255,.12); }
 .mtr-nav-chevron svg { opacity:1 !important; }
 
+/* rail section header (Workspace / Operations / People / Administration) */
+.mtr-nav-section {
+  display:flex; align-items:center; width:calc(100% - 20px);
+  margin:10px 10px 3px; padding:4px 13px;
+  background:none; border:0; border-radius:6px; cursor:pointer;
+  color:rgba(224,236,252,.34);
+  font:600 9.5px 'Geist Mono Variable','Geist Mono',ui-monospace,monospace;
+  letter-spacing:.2em; text-transform:uppercase; white-space:nowrap; transition:.15s;
+}
+.mtr-nav-section:hover:not(:disabled) { color:rgba(224,236,252,.7); background:rgba(92,198,255,.04); }
+.mtr-nav-section:disabled { cursor:default; }
+
 /* rail sub-item (event kinds) */
 .mtr-sub {
   display:flex; align-items:center; gap:10px;

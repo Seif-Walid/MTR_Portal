@@ -29,10 +29,18 @@ from app.domains.courses.models import (
     Course,
     CourseFile,
     CourseMaterial,
-    CourseProgress,
     MaterialKind,
 )
+from app.domains.tasks.models import Task, TaskStatus
 from app.domains.users.models import User
+
+# A handed-out task sheet counts toward progress once its Task is submitted
+# (and stays counted once approved). Sent back for revision, it doesn't.
+DONE_STATUSES = (TaskStatus.SUBMITTED, TaskStatus.APPROVED)
+
+# Held back from learners until a manager releases them: answers until they're
+# shown, task sheets until they're handed out as Tasks.
+HELD_KINDS = {MaterialKind.ANSWERS, MaterialKind.TASKS}
 
 KIND_LABEL: dict[str, str] = {
     MaterialKind.SLIDES: "Slides",
@@ -174,7 +182,7 @@ def shelve(files: dict[str, bytes]) -> list[dict]:
             "title": _title_of(path, files[path]),
             "unit": unit,
             "unit_label": unit_label,
-            "is_released": kind != MaterialKind.ANSWERS,
+            "is_released": kind not in HELD_KINDS,
         })
     out.sort(key=lambda m: (m["unit"] is None, m["unit"] or 0, m["path"]))
     for i, m in enumerate(out):
@@ -293,7 +301,7 @@ def add_material(
         kind=kind, title=(title or "").strip() or auto_title or "Untitled",
         path=path, preview_path=preview_path, external_url=url, unit=unit,
         unit_label=unit_label or auto_label,
-        sort_order=_next_order(course), is_released=kind != MaterialKind.ANSWERS,
+        sort_order=_next_order(course), is_released=kind not in HELD_KINDS,
     )
     course.materials.append(material)
     db.flush()
@@ -334,12 +342,36 @@ def visible_course(db: Session, user: User, course_id: int) -> Course:
     return course
 
 
-def completed_ids(db: Session, user: User, course_id: int) -> set[int]:
-    return set(db.scalars(
-        select(CourseProgress.material_id)
-        .join(CourseMaterial, CourseMaterial.id == CourseProgress.material_id)
-        .where(CourseProgress.user_id == user.id, CourseMaterial.course_id == course_id)
-    ))
+def my_course_tasks(db: Session, user: User, course_id: int | None = None) -> dict[int, Task]:
+    """The user's Tasks that hand out course task sheets, by material — the
+    most recent one when a sheet was handed out to them more than once."""
+    q = (select(Task).join(CourseMaterial, CourseMaterial.id == Task.course_material_id)
+         .where(Task.assignee_id == user.id).order_by(Task.id))
+    if course_id is not None:
+        q = q.where(CourseMaterial.course_id == course_id)
+    return {t.course_material_id: t for t in db.scalars(q).unique()}
+
+
+def submitted_ids(tasks: dict[int, Task]) -> set[int]:
+    return {mid for mid, t in tasks.items() if t.status in DONE_STATUSES}
+
+
+def task_sheet_stats(db: Session, course_id: int) -> dict[int, dict]:
+    """Per task sheet: how many learners it was handed to, how many have
+    submitted it — the manager's view of a course's progress."""
+    people: dict[int, dict[int, str]] = {}
+    for mid, uid, status_ in db.execute(
+        select(Task.course_material_id, Task.assignee_id, Task.status)
+        .join(CourseMaterial, CourseMaterial.id == Task.course_material_id)
+        .where(CourseMaterial.course_id == course_id)
+        .order_by(Task.id)
+    ):
+        people.setdefault(mid, {})[uid] = status_  # latest task per learner wins
+    out: dict[int, dict] = {}
+    for mid, by_user in people.items():
+        out[mid] = {"assigned": len(by_user),
+                    "submitted": sum(1 for st in by_user.values() if st in DONE_STATUSES)}
+    return out
 
 
 def backfill_previews(db: Session) -> dict:

@@ -17,6 +17,7 @@ from app.core.security import hash_password, new_session_token, verify_password
 from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.auth.models import AuthSession, PasswordResetToken
+from app.domains.drive import service as drive
 from app.domains.auth.schemas import (
     ChangePasswordIn,
     ForgotPasswordIn,
@@ -43,7 +44,8 @@ def _google_enabled() -> bool:
 
 
 def _me_payload(db: Session, user: User) -> MeOut:
-    level = access.effective_level(db, user)
+    levels = access.held_levels(db, user)
+    level = levels[0] if levels else None
     seats = db.scalars(
         select(Position.title)
         .join(PositionOccupant, PositionOccupant.position_id == Position.id)
@@ -57,7 +59,8 @@ def _me_payload(db: Session, user: User) -> MeOut:
         department=user.department,
         manager_id=user.manager_id,
         level=level,
-        privileges=sorted(access.privileges_of(db, level)),
+        levels=[lvl.name for lvl in levels],
+        privileges=sorted(access.privileges_of_levels(db, levels)),
         # "has_team" gates the UI's New-task button: anyone they may actually
         # task, which now includes their event teams, not just direct reports
         has_team=len(taskable_user_ids(db, user) - {user.id}) > 0,
@@ -322,6 +325,24 @@ def google_login() -> RedirectResponse:
     return response
 
 
+def _finish_drive_connect(db: Session, code: str, portal_session: str | None) -> RedirectResponse:
+    """The second half of /api/drive/connect: an admin granted the portal a
+    Drive. Shares this callback so no extra redirect URI has to be
+    registered with Google."""
+    user = _peek_session_user(db, portal_session)
+    if user is None or not access.has_privilege(db, user, "users.manage"):
+        return _login_error("drive_not_allowed")
+    try:
+        drive.finish_connect(db, code, user.id)
+        outcome = "connected"
+    except (httpx.HTTPError, ValueError) as exc:
+        print(f"[drive_connect] failed: {exc!r}")
+        outcome = "failed"
+    response = RedirectResponse(f"{settings.frontend_url}/admin/users?drive={outcome}")
+    response.delete_cookie(STATE_COOKIE, samesite="lax", secure=settings.cookie_secure)
+    return response
+
+
 @router.get("/google/callback")
 def google_callback(
     db: DB,
@@ -337,6 +358,8 @@ def google_callback(
         return _login_error("google_denied")
     if not state or not g_oauth_state or not secrets.compare_digest(state, g_oauth_state):
         return _login_error("google_state_mismatch")
+    if state.startswith(drive.STATE_PREFIX):
+        return _finish_drive_connect(db, code, portal_session)
 
     try:
         token_res = httpx.post(

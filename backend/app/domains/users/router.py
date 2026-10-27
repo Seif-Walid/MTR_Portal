@@ -57,13 +57,15 @@ def staff_users(db: DB, user: CurrentUser) -> list[UserBrief]:
     return [UserBrief.model_validate(u) for u in db.scalars(query)]
 
 
-def _admin_out(db: DB, u: User, level_by_user: dict[int, AccessLevel | None],
+def _admin_out(db: DB, u: User, level_by_user: dict[int, list[AccessLevel]],
                seats_by_user: dict[int, list[str]]) -> UserAdminOut:
-    effective = level_by_user.get(u.id)
+    held = level_by_user.get(u.id) or []
+    effective = held[0] if held else None
     out = UserAdminOut.model_validate(u)
     out.access_level_id = u.access_level_id
     out.effective_level = effective.name if effective else None
     out.effective_rank = effective.rank if effective else None
+    out.levels = [lvl.name for lvl in held]
     out.seats = seats_by_user.get(u.id, [])
     out.profile = MemberProfileOut.model_validate(u.profile) if u.profile else None
     return out
@@ -93,7 +95,7 @@ def list_users(db: DB, user: CurrentUser) -> list[UserAdminOut]:
         )
     )
     ids = [u.id for u in users]
-    levels = access.effective_levels_bulk(db, ids)
+    levels = access.held_levels_bulk(db, ids)
     seats = _seats_by_user(db, ids)
     return [_admin_out(db, u, levels, seats) for u in users]
 
@@ -154,7 +156,7 @@ def create_user(payload: UserCreate, db: DB, actor: CurrentUser) -> UserAdminOut
     db.commit()
     db.refresh(user)
     return _admin_out(
-        db, user, access.effective_levels_bulk(db, [user.id]), _seats_by_user(db, [user.id])
+        db, user, access.held_levels_bulk(db, [user.id]), _seats_by_user(db, [user.id])
     )
 
 
@@ -205,5 +207,5 @@ def update_user(user_id: int, payload: UserUpdate, db: DB, actor: CurrentUser) -
     db.commit()
     db.refresh(user)
     return _admin_out(
-        db, user, access.effective_levels_bulk(db, [user.id]), _seats_by_user(db, [user.id])
+        db, user, access.held_levels_bulk(db, [user.id]), _seats_by_user(db, [user.id])
     )

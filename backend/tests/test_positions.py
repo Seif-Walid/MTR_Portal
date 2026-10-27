@@ -105,17 +105,20 @@ def test_delete_requires_leaf(login, org):
     assert login("ceo").delete(f"/api/org/positions/{b['id']}").status_code == 204  # leaf ok
 
 
-def test_occupant_moves_between_seats(login, org, db_session):
+def test_one_person_can_hold_several_seats(login, org, db_session):
     from app.domains.positions.models import Position
+    from app.domains.users.models import User
 
     root = _pos(login, "ceo", title="CEO", occupant_id=org["ceo"].id).json()
     p1 = _pos(login, "ceo", title="Seat 1", parent_id=root["id"], occupant_id=org["cto"].id).json()
-    p2 = _pos(login, "ceo", title="Seat 2", parent_id=root["id"]).json()
-    # move the CTO into Seat 2 → Seat 1 becomes vacant
+    p2 = _pos(login, "ceo", title="Seat 2", parent_id=p1["id"]).json()
+    # seat the CTO in Seat 2 too → they keep Seat 1
     login("ceo").patch(f"/api/org/positions/{p2['id']}", json={"occupant_ids": [org["cto"].id]})
     db_session.expire_all()
-    assert db_session.get(Position, p1["id"]).occupants == []
+    assert [u.id for u in db_session.get(Position, p1["id"]).occupants] == [org["cto"].id]
     assert [u.id for u in db_session.get(Position, p2["id"]).occupants] == [org["cto"].id]
+    # reporting line comes from the higher seat, never from themselves
+    assert db_session.get(User, org["cto"].id).manager_id == org["ceo"].id
 
 
 def test_position_can_have_multiple_occupants(login, org, db_session):

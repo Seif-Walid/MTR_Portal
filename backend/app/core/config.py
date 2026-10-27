@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     cookie_secure: bool = False  # set True behind HTTPS
     upload_dir: Path = BASE_DIR / "uploads"
     max_upload_mb: int = 25
+    # Per-file cap for task submissions sent to the connected Google Drive
+    # (CAD assemblies) — the browser uploads straight to Google, so this can
+    # be far above max_upload_mb without touching the server's memory.
+    drive_max_upload_mb: int = 4096
     # The portal frontend (5173) plus the public marketing website, which reads
     # the /api/public/* Hall of Fame endpoint. The website's production origins
     # are included so a browser-side fetch is allowed; server-side fetches from

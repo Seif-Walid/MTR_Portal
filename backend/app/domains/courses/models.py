@@ -2,6 +2,8 @@
 task sheets — whatever the course author built) stored in the database, plus
 the catalogue that sorts its viewable documents into the fixed shelves every
 course has: slides, book, tasks, task answers, and tools for everything else.
+A learner's progress is how many of the course's task sheets they have
+submitted as Tasks — not what they opened.
 
 The bundle lives in `course_files` rather than on disk so it survives
 redeploys and travels with the database (backups, db_copy) like everything
@@ -77,9 +79,12 @@ class CourseFile(Base):
 class CourseMaterial(Base):
     """One item on one of the course's shelves: a file of the course (from the
     bundle, or uploaded straight onto the shelf) or, when `external_url` is
-    set instead of `path`, a link to something hosted elsewhere. `unit` groups materials that belong together (week 3's slides, chapter,
-    tasks and answers); `is_released` holds a document back from learners —
-    task answers start held back."""
+    set instead of `path`, a link to something hosted elsewhere. `unit` groups
+    materials that belong together (week 3's slides, chapter, tasks and
+    answers); `is_released` holds a document back from learners — task sheets
+    and their answers start held back. A task sheet is handed out as real
+    Tasks (tasks.course_material_id); submitting one through the Tasks tab is
+    what moves a learner's progress."""
 
     __tablename__ = "course_materials"
     __table_args__ = (UniqueConstraint("course_id", "path"),)
@@ -99,15 +104,3 @@ class CourseMaterial(Base):
     is_released: Mapped[bool] = mapped_column(Boolean, default=True)
 
     course: Mapped[Course] = relationship(back_populates="materials")
-
-
-class CourseProgress(Base):
-    """A learner ticked a material off."""
-
-    __tablename__ = "course_progress"
-
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    material_id: Mapped[int] = mapped_column(
-        ForeignKey("course_materials.id", ondelete="CASCADE"), primary_key=True, index=True
-    )
-    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

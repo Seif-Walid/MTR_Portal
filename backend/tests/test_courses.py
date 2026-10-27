@@ -1,5 +1,5 @@
 """Courses: bundle upload and automatic shelving, the gated file server (held
-back answers refused to learners), progress, and re-upload keeping edits."""
+back answers refused to learners), progress from handed-out tasks, and re-upload keeping edits."""
 
 import io
 import zipfile
@@ -65,7 +65,7 @@ def test_upload_shelves_by_folder(login, course):
     assert kinds == {
         "slides/week1.html": ("slides", "Python Fundamentals", "Week 1", True),
         "book/week1.html": ("book", "Python Fundamentals", "Week 1", True),
-        "tasks/week1.html": ("tasks", "Python Fundamentals", "Week 1", True),
+        "tasks/week1.html": ("tasks", "Python Fundamentals", "Week 1", False),
         "solutions/week1.html": ("answers", "Python Fundamentals", "Week 1", False),
         "reference/week6.html": ("tools", "Reference · Linux & Git", "Week 6", True),
         "week2-functions-scope.html": ("tools", "Functions", "Week 2", True),
@@ -113,26 +113,52 @@ def test_unpublished_hidden_from_learners(login, course):
     assert member.get(f"/api/courses/{course}/files/assets/mtr.css").status_code == 404
 
 
-def test_progress(login, course):
-    member = login("comp_member")
-    mats = _materials(member, course)
-    slides = mats["Python Fundamentals|slides"]
-    assert member.put(f"/api/courses/{course}/materials/{slides['id']}/progress").status_code == 204
+def test_progress_counts_submitted_course_tasks(login, course, org):
+    """Progress is task sheets submitted through the Tasks tab — opening
+    slides or chapters moves nothing. The instructor hands out week 1."""
+    admin, member = login("admin"), login("comp_member")
+    sheet = _materials(admin, course)["Python Fundamentals|tasks"]
+    assert sheet["is_released"] is False  # held back until handed out
     row = member.get("/api/courses").json()[0]
-    assert (row["completed"], row["total"], row["percent"]) == (1, 5, 20)
-    # held-back material can't be ticked
-    answers = mats["Python Fundamentals|answers"]
-    assert member.put(f"/api/courses/{course}/materials/{answers['id']}/progress").status_code == 403
-    member.delete(f"/api/courses/{course}/materials/{slides['id']}/progress")
+    assert (row["completed"], row["total"], row["percent"]) == (0, 1, 0)
+
+    # learners can't hand tasks out
+    assert member.post(f"/api/courses/{course}/hand-out",
+                       json={"unit": 1, "assignee_ids": [org["comp_member"].id]}).status_code == 403
+    picker = admin.get(f"/api/courses/{course}/learners").json()
+    assert org["comp_member"].id in {p["id"] for p in picker["people"]}
+    r = admin.post(f"/api/courses/{course}/hand-out",
+                   json={"unit": 1, "assignee_ids": [org["comp_member"].id]})
+    assert r.status_code == 200, r.text
+    assert r.json()["created"] == 1
+    # handing out again doesn't duplicate
+    again = admin.post(f"/api/courses/{course}/hand-out",
+                       json={"unit": 1, "assignee_ids": [org["comp_member"].id]})
+    assert again.json() == {"created": 0, "skipped": 1, "learners": 1}
+
+    mine = _materials(member, course)["Python Fundamentals|tasks"]
+    assert mine["is_released"] is True and mine["task"]["status"] == "todo"
+    task = next(t for t in member.get("/api/tasks").json() if t["course_material_id"] == sheet["id"])
+    assert task["course_id"] == course and task["assigner"]["id"] == org["admin"].id
+    assert member.get("/api/courses").json()[0]["completed"] == 0  # not yet submitted
+
+    for st in ("in_progress", "submitted"):
+        assert member.patch(f"/api/tasks/{task["id"]}/status", json={"status": st}).status_code == 200
+    row = member.get("/api/courses").json()[0]
+    assert (row["completed"], row["total"], row["percent"]) == (1, 1, 100)
+    stats = _materials(admin, course)["Python Fundamentals|tasks"]["handout"]
+    assert stats == {"assigned": 1, "submitted": 1}
+
+    # sent back for revision, it no longer counts
+    admin.patch(f"/api/tasks/{task["id"]}/status", json={"status": "revision_requested"})
     assert member.get("/api/courses").json()[0]["completed"] == 0
 
 
-def test_reupload_keeps_edits_and_progress(login, course):
+def test_reupload_keeps_edits(login, course):
     admin, member = login("admin"), login("comp_member")
     mats = _materials(admin, course)
     tool = mats["Functions|tools"]
     admin.patch(f"/api/courses/{course}/materials/{tool['id']}", json={"title": "Step-through", "kind": "book"})
-    member.put(f"/api/courses/{course}/materials/{tool['id']}/progress")
 
     bundle = {k: v for k, v in BUNDLE.items() if k != "reference/week6.html"}
     bundle["slides/week2.html"] = "<title>Week 2 · Functions — MTR Slides</title>"
@@ -142,7 +168,6 @@ def test_reupload_keeps_edits_and_progress(login, course):
     mats = _materials(admin, course)
     assert "Step-through|book" in mats and mats["Step-through|book"]["id"] == tool["id"]
     assert "Reference · Linux & Git|tools" not in mats
-    assert _materials(member, course)["Step-through|book"]["completed"] is True
 
 
 def test_rejects_unsafe_zip(login, grant):

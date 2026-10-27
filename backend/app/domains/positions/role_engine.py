@@ -6,8 +6,7 @@ actually has) and `entity_type`/`entity_id` (whatever the caller says an
 event happened to), so the events domain stays the only place that
 knows what a event/team/membership actually is. See
 app/domains/positions/models.py for the exclusion rules these positions get
-from the rest of the org-chart logic (resync_managers,
-clear_user_from_other_positions)."""
+from the rest of the org-chart logic (resync_managers)."""
 
 from fastapi import HTTPException, status as http_status
 from sqlalchemy import select

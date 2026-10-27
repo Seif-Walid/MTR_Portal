@@ -25,7 +25,6 @@ from app.domains.positions.schemas import (
 from app.domains.positions.service import (
     assert_no_cycle,
     audit,
-    clear_user_from_other_positions,
     resync_managers,
 )
 from app.domains.users.models import User
@@ -57,9 +56,9 @@ def _resolve_occupants(db: DB, user_ids: list[int]) -> list[int]:
 
 
 def _set_real_occupants(db: DB, position: Position, user_ids: list[int]) -> None:
+    """Seating someone here leaves their other seats alone — one person can
+    hold several positions at once (Instructor and Lead, say)."""
     role_engine.set_position_occupants(db, position, user_ids)
-    for uid in user_ids:
-        clear_user_from_other_positions(db, uid, keep_position_id=position.id)
 
 
 @router.get("/tree")

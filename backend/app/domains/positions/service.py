@@ -63,7 +63,9 @@ def resync_managers(db: Session) -> None:
         update(User)
         .where(User.manager_id.in_(real_occupant_ids))
         .values(manager_id=None)
-        .execution_options(synchronize_session=False)
+        # "fetch" keeps already-loaded User rows in step, so re-setting the
+        # same manager below is seen as a change and actually written back
+        .execution_options(synchronize_session="fetch")
     )
 
     positions = all_positions(db)
@@ -87,31 +89,33 @@ def resync_managers(db: Session) -> None:
             cur = parent.parent_id
         return None
 
-    for pos in positions:
+    # A person can hold several real seats (Instructor and Software Lead, say).
+    # manager_id is a single reporting line, so it comes from the highest of
+    # their seats (fewest ancestors) — a seat below one of their own never
+    # makes them their own manager. Tasking reaches every seat's subtree
+    # regardless (hierarchy.position_subordinate_ids).
+    def depth(pos: Position) -> int:
+        d, cur, seen = 0, pos.parent_id, set()
+        while cur is not None and cur not in seen:
+            seen.add(cur)
+            d += 1
+            cur = by_id[cur].parent_id if cur in by_id else None
+        return d
+
+    assigned: set[int] = set()
+    for pos in sorted(positions, key=lambda p: (depth(p), p.id)):
         if pos.role_template_id is not None:
             continue
         if not pos.occupant_links:
             continue
         manager_id = nearest_manager(pos)
         for link in pos.occupant_links:
+            if link.user_id in assigned:
+                continue
+            assigned.add(link.user_id)
             occ = db.get(User, link.user_id)
             if occ is not None:
-                occ.manager_id = manager_id
-
-
-def clear_user_from_other_positions(db: Session, user_id: int, keep_position_id: int | None) -> None:
-    """A person occupies at most one REAL seat. Role-template positions (see
-    resync_managers above) are a separate kind of "hat" and are deliberately
-    left alone — someone can hold their real seat and also occupy any number
-    of role-template positions (a event's PM, a team's Lead, a team's
-    Coach, several at once) without being evicted from either."""
-    for link in db.scalars(
-        select(PositionOccupant)
-        .join(Position, PositionOccupant.position_id == Position.id)
-        .where(PositionOccupant.user_id == user_id, Position.role_template_id.is_(None))
-    ):
-        if link.position_id != keep_position_id:
-            db.delete(link)
+                occ.manager_id = manager_id if manager_id != occ.id else None
 
 
 def audit(db: Session, actor_id: int, action: str, position_id: int | None, detail: dict) -> None:

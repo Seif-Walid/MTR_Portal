@@ -52,6 +52,11 @@ class Task(Base):
     # assigner's choice: when True, every member of event_team_id may view the
     # task (a shared team board); when False, only assigner + assignee see it.
     team_visible: Mapped[bool] = mapped_column(Boolean, default=False)
+    # set when the task hands out a course's task sheet (courses/router.release):
+    # submitting it is what counts toward the learner's course progress.
+    course_material_id: Mapped[int | None] = mapped_column(
+        ForeignKey("course_materials.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -66,10 +71,15 @@ class Task(Base):
     # joined, not lazy: task lists would otherwise emit one query per task just
     # to name the team the work belongs to
     event_team = relationship("EventTeam", lazy="joined")
+    course_material = relationship("CourseMaterial", lazy="joined")
 
     @property
     def event_team_name(self) -> str | None:
         return self.event_team.path_name if self.event_team is not None else None
+
+    @property
+    def course_id(self) -> int | None:
+        return self.course_material.course_id if self.course_material is not None else None
     attachments: Mapped[list["TaskAttachment"]] = relationship(
         back_populates="task", lazy="selectin", cascade="all, delete-orphan"
     )
@@ -81,15 +91,27 @@ class Task(Base):
     )
 
 
+class AttachmentKind(StrEnum):
+    FILE = "file"  # small file kept by the portal itself (upload_dir)
+    DRIVE = "drive"  # file in the connected Google Drive (drive_file_id)
+    LINK = "link"  # a URL: a GitHub repo, an EasyEDA project, a CAD share link
+
+
 class TaskAttachment(Base):
+    """What's attached to a task — including what the assignee submits."""
+
     __tablename__ = "task_attachments"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     task_id: Mapped[int] = mapped_column(
         ForeignKey("tasks.id", ondelete="CASCADE"), index=True
     )
+    kind: Mapped[str] = mapped_column(String(10), default=AttachmentKind.FILE)
+    # the file's name, or a link's label
     filename: Mapped[str] = mapped_column(String(255))
-    stored_name: Mapped[str] = mapped_column(String(255), unique=True)
+    stored_name: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+    drive_file_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     content_type: Mapped[str] = mapped_column(String(120), default="application/octet-stream")
     size: Mapped[int] = mapped_column(Integer, default=0)
     uploaded_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))

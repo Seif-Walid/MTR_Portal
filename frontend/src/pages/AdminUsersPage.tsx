@@ -151,7 +151,7 @@ function LevelsEditor({ levels, privileges, onChanged }: { levels: AccessLevel[]
   return (
     <Card size="small" style={{ marginTop: 24 }} title="Access levels" extra={<Button size="small" icon={<PlusOutlined />} onClick={() => setAdding((v) => !v)}>Add level</Button>}>
       <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-        The ladder of power, strongest first. A person's effective level is the strongest of the seats they occupy plus their personal override; anyone with neither gets the bottom level. Level 1 always holds every privilege and can't be edited or deleted.
+        Levels add up: a person has every privilege of every level they hold — each seat they occupy plus their personal override (an Instructor who is also a Lead gets both). Everyone also gets the bottom level's privileges. Order only sorts the list. Level 1 always holds every privilege and can't be edited or deleted.
       </Typography.Paragraph>
       {adding && (
         <Space style={{ marginBottom: 12 }}>
@@ -194,6 +194,46 @@ function LevelsEditor({ levels, privileges, onChanged }: { levels: AccessLevel[]
   );
 }
 
+/** Where big task submissions (CAD assemblies…) are stored: a Google Drive
+ * connected here. The portal only ever sees the files it created. */
+function DriveCard() {
+  const [status, setStatus] = useState<{ connected: boolean; email: string | null; max_upload_mb: number } | null>(null);
+  const load = useCallback(() => {
+    api.get<typeof status>('/api/drive/status').then(setStatus).catch(() => {});
+  }, []);
+  useEffect(() => {
+    load();
+    const outcome = new URLSearchParams(window.location.search).get('drive');
+    if (outcome === 'connected') message.success('Google Drive connected');
+    if (outcome === 'failed') message.error("Google Drive wasn't connected — tick the Drive permission on Google's screen and try again");
+    if (outcome) window.history.replaceState(null, '', window.location.pathname);
+  }, [load]);
+  const disconnect = async () => {
+    try { await api.delete('/api/drive'); load(); }
+    catch (e) { message.error(e instanceof ApiError ? e.message : 'Failed'); }
+  };
+  if (!status) return null;
+  const limit = status.max_upload_mb >= 1024 ? `${status.max_upload_mb / 1024} GB` : `${status.max_upload_mb} MB`;
+  return (
+    <Card className="circuit-card" style={{ marginBottom: 18 }} size="small"
+      title={<span style={{ fontFamily: DISPLAY }}>File storage</span>}
+      extra={status.connected
+        ? <Space>
+            <Button href="/api/drive/connect" size="small">Switch account</Button>
+            <Popconfirm title="Disconnect Google Drive?" description="Files already there stay in the Drive; new uploads stop until it's reconnected." onConfirm={disconnect}>
+              <Button size="small" danger>Disconnect</Button>
+            </Popconfirm>
+          </Space>
+        : <Button type="primary" href="/api/drive/connect">Connect Google Drive</Button>}>
+      <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+        {status.connected
+          ? <>Task submissions go to the Google Drive of <b style={{ color: '#eaf2ff' }}>{status.email}</b>, in a folder named “MTR Portal uploads” (up to {limit} per file, sent straight from the browser to Google). The portal can only see the files it put there.</>
+          : <>Not connected — submissions are limited to links and small files kept on the server. Connect the club's Google account to accept big files like CAD assemblies (up to {limit} each).</>}
+      </Typography.Text>
+    </Card>
+  );
+}
+
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [levels, setLevels] = useState<AccessLevel[]>([]);
@@ -221,7 +261,7 @@ export default function AdminUsersPage() {
     if (!q) return users;
     return users.filter((u) => {
       const p = u.profile;
-      return [u.full_name, u.email, ...u.seats, u.effective_level,
+      return [u.full_name, u.email, ...u.seats, ...u.levels,
         p?.mtr_id, p?.university, p?.college, p?.major, p?.location, p?.phone]
         .filter(Boolean).some((f) => String(f).toLowerCase().includes(q));
     });
@@ -305,10 +345,10 @@ export default function AdminUsersPage() {
             ) : <Typography.Text type="secondary">—</Typography.Text>,
           },
           {
-            title: 'Level', width: 190,
+            title: 'Levels', width: 220,
             render: (_, u) => (
-              <Space size={4}>
-                {u.effective_level ? <Chip text={u.effective_level} tone="gold" /> : '—'}
+              <Space size={4} wrap>
+                {u.levels.length ? u.levels.map((l) => <Chip key={l} text={l} tone="gold" />) : '—'}
                 {u.access_level_id != null && (
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>(override: {levelById.get(u.access_level_id)?.name ?? '?'})</Typography.Text>
                 )}
@@ -318,6 +358,7 @@ export default function AdminUsersPage() {
           { title: 'Active', width: 90, render: (_, u) => <Switch checked={u.is_active} onChange={(v) => toggleActive(u, v)} size="small" /> },
           { title: '', width: 90, render: (_, u) => <Button size="small" onClick={() => { setEditing(u); setModalOpen(true); }}>Edit</Button> },
         ]} />
+      <DriveCard />
       <LevelsEditor levels={levels} privileges={privileges} onChanged={load} />
       <UserModal user={editing} levels={levels} open={modalOpen} onClose={() => setModalOpen(false)} onSaved={load} />
     </>

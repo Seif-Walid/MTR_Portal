@@ -1,4 +1,4 @@
-import { PaperClipOutlined, StopOutlined, UploadOutlined } from '@ant-design/icons';
+import { CloudOutlined, LinkOutlined, PaperClipOutlined, StopOutlined, UploadOutlined } from '@ant-design/icons';
 import {
   Alert,
   Avatar,
@@ -8,6 +8,7 @@ import {
   Drawer,
   Input,
   List,
+  Progress,
   Space,
   Typography,
   Upload,
@@ -15,9 +16,10 @@ import {
 } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
-import type { Task, TaskHistoryEntry, TaskStatus } from '../api/types';
+import type { Attachment, Task, TaskHistoryEntry, TaskStatus } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { PriorityTag, STATUS_META, StatusTag } from './tags';
 
@@ -48,6 +50,8 @@ function historyLine(actor: string, action: string, detail: string): string {
       return `${actor} marked this blocked${d.reason ? `: ${d.reason}` : ''}`;
     case 'unblocked':
       return `${actor} unblocked this task`;
+    case 'attached':
+      return `${actor} added ${d.kind === 'link' ? 'a link' : 'a file'}: ${d.name ?? ''}`;
     default:
       return `${actor} ${action}`;
   }
@@ -76,6 +80,34 @@ const REVIEWER_ACTIONS: Partial<Record<TaskStatus, WorkflowAction[]>> = {
   ],
 };
 
+const fmtSize = (n: number) =>
+  n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2)} GB`
+    : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024).toFixed(1)} KB`;
+
+const ATTACHMENT_ICON: Record<Attachment['kind'], React.ReactNode> = {
+  file: <PaperClipOutlined />,
+  drive: <CloudOutlined />,
+  link: <LinkOutlined />,
+};
+
+/** PUTs the file straight to Google's resumable-upload URL, reporting
+ * progress; resolves with Drive's file id. */
+function putToDrive(url: string, file: File, onProgress: (pct: number) => void): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((100 * e.loaded) / e.total)); };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText).id); } catch { reject(new Error('Unexpected reply from Google Drive')); }
+      } else reject(new Error(`Google Drive refused the upload (${xhr.status})`));
+    };
+    xhr.onerror = () => reject(new Error('Upload to Google Drive failed — check your connection'));
+    xhr.send(file);
+  });
+}
+
 export default function TaskDrawer({
   taskId,
   onClose,
@@ -94,6 +126,14 @@ export default function TaskDrawer({
   const [blockReason, setBlockReason] = useState('');
   const [commentBody, setCommentBody] = useState('');
   const [commenting, setCommenting] = useState(false);
+  const [drive, setDrive] = useState<{ connected: boolean; max_upload_mb: number } | null>(null);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkTitle, setLinkTitle] = useState('');
+
+  useEffect(() => {
+    api.get<{ connected: boolean; max_upload_mb: number }>('/api/drive/status').then(setDrive).catch(() => {});
+  }, []);
 
   const load = (id: number) =>
     api
@@ -156,16 +196,44 @@ export default function TaskDrawer({
 
   const upload = async (file: File) => {
     if (!task) return false;
-    const form = new FormData();
-    form.append('file', file);
     try {
-      await api.upload(`/api/tasks/${task.id}/attachments`, form);
+      if (drive?.connected) {
+        // big files (CAD assemblies) go browser → Google Drive directly
+        if (file.size > drive.max_upload_mb * 1024 * 1024) {
+          message.error(`Files can be up to ${fmtSize(drive.max_upload_mb * 1024 * 1024)}`);
+          return false;
+        }
+        const { upload_url } = await api.post<{ upload_url: string }>(`/api/tasks/${task.id}/drive-uploads`, {
+          filename: file.name, size: file.size, content_type: file.type || 'application/octet-stream',
+        });
+        setUploadPct(0);
+        const fileId = await putToDrive(upload_url, file, setUploadPct);
+        await api.post(`/api/tasks/${task.id}/drive-uploads/complete`, { file_id: fileId });
+      } else {
+        const form = new FormData();
+        form.append('file', file);
+        await api.upload(`/api/tasks/${task.id}/attachments`, form);
+      }
       await load(task.id);
-      message.success('Attachment uploaded');
+      message.success(`${file.name} uploaded`);
     } catch (e) {
-      message.error(e instanceof ApiError ? e.message : 'Upload failed');
+      message.error(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setUploadPct(null);
     }
     return false; // prevent antd's own upload
+  };
+
+  const addLink = async () => {
+    if (!task || !linkUrl.trim()) return;
+    try {
+      await api.post(`/api/tasks/${task.id}/links`, { url: linkUrl.trim(), title: linkTitle.trim() || null });
+      setLinkUrl('');
+      setLinkTitle('');
+      await load(task.id);
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : 'Could not add the link');
+    }
   };
 
   const submitBlock = async (isBlocked: boolean) => {
@@ -264,6 +332,12 @@ export default function TaskDrawer({
                 {task.team_visible ? ' · visible to the whole team' : ''}
               </Descriptions.Item>
             )}
+            {task.course_id && task.course_material_id && (
+              <Descriptions.Item label="Course">
+                <Link to={`/courses/${task.course_id}/${task.course_material_id}`}>Open the task sheet</Link>
+                {' · submitting this counts toward your course progress'}
+              </Descriptions.Item>
+            )}
             <Descriptions.Item label="Due date">
               {task.due_date ? dayjs(task.due_date).format('DD MMM YYYY') : '—'}
             </Descriptions.Item>
@@ -324,26 +398,44 @@ export default function TaskDrawer({
             </>
           )}
 
-          <Divider plain>Attachments</Divider>
+          <Divider plain>Files &amp; links</Divider>
           <List
             size="small"
-            locale={{ emptyText: 'No attachments' }}
+            locale={{ emptyText: 'Nothing attached yet' }}
             dataSource={task.attachments}
             renderItem={(a) => (
               <List.Item>
-                <a href={`/api/tasks/attachments/${a.id}`} target="_blank" rel="noreferrer">
-                  <PaperClipOutlined /> {a.filename}
+                <a href={a.kind === 'link' && a.url ? a.url : `/api/tasks/attachments/${a.id}`} target="_blank" rel="noreferrer"
+                  style={{ overflowWrap: 'anywhere' }}>
+                  {ATTACHMENT_ICON[a.kind]} {a.filename}
                 </a>
-                <Typography.Text type="secondary">{(a.size / 1024).toFixed(1)} KB</Typography.Text>
+                <Typography.Text type="secondary">
+                  {a.kind === 'link' ? 'link' : fmtSize(a.size)}
+                </Typography.Text>
               </List.Item>
             )}
           />
           {(isAssignee || task.assigner.id === me.id || me.level?.rank === 1) && (
-            <Upload beforeUpload={upload} showUploadList={false}>
-              <Button icon={<UploadOutlined />} style={{ marginTop: 8 }}>
-                Add attachment
-              </Button>
-            </Upload>
+            <Space direction="vertical" style={{ width: '100%', marginTop: 8 }} size={8}>
+              <Space.Compact style={{ width: '100%' }}>
+                <Input placeholder="Link — GitHub, EasyEDA, Onshape…" value={linkUrl}
+                  onChange={(e) => setLinkUrl(e.target.value)} onPressEnter={addLink} />
+                <Input placeholder="Label (optional)" value={linkTitle} style={{ maxWidth: 160 }}
+                  onChange={(e) => setLinkTitle(e.target.value)} onPressEnter={addLink} />
+                <Button icon={<LinkOutlined />} onClick={addLink} disabled={!linkUrl.trim()}>Add</Button>
+              </Space.Compact>
+              <Upload beforeUpload={upload} showUploadList={false} disabled={uploadPct !== null}>
+                <Button icon={<UploadOutlined />} loading={uploadPct !== null}>
+                  Upload file
+                </Button>
+              </Upload>
+              {uploadPct !== null && <Progress percent={uploadPct} size="small" />}
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {drive?.connected
+                  ? `Files go to the club's Google Drive — up to ${fmtSize(drive.max_upload_mb * 1024 * 1024)} each.`
+                  : 'Files up to 25 MB. For bigger files, add a link (or ask an admin to connect Google Drive).'}
+              </Typography.Text>
+            </Space>
           )}
 
           <Divider plain>Activity</Divider>

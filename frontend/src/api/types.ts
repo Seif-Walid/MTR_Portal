@@ -40,7 +40,8 @@ export interface AccessLevel extends LevelBrief {
 
 export interface Me extends UserBrief {
   manager_id: number | null;
-  level: LevelBrief | null;
+  level: LevelBrief | null; // strongest held level — a label; privileges add up
+  levels: string[]; // every level held (seats + override)
   privileges: string[];
   has_team: boolean;
   google_linked: boolean;
@@ -56,6 +57,7 @@ export interface AdminUser extends UserBrief {
   created_at: string;
   access_level_id: number | null; // the personal override
   effective_level: string | null; // computed from seats + override
+  levels: string[]; // every level held — their privileges add up
   effective_rank: number | null;
   seats: string[]; // org positions occupied — the org's reflection
   profile: MemberProfile | null; // imported roster record (directory fields), if any
@@ -72,7 +74,9 @@ export type Priority = 'low' | 'medium' | 'high' | 'urgent';
 
 export interface Attachment {
   id: number;
-  filename: string;
+  kind: 'file' | 'drive' | 'link';
+  filename: string; // a link's label
+  url: string | null; // links only
   content_type: string;
   size: number;
   uploaded_by_id: number;
@@ -110,6 +114,8 @@ export interface Task {
   event_team_id: number | null;
   event_team_name: string | null;
   team_visible: boolean;
+  course_material_id: number | null; // hands out a course task sheet
+  course_id: number | null;
   created_at: string;
   updated_at: string;
   attachments: Attachment[];
@@ -763,7 +769,9 @@ export interface CourseMaterial {
   sort_order: number;
   is_released: boolean;
   url: string | null; // null = held back from this viewer
-  completed: boolean;
+  completed: boolean; // task sheets: the viewer's Task for it is submitted
+  task: { id: number; status: TaskStatus } | null; // the viewer's own Task for this sheet
+  handout: { assigned: number; submitted: number } | null; // managers, task sheets
 }
 
 export interface CourseDetail extends Course {

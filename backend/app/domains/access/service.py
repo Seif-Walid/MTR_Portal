@@ -110,23 +110,40 @@ def seat_levels(db: Session, user_id: int) -> list[AccessLevel]:
     ))
 
 
-def effective_level(db: Session, user: User) -> AccessLevel | None:
-    """Strongest of: the user's personal override + every occupied seat's
-    level. With neither, the bottom-most level applies — that's the ladder's
-    default tier ("guests"), so toggling a privilege onto the bottom level
-    grants it to everyone signed in."""
-    candidates = seat_levels(db, user.id)
+def held_levels(db: Session, user: User) -> list[AccessLevel]:
+    """Every level the user holds: each occupied seat's level plus their
+    personal override, strongest first. With neither, the bottom-most level
+    applies — that's the default tier ("guests")."""
+    found = {lvl.id: lvl for lvl in seat_levels(db, user.id)}
     if user.access_level_id is not None:
         override = db.get(AccessLevel, user.access_level_id)
         if override is not None:
-            candidates.append(override)
-    if candidates:
-        return min(candidates, key=lambda lvl: lvl.rank)
-    return bottom_level(db)
+            found[override.id] = override
+    if not found:
+        bottom = bottom_level(db)
+        return [bottom] if bottom is not None else []
+    return sorted(found.values(), key=lambda lvl: lvl.rank)
+
+
+def effective_level(db: Session, user: User) -> AccessLevel | None:
+    """The strongest held level — only a label/sort key now; what a person may
+    do is the union of every level they hold (privileges_for)."""
+    levels = held_levels(db, user)
+    return levels[0] if levels else None
+
+
+def privileges_of_levels(db: Session, levels: list[AccessLevel]) -> set[str]:
+    """Levels add up: an Instructor who is also a Lead has both levels'
+    privileges. The bottom level is everyone's floor, so toggling a privilege
+    onto it grants it to everyone signed in."""
+    out = privileges_of(db, bottom_level(db))
+    for level in levels:
+        out |= privileges_of(db, level)
+    return out
 
 
 def privileges_for(db: Session, user: User) -> set[str]:
-    return privileges_of(db, effective_level(db, user))
+    return privileges_of_levels(db, held_levels(db, user))
 
 
 def has_privilege(db: Session, user: User, key: str) -> bool:
@@ -142,42 +159,50 @@ def require_privilege(db: Session, user: User, key: str) -> None:
 
 
 def is_top(db: Session, user: User) -> bool:
-    """Effective level is the ladder's top — replaces the old is_admin
-    bypasses (top level ignores structural limits like the task subtree)."""
+    """Holds the ladder's top level — replaces the old is_admin bypasses (top
+    level ignores structural limits like the task subtree)."""
     level = effective_level(db, user)
     return level is not None and level.rank == top_rank(db)
 
 
-def effective_levels_bulk(db: Session, user_ids: list[int]) -> dict[int, AccessLevel | None]:
-    """effective_level for many users in three queries — for list endpoints
-    that need every user's level without an N+1."""
+def held_levels_bulk(db: Session, user_ids: list[int]) -> dict[int, list[AccessLevel]]:
+    """held_levels for many users in three queries — for list endpoints
+    that need every user's levels without an N+1."""
     levels = {lvl.id: lvl for lvl in list_levels(db)}
-    fallback = min(levels.values(), key=lambda lvl: -lvl.rank) if levels else None
-    candidates: dict[int, list[AccessLevel]] = {uid: [] for uid in user_ids}
+    fallback = [max(levels.values(), key=lambda lvl: lvl.rank)] if levels else []
+    found: dict[int, dict[int, AccessLevel]] = {uid: {} for uid in user_ids}
     for uid, level_id in db.execute(
         select(PositionOccupant.user_id, Position.access_level_id)
         .join(Position, Position.id == PositionOccupant.position_id)
         .where(PositionOccupant.user_id.in_(user_ids), Position.access_level_id.is_not(None))
     ):
-        candidates[uid].append(levels[level_id])
+        if level_id in levels:
+            found[uid][level_id] = levels[level_id]
     for uid, override_id in db.execute(
         select(User.id, User.access_level_id).where(
             User.id.in_(user_ids), User.access_level_id.is_not(None)
         )
     ):
         if override_id in levels:
-            candidates[uid].append(levels[override_id])
+            found[uid][override_id] = levels[override_id]
     return {
-        uid: (min(found, key=lambda lvl: lvl.rank) if found else fallback)
-        for uid, found in candidates.items()
+        uid: (sorted(lv.values(), key=lambda lvl: lvl.rank) if lv else list(fallback))
+        for uid, lv in found.items()
     }
 
 
+def effective_levels_bulk(db: Session, user_ids: list[int]) -> dict[int, AccessLevel | None]:
+    return {uid: (lv[0] if lv else None) for uid, lv in held_levels_bulk(db, user_ids).items()}
+
+
+def privileges_bulk(db: Session, user_ids: list[int]) -> dict[int, set[str]]:
+    return {uid: privileges_of_levels(db, lv) for uid, lv in held_levels_bulk(db, user_ids).items()}
+
+
 def users_with_privilege(db: Session, key: str) -> set[int]:
-    """IDs of active users whose effective level includes the privilege."""
+    """IDs of active users whose combined levels include the privilege."""
     ids = list(db.scalars(select(User.id).where(User.is_active)))
-    by_user = effective_levels_bulk(db, ids)
-    return {uid for uid, lvl in by_user.items() if key in privileges_of(db, lvl)}
+    return {uid for uid, keys in privileges_bulk(db, ids).items() if key in keys}
 
 
 # --- lockout guards ---------------------------------------------------------

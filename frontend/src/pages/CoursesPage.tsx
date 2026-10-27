@@ -1,6 +1,7 @@
 import {
   ArrowLeftOutlined,
   CheckOutlined,
+  SendOutlined,
   DeleteOutlined,
   EditOutlined,
   ExportOutlined,
@@ -19,6 +20,7 @@ import {
 import {
   Button,
   ColorPicker,
+  DatePicker,
   Empty,
   Form,
   Input,
@@ -38,7 +40,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
-import type { Course, CourseDetail, CourseMaterial, MaterialKind } from '../api/types';
+import type { Course, CourseDetail, CourseMaterial, MaterialKind, TaskStatus } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
 import { C, hexA } from '../theme/circuitTokens';
 
@@ -232,6 +234,7 @@ function CoursePage({ courseId }: { courseId: number }) {
   const [editing, setEditing] = useState<CourseMaterial | null>(null);
   const [settings, setSettings] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [handing, setHanding] = useState<{ unit?: number; materialId?: number } | null>(null);
 
   const load = useCallback(() => {
     api.get<CourseDetail>(`/api/courses/${courseId}`).then(setCourse).catch((e) => {
@@ -245,15 +248,6 @@ function CoursePage({ courseId }: { courseId: number }) {
   if (!course || !active) return <div style={{ display: 'grid', placeItems: 'center', padding: 80 }}><Spin /></div>;
 
   const items = course.materials.filter((m) => m.kind === active);
-  const toggleDone = async (m: CourseMaterial) => {
-    const url = `/api/courses/${course.id}/materials/${m.id}/progress`;
-    try {
-      await (m.completed ? api.delete(url) : api.put(url, {}));
-      load();
-    } catch (e) {
-      fail(e);
-    }
-  };
 
   return (
     <div style={{ maxWidth: 1180, margin: '0 auto' }}>
@@ -285,7 +279,7 @@ function CoursePage({ courseId }: { courseId: number }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 20 }}>
             <div style={{ flex: 1, maxWidth: 420 }}><Progress percent={course.percent} accent={course.accent} /></div>
             <PercentLabel percent={course.percent} accent={course.accent} />
-            <div style={{ fontFamily: C.mono, fontSize: 11, color: C.textFaint }}>{course.completed}/{course.total} done</div>
+            <div style={{ fontFamily: C.mono, fontSize: 11, color: C.textFaint }}>{course.completed}/{course.total} tasks submitted</div>
           </div>
         </div>
       </div>
@@ -313,8 +307,16 @@ function CoursePage({ courseId }: { courseId: number }) {
         })}
       </div>
 
+      {active === 'tasks' && !course.can_manage && (
+        <p style={{ color: C.textMuted, margin: '0 0 14px', fontSize: 13 }}>
+          Task sheets appear once your instructor hands them out. Submit each from the Tasks tab — that's what fills your progress.
+        </p>
+      )}
       {course.can_manage && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 14 }}>
+          {active === 'tasks' && items.length > 0 && (
+            <Button type="primary" icon={<SendOutlined />} onClick={() => setHanding({})}>Hand out tasks</Button>
+          )}
           <Button icon={<PlusOutlined />} onClick={() => setAdding(true)}>
             Add to {kinds.find((k) => k.key === active)?.label ?? active}
           </Button>
@@ -331,7 +333,8 @@ function CoursePage({ courseId }: { courseId: number }) {
               accent={course.accent}
               manage={course.can_manage}
               onOpen={() => navigate(`/courses/${course.id}/${m.id}`)}
-              onToggle={() => toggleDone(m)}
+              onOpenTask={() => m.task && navigate(`/tasks?task=${m.task.id}`)}
+              onHandOut={() => setHanding({ materialId: m.id })}
               onEdit={() => setEditing(m)}
             />
           ))}
@@ -355,6 +358,14 @@ function CoursePage({ courseId }: { courseId: number }) {
           onSaved={() => { setAdding(false); load(); }}
         />
       )}
+      {handing && (
+        <HandOutModal
+          course={course}
+          initial={handing}
+          onClose={() => setHanding(null)}
+          onDone={() => { setHanding(null); load(); }}
+        />
+      )}
       {settings && (
         <CourseFormModal
           course={course}
@@ -367,11 +378,24 @@ function CoursePage({ courseId }: { courseId: number }) {
   );
 }
 
+const TASK_STATUS: Record<TaskStatus, { label: string; color: string }> = {
+  todo: { label: 'To do', color: 'default' },
+  in_progress: { label: 'In progress', color: 'processing' },
+  submitted: { label: 'Submitted', color: 'success' },
+  approved: { label: 'Approved', color: 'success' },
+  revision_requested: { label: 'Needs revision', color: 'warning' },
+};
+
+function TaskStatusTag({ status }: { status: TaskStatus }) {
+  const s = TASK_STATUS[status];
+  return <Tag color={s.color} style={{ margin: 0 }}>{s.label}</Tag>;
+}
+
 function MaterialCard({
-  m, accent, manage, onOpen, onToggle, onEdit,
+  m, accent, manage, onOpen, onOpenTask, onHandOut, onEdit,
 }: {
   m: CourseMaterial; accent: string; manage: boolean;
-  onOpen: () => void; onToggle: () => void; onEdit: () => void;
+  onOpen: () => void; onOpenTask: () => void; onHandOut: () => void; onEdit: () => void;
 }) {
   const locked = m.url === null;
   return (
@@ -395,6 +419,10 @@ function MaterialCard({
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
           {locked && <span style={{ fontSize: 12, color: C.amber }}><LockOutlined /> Not released yet</span>}
           {manage && !m.is_released && <Tag color="warning" style={{ margin: 0 }}>Held back</Tag>}
+          {m.task && <TaskStatusTag status={m.task.status} />}
+          {m.handout && (
+            <Tag style={{ margin: 0 }}>{m.handout.submitted}/{m.handout.assigned} submitted</Tag>
+          )}
           {m.is_link && <Tag icon={<LinkOutlined />} style={{ margin: 0 }}>Link</Tag>}
           {manage && (m.is_link ? m.url : m.path) && (
             <span style={{ fontFamily: C.mono, fontSize: 10.5, color: C.textFaint, overflowWrap: 'anywhere' }}>
@@ -405,19 +433,98 @@ function MaterialCard({
       </div>
       <div style={{ display: 'flex', gap: 4 }} onClick={(e) => e.stopPropagation()}>
         {manage && <Button size="small" type="text" icon={<EditOutlined />} onClick={onEdit} aria-label="Edit" />}
-        {!locked && (
+        {manage && m.kind === 'tasks' && (
+          <Button size="small" type="text" icon={<SendOutlined />} onClick={onHandOut} aria-label="Hand out" title="Hand out as tasks" />
+        )}
+        {m.task && (
           <Button
             size="small"
             shape="circle"
-            onClick={onToggle}
-            aria-label={m.completed ? 'Mark not done' : 'Mark done'}
-            title={m.completed ? 'Done — click to undo' : 'Mark done'}
+            onClick={onOpenTask}
+            aria-label="Open in Tasks"
+            title={m.completed ? 'Submitted — open in Tasks' : 'Open in Tasks to submit'}
             icon={<CheckOutlined />}
             style={m.completed ? { background: accent, borderColor: accent, color: '#06080c' } : { color: C.textFaint }}
           />
         )}
       </div>
     </div>
+  );
+}
+
+/** Hand task sheets out as Tasks — a whole week, or one sheet — to people
+ * and/or a team. Submitting the Task is what moves each learner's progress. */
+function HandOutModal({
+  course, initial, onClose, onDone,
+}: {
+  course: CourseDetail; initial: { unit?: number; materialId?: number };
+  onClose: () => void; onDone: () => void;
+}) {
+  const [form] = Form.useForm();
+  const [busy, setBusy] = useState(false);
+  const [picker, setPicker] = useState<{ people: { id: number; full_name: string }[]; teams: { id: number; name: string }[] }>({ people: [], teams: [] });
+  useEffect(() => {
+    api.get<typeof picker>(`/api/courses/${course.id}/learners`).then(setPicker).catch(fail);
+  }, [course.id]);
+
+  const sheets = course.materials.filter((m) => m.kind === 'tasks');
+  const units = [...new Map(sheets.filter((m) => m.unit != null).map((m) => [m.unit!, m.unit_label ?? `Unit ${m.unit}`])).entries()]
+    .sort((a, b) => a[0] - b[0]);
+  const scopeOptions = [
+    ...units.map(([u, label]) => ({ value: `u:${u}`, label: `${label} — every task sheet` })),
+    ...sheets.map((m) => ({ value: `m:${m.id}`, label: `${m.unit_label ? m.unit_label + ' · ' : ''}${m.title}` })),
+  ];
+  const initialScope = initial.materialId ? `m:${initial.materialId}`
+    : units.length ? `u:${(units.find(([u]) => sheets.some((m) => m.unit === u && !m.is_released)) ?? units[0])[0]}` : undefined;
+
+  const submit = async () => {
+    const v = await form.validateFields();
+    if (!v.assignee_ids?.length && v.event_team_id == null) {
+      message.warning('Pick people or a team');
+      return;
+    }
+    const [k, id] = String(v.scope).split(':');
+    setBusy(true);
+    try {
+      const r = await api.post<{ created: number; skipped: number; learners: number }>(`/api/courses/${course.id}/hand-out`, {
+        unit: k === 'u' ? Number(id) : null,
+        material_ids: k === 'm' ? [Number(id)] : [],
+        assignee_ids: v.assignee_ids ?? [],
+        event_team_id: v.event_team_id ?? null,
+        due_date: v.due_date ? v.due_date.format('YYYY-MM-DD') : null,
+      });
+      message.success(`${r.created} task${r.created === 1 ? '' : 's'} assigned to ${r.learners} learner${r.learners === 1 ? '' : 's'}`
+        + (r.skipped ? ` (${r.skipped} already had it)` : ''));
+      onDone();
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open title="Hand out tasks" okText="Hand out" onOk={submit} confirmLoading={busy} onCancel={onClose} destroyOnHidden>
+      <p style={{ color: C.textMuted, marginTop: 0 }}>
+        Releases the task sheet and gives each learner a task in their Tasks tab. You review what they submit; submitting it is what fills their course progress.
+      </p>
+      <Form form={form} layout="vertical" initialValues={{ scope: initialScope }}>
+        <Form.Item name="scope" label="What" rules={[{ required: true, message: 'Pick a week or a sheet' }]}>
+          <Select options={scopeOptions} showSearch optionFilterProp="label" />
+        </Form.Item>
+        <Form.Item name="event_team_id" label="To a team" extra="Everyone on the team (sub-teams included).">
+          <Select allowClear showSearch optionFilterProp="label" placeholder="No team"
+            options={picker.teams.map((t) => ({ value: t.id, label: t.name }))} />
+        </Form.Item>
+        <Form.Item name="assignee_ids" label="And/or to people">
+          <Select mode="multiple" allowClear showSearch optionFilterProp="label" placeholder="Pick learners"
+            options={picker.people.map((p) => ({ value: p.id, label: p.full_name }))} />
+        </Form.Item>
+        <Form.Item name="due_date" label="Due">
+          <DatePicker style={{ width: '100%' }} />
+        </Form.Item>
+      </Form>
+    </Modal>
   );
 }
 
@@ -466,15 +573,6 @@ function MaterialViewer({ courseId, materialId }: { courseId: number; materialId
   const prev = shelf[i - 1];
   const next = shelf[i + 1];
   const go = (x?: CourseMaterial) => x && navigate(`/courses/${course.id}/${x.id}`);
-  const toggle = async () => {
-    const url = `/api/courses/${course.id}/materials/${m.id}/progress`;
-    try {
-      await (m.completed ? api.delete(url) : api.put(url, {}));
-      load();
-    } catch (e) {
-      fail(e);
-    }
-  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: 'calc(100vh - 170px)', minHeight: 520 }}>
@@ -497,14 +595,16 @@ function MaterialViewer({ courseId, materialId }: { courseId: number; materialId
           title={isFullscreen ? 'Exit full screen' : 'Full screen'}
         />
         <Button icon={<ExportOutlined />} href={m.url} target="_blank" rel="noopener">Open in new tab</Button>
-        <Button
-          type={m.completed ? 'default' : 'primary'}
-          icon={<CheckOutlined />}
-          onClick={toggle}
-          style={m.completed ? { borderColor: course.accent, color: course.accent } : undefined}
-        >
-          {m.completed ? 'Done' : 'Mark done'}
-        </Button>
+        {m.task && (
+          <Button
+            type={m.completed ? 'default' : 'primary'}
+            icon={<CheckOutlined />}
+            onClick={() => navigate(`/tasks?task=${m.task!.id}`)}
+            style={m.completed ? { borderColor: course.accent, color: course.accent } : undefined}
+          >
+            {m.completed ? TASK_STATUS[m.task.status].label : 'Submit in Tasks'}
+          </Button>
+        )}
       </div>
       <div
         ref={viewerRef}

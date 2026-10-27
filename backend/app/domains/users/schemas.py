@@ -77,8 +77,9 @@ class SelfProfileIn(BaseModel):
 
 class MeOut(UserBrief):
     manager_id: int | None
-    level: LevelBrief | None  # effective level (strongest of seats + override)
-    privileges: list[str]
+    level: LevelBrief | None  # strongest held level (a label; privileges add up)
+    levels: list[str] = []  # every held level, strongest first
+    privileges: list[str]  # union of every held level's privileges
     has_team: bool
     google_linked: bool
     created_at: datetime
@@ -94,6 +95,7 @@ class UserAdminOut(UserBrief):
     access_level_id: int | None = None  # the personal override (may be None)
     effective_level: str | None = None  # computed: strongest of seats + override
     effective_rank: int | None = None
+    levels: list[str] = []  # every level held (seats + override) — privileges add up
     seats: list[str] = []  # titles of org positions occupied — the org's reflection
     # the roster record (imported biographical/contact fields), if any — the
     # management view doubles as the member directory

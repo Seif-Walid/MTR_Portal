@@ -10,7 +10,9 @@ class AttachmentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    kind: str = "file"
     filename: str
+    url: str | None = None  # links only
     content_type: str
     size: int
     uploaded_by_id: int
@@ -45,6 +47,8 @@ class TaskOut(BaseModel):
     event_team_id: int | None
     event_team_name: str | None = None
     team_visible: bool
+    course_material_id: int | None = None
+    course_id: int | None = None
     created_at: datetime
     updated_at: datetime
     attachments: list[AttachmentOut] = []

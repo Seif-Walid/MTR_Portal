@@ -2,7 +2,9 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import Request
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.core.config import settings
@@ -15,7 +17,8 @@ from app.domains.events.service import team_member_user_ids
 from app.domains.hierarchy.service import can_assign_task
 from app.domains.notifications.models import NotificationType
 from app.domains.notifications.service import notify
-from app.domains.tasks.models import Task, TaskAttachment
+from app.domains.drive import service as drive
+from app.domains.tasks.models import AttachmentKind, Task, TaskAttachment
 from app.domains.tasks.schemas import (
     AttachmentOut,
     BlockedChange,
@@ -266,13 +269,105 @@ def set_status(task_id: int, payload: StatusChange, db: DB, user: CurrentUser) -
     return TaskOut.model_validate(change_status(db, user, task, payload.status))
 
 
-@router.post("/{task_id}/attachments", status_code=status.HTTP_201_CREATED)
-def upload_attachment(task_id: int, file: UploadFile, db: DB, user: CurrentUser) -> AttachmentOut:
+def _attachable_task(db: DB, user: User, task_id: int) -> Task:
     task = get_task_or_404(db, user, task_id)
     if user.id not in (task.assigner_id, task.assignee_id) and not access.is_top(db, user):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Only the assigner or assignee can attach files"
         )
+    return task
+
+
+def _record(db: DB, task: Task, user: User, **fields) -> AttachmentOut:
+    attachment = TaskAttachment(task_id=task.id, uploaded_by_id=user.id, **fields)
+    db.add(attachment)
+    audit_log(db, user.id, "tasks", "attached", "task", task.id,
+              {"kind": fields.get("kind"), "name": fields.get("filename")})
+    db.commit()
+    db.refresh(attachment)
+    return AttachmentOut.model_validate(attachment)
+
+
+class LinkIn(BaseModel):
+    url: str = Field(min_length=8, max_length=1000)
+    title: str | None = Field(default=None, max_length=255)
+
+
+@router.post("/{task_id}/links", status_code=status.HTTP_201_CREATED)
+def add_link(task_id: int, payload: LinkIn, db: DB, user: CurrentUser) -> AttachmentOut:
+    """A submission that lives elsewhere — a GitHub repo or PR, an EasyEDA
+    project, an Onshape/Fusion share link. Nothing is stored but the URL."""
+    task = _attachable_task(db, user, task_id)
+    url = payload.url.strip()
+    if not url.lower().startswith(("https://", "http://")):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Links must start with https://")
+    title = (payload.title or "").strip() or url.split("://", 1)[1].split("?")[0][:255]
+    return _record(db, task, user, kind=AttachmentKind.LINK, filename=title, url=url,
+                   content_type="text/uri-list", size=0)
+
+
+class DriveUploadIn(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    size: int = Field(ge=1)
+    content_type: str = Field(default="application/octet-stream", max_length=120)
+
+
+def _drive_folder(task: Task) -> list[str]:
+    """Where a task's files land: Courses/<course>/<week>/<person> for a
+    course task sheet, Tasks/<person> otherwise."""
+    person = task.assignee.full_name
+    if task.course_material is not None:
+        m = task.course_material
+        return ["Courses", m.course.title, m.unit_label or m.title, person]
+    return ["Tasks", person]
+
+
+@router.post("/{task_id}/drive-uploads")
+def start_drive_upload(task_id: int, payload: DriveUploadIn, request: Request,
+                       db: DB, user: CurrentUser) -> dict:
+    """Opens an upload straight from the browser to the connected Google
+    Drive; the file never passes through this server. The browser PUTs the
+    bytes to `upload_url`, then calls .../drive-uploads/complete."""
+    task = _attachable_task(db, user, task_id)
+    limit = settings.drive_max_upload_mb
+    if payload.size > limit * 1024 * 1024:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            f"Files can be up to {limit // 1024 if limit >= 1024 else limit} "
+                            f"{'GB' if limit >= 1024 else 'MB'}")
+    conn = drive.require_connection(db)
+    folder = drive.folder_path(db, conn, _drive_folder(task))
+    url = drive.start_upload(
+        conn, folder_id=folder, name=payload.filename, content_type=payload.content_type,
+        size=payload.size, origin=request.headers.get("origin"),
+        app_properties={"task_id": str(task.id), "user_id": str(user.id)},
+    )
+    return {"upload_url": url}
+
+
+class DriveCompleteIn(BaseModel):
+    file_id: str = Field(min_length=5, max_length=128)
+
+
+@router.post("/{task_id}/drive-uploads/complete", status_code=status.HTTP_201_CREATED)
+def complete_drive_upload(task_id: int, payload: DriveCompleteIn, db: DB, user: CurrentUser) -> AttachmentOut:
+    """Records a finished Drive upload against the task. The file must be one
+    this portal opened for this task and person (its appProperties say so)."""
+    task = _attachable_task(db, user, task_id)
+    conn = drive.require_connection(db)
+    meta = drive.file_meta(conn, payload.file_id)
+    props = meta.get("appProperties") or {}
+    if props.get("task_id") != str(task.id) or props.get("user_id") != str(user.id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "That upload doesn't belong to this task")
+    return _record(db, task, user, kind=AttachmentKind.DRIVE, filename=meta.get("name", "file")[:255],
+                   drive_file_id=meta["id"], content_type=meta.get("mimeType") or "application/octet-stream",
+                   size=int(meta.get("size") or 0))
+
+
+@router.post("/{task_id}/attachments", status_code=status.HTTP_201_CREATED)
+def upload_attachment(task_id: int, file: UploadFile, db: DB, user: CurrentUser) -> AttachmentOut:
+    """A small file kept by the portal itself — the fallback while no Drive
+    is connected (capped at max_upload_mb)."""
+    task = _attachable_task(db, user, task_id)
     data = file.file.read(settings.max_upload_mb * 1024 * 1024 + 1)
     if len(data) > settings.max_upload_mb * 1024 * 1024:
         raise HTTPException(
@@ -298,13 +393,25 @@ def upload_attachment(task_id: int, file: UploadFile, db: DB, user: CurrentUser)
     return AttachmentOut.model_validate(attachment)
 
 
-@router.get("/attachments/{attachment_id}")
-def download_attachment(attachment_id: int, db: DB, user: CurrentUser) -> FileResponse:
+@router.get("/attachments/{attachment_id}", response_model=None)
+def download_attachment(attachment_id: int, db: DB, user: CurrentUser):
     attachment = db.get(TaskAttachment, attachment_id)
     if attachment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
     get_task_or_404(db, user, attachment.task_id)  # visibility check
-    path = settings.upload_dir / attachment.stored_name
-    if not path.is_file():
+    if attachment.kind == AttachmentKind.LINK:
+        return RedirectResponse(attachment.url or "/")
+    if attachment.kind == AttachmentKind.DRIVE:
+        # streamed through the portal so the Drive file itself stays private
+        conn = drive.require_connection(db)
+        quoted = attachment.filename.replace('"', "")
+        return StreamingResponse(
+            drive.stream(conn, attachment.drive_file_id or ""),
+            media_type=attachment.content_type,
+            headers={"Content-Disposition": f'attachment; filename="{quoted}"',
+                     **({"Content-Length": str(attachment.size)} if attachment.size else {})},
+        )
+    path = settings.upload_dir / (attachment.stored_name or "")
+    if not attachment.stored_name or not path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File missing from storage")
     return FileResponse(path, filename=attachment.filename, media_type=attachment.content_type)

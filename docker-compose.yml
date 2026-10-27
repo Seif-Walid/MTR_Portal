@@ -38,6 +38,10 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:${FRONTEND_PORT:-8080}}
     ports:
       - "8000:8000"
+    # Small task attachments kept by the portal itself (big ones go to the
+    # connected Google Drive). Without a volume they'd vanish on every deploy.
+    volumes:
+      - portal_uploads:/app/uploads
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/auth/config')"]
       interval: 5s
@@ -56,3 +60,4 @@ services:
 
 volumes:
   portal_pgdata:
+  portal_uploads:

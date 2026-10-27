@@ -99,8 +99,8 @@ def submit(db: Session, payload: ApplicationIn, sender: str | None) -> Applicati
 def reviewer_ids(db: Session) -> list[int]:
     """Active accounts whose level lets them act on applications."""
     ids = list(db.scalars(select(User.id).where(User.is_active.is_(True))))
-    levels = access.effective_levels_bulk(db, ids)
-    return [uid for uid in ids if REVIEW_PRIVILEGE in access.privileges_of(db, levels.get(uid))]
+    keys = access.privileges_bulk(db, ids)
+    return [uid for uid in ids if REVIEW_PRIVILEGE in keys.get(uid, set())]
 
 
 def roster_index(db: Session) -> tuple[dict[str, list[MemberProfile]], dict[str, list[MemberProfile]]]:

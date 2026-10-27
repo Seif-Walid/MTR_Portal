@@ -15,8 +15,7 @@ class Position(Base):
     role_template_id/entity_type/entity_id mark a position as managed by a
     RoleTemplate (see app/domains/positions/role_engine.py) rather than a
     real, permanently-held org seat — all NULL for every ordinary position.
-    These positions are never someone's sole "real seat" (see
-    clear_user_from_other_positions) and never set anyone's manager_id (see
+    These positions never set anyone's manager_id (see
     resync_managers) — they're an extra "hat", not a place in the hierarchy."""
 
     __tablename__ = "positions"

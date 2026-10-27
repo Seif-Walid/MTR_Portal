@@ -54,7 +54,7 @@ const TITLES: Record<string, [string, string]> = {
   '/requests': ['Requests', 'Work Requests'],
   '/team': ['People', 'My Teams'],
   '/archive': ['Records', 'Archive'],
-  '/organization': ['Structure', 'Organization'],
+  '/organization': ['People', 'Organization'],
   '/admin/users': ['Admin', 'User Management'],
   '/admin/audit': ['Admin', 'Audit Log'],
   '/admin/data': ['Admin', 'Data Tables'],
@@ -91,6 +91,16 @@ export default function AppLayout() {
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [eventKinds, setEventKinds] = useState<{ slug: string; name: string }[]>([]);
   const [eventsOpen, setEventsOpen] = useState(true);
+  // collapsed nav sections, remembered per browser
+  const [closedSections, setClosedSections] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('mtr.nav.closed') ?? '[]')); } catch { return new Set(); }
+  });
+  const toggleSection = (id: string) => setClosedSections((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    try { localStorage.setItem('mtr.nav.closed', JSON.stringify([...next])); } catch { /* storage off */ }
+    return next;
+  });
   const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
@@ -126,39 +136,42 @@ export default function AppLayout() {
 
   if (!me) return null;
 
-  // --- permission-gated nav (same rules as before) --------------------------
+  // --- permission-gated nav, grouped into collapsible sections -------------
   type NavItem = { key: string; label: string; children?: { key: string; label: string }[] };
-  const items: NavItem[] = [
-    { key: '/home', label: 'Home' },
-    ...(can(me, 'dashboard.view') ? [{ key: '/explore', label: 'Dashboard' }] : []),
-    ...(can(me, 'tasks.use') ? [{ key: '/tasks', label: 'My Tasks' }] : []),
-    ...(can(me, 'tasks.use') || can(me, 'events.view') || can(me, 'inventory.view')
-      ? [{ key: '/calendar', label: 'Calendar' }]
-      : []),
-    ...(can(me, 'inventory.view') ? [{ key: '/inventory', label: 'Inventory' }] : []),
-    ...(canViewEvents
-      ? [{ key: '/events', label: 'Events', ...(eventKinds.length ? { children: eventKinds.map((k) => ({ key: `/events/${k.slug}`, label: k.name })) } : {}) }]
-      : []),
-    ...(can(me, 'tasks.use') ? [{ key: '/requests', label: 'Requests' }] : []),
-    ...(can(me, 'courses.view') ? [{ key: '/courses', label: 'Courses' }] : []),
-    // group break rendered before My Team
-    ...(can(me, 'people.view') && (me.has_team || can(me, 'users.manage')) ? [{ key: '/team', label: 'My Teams' }] : []),
-    // Archive is public — a browsable record of past events, no gate.
-    { key: '/archive', label: 'Archive' },
-    ...(can(me, 'members.view') ? [{ key: '/members', label: 'Members' }, { key: '/applications', label: 'Applications' }] : []),
-    ...(can(me, 'finance.view') ? [{ key: '/finance', label: 'Finance' }] : []),
-    ...(can(me, 'org.view') ? [{ key: '/organization', label: 'Organization' }] : []),
-    ...(can(me, 'users.manage') ? [{ key: '/admin/users', label: 'User Management' }] : []),
-    ...(can(me, 'audit.view') ? [{ key: '/admin/audit', label: 'Audit Log' }] : []),
-    ...(can(me, 'inventory.edit') ||
-    can(me, 'users.manage') ||
-    can(me, 'org.edit') ||
-    can(me, 'events.manage_any') ||
-    can(me, 'members.edit') ||
-    can(me, 'finance.edit')
-      ? [{ key: '/admin/data', label: 'Data Tables' }]
-      : []),
-  ];
+  type NavSection = { id: string; title: string; items: NavItem[] };
+  const canDataTables = can(me, 'inventory.edit') || can(me, 'users.manage') || can(me, 'org.edit') ||
+    can(me, 'events.manage_any') || can(me, 'members.edit') || can(me, 'finance.edit');
+  const sections: NavSection[] = ([
+    { id: 'work', title: 'Workspace', items: [
+      { key: '/home', label: 'Home' },
+      ...(can(me, 'dashboard.view') ? [{ key: '/explore', label: 'Dashboard' }] : []),
+      ...(can(me, 'tasks.use') ? [{ key: '/tasks', label: 'My Tasks' }, { key: '/requests', label: 'Requests' }] : []),
+      ...(can(me, 'tasks.use') || can(me, 'events.view') || can(me, 'inventory.view')
+        ? [{ key: '/calendar', label: 'Calendar' }]
+        : []),
+      ...(can(me, 'courses.view') ? [{ key: '/courses', label: 'Courses' }] : []),
+    ] },
+    { id: 'ops', title: 'Operations', items: [
+      ...(canViewEvents
+        ? [{ key: '/events', label: 'Events', ...(eventKinds.length ? { children: eventKinds.map((k) => ({ key: `/events/${k.slug}`, label: k.name })) } : {}) }]
+        : []),
+      ...(can(me, 'inventory.view') ? [{ key: '/inventory', label: 'Inventory' }] : []),
+      // Archive is public — a browsable record of past events, no gate.
+      { key: '/archive', label: 'Archive' },
+    ] },
+    { id: 'people', title: 'People', items: [
+      ...(can(me, 'people.view') && (me.has_team || can(me, 'users.manage')) ? [{ key: '/team', label: 'My Teams' }] : []),
+      ...(can(me, 'org.view') ? [{ key: '/organization', label: 'Organization' }] : []),
+      ...(can(me, 'members.view') ? [{ key: '/members', label: 'Members' }, { key: '/applications', label: 'Applications' }] : []),
+    ] },
+    { id: 'admin', title: 'Administration', items: [
+      ...(can(me, 'finance.view') ? [{ key: '/finance', label: 'Finance' }] : []),
+      ...(can(me, 'users.manage') ? [{ key: '/admin/users', label: 'User Management' }] : []),
+      ...(canDataTables ? [{ key: '/admin/data', label: 'Data Tables' }] : []),
+      ...(can(me, 'audit.view') ? [{ key: '/admin/audit', label: 'Audit Log' }] : []),
+    ] },
+  ] as NavSection[]).filter((sec) => sec.items.length > 0);
+  const items = sections.flatMap((sec) => sec.items);
 
   const allKeys = items.flatMap((i) => (i.children ? i.children.map((c) => c.key) : [i.key]));
   const selected = allKeys
@@ -233,33 +246,51 @@ export default function AppLayout() {
         </div>
         <div style={{ height: 1, background: 'rgba(120,170,230,.1)', margin: '4px 14px 10px' }} />
         <nav style={{ flex: 1 }}>
-          {items.map((it) => {
-            const groupBreak = it.key === '/team';
+          {sections.map((sec) => {
+            // the section holding the current page always shows
+            const holdsActive = sec.items.some((it) => isActive(it.key));
+            const open = holdsActive || !closedSections.has(sec.id);
             return (
-              <div key={it.key}>
-                {groupBreak && <div style={{ height: 1, background: 'rgba(120,170,230,.08)', margin: '10px 20px' }} />}
-                <div className={`mtr-nav${isActive(it.key) ? ' active' : ''}`} onClick={() => go(it.key)}>
-                  {ICONS[it.key]}
-                  {it.label}
-                  {it.children && (
-                    <button
-                      type="button"
-                      aria-label={eventsOpen ? 'Collapse' : 'Expand'}
-                      aria-expanded={eventsOpen}
-                      onClick={(e) => { e.stopPropagation(); setEventsOpen((o) => !o); }}
-                      className="mtr-nav-chevron"
-                      style={{ marginInlineStart: 'auto' }}
-                    >
-                      <svg viewBox="0 0 20 20" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.7}
-                        style={{ transform: eventsOpen ? 'rotate(90deg)' : 'none', transition: 'transform .16s ease' }}>
-                        <path d="M7 5l6 5-6 5" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-                {it.children && eventsOpen && it.children.map((c) => (
-                  <div key={c.key} className={`mtr-sub${selected === c.key ? ' active' : ''}`} onClick={() => go(c.key)}>
-                    {c.label}
+              <div key={sec.id} style={{ marginBottom: 6 }}>
+                <button
+                  type="button"
+                  className="mtr-nav-section"
+                  aria-expanded={open}
+                  onClick={() => toggleSection(sec.id)}
+                  disabled={holdsActive}
+                >
+                  {sec.title}
+                  <svg viewBox="0 0 20 20" width={11} height={11} fill="none" stroke="currentColor" strokeWidth={1.8}
+                    style={{ marginInlineStart: 'auto', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .16s ease' }}>
+                    <path d="M7 5l6 5-6 5" />
+                  </svg>
+                </button>
+                {open && sec.items.map((it) => (
+                  <div key={it.key}>
+                    <div className={`mtr-nav${isActive(it.key) ? ' active' : ''}`} onClick={() => go(it.key)}>
+                      {ICONS[it.key]}
+                      {it.label}
+                      {it.children && (
+                        <button
+                          type="button"
+                          aria-label={eventsOpen ? 'Collapse' : 'Expand'}
+                          aria-expanded={eventsOpen}
+                          onClick={(e) => { e.stopPropagation(); setEventsOpen((o) => !o); }}
+                          className="mtr-nav-chevron"
+                          style={{ marginInlineStart: 'auto' }}
+                        >
+                          <svg viewBox="0 0 20 20" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.7}
+                            style={{ transform: eventsOpen ? 'rotate(90deg)' : 'none', transition: 'transform .16s ease' }}>
+                            <path d="M7 5l6 5-6 5" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                    {it.children && eventsOpen && it.children.map((c) => (
+                      <div key={c.key} className={`mtr-sub${selected === c.key ? ' active' : ''}`} onClick={() => go(c.key)}>
+                        {c.label}
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>

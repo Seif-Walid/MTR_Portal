@@ -1,10 +1,14 @@
 """Courses: the catalogue, the course page's shelves, the bundle's files, and
-each learner's ticks. Viewing is gated by courses.view; uploading bundles and
-editing the shelves by courses.manage. Held-back materials (task answers until
+handing task sheets out as Tasks. Viewing is gated by courses.view; uploading
+bundles, editing the shelves and handing out tasks by courses.manage. A
+learner's progress is the share of the course's task sheets they have
+submitted through the Tasks tab. Held-back materials (task answers until
 they're released) are refused to learners at the file level, not just hidden
 from the list."""
 
+from datetime import date
 from urllib.parse import quote
+from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
@@ -15,7 +19,11 @@ from app.domains.access import service as access
 from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.courses import preview, service
-from app.domains.courses.models import Course, CourseFile, CourseMaterial, CourseProgress, MaterialKind
+from app.domains.courses.models import Course, CourseFile, CourseMaterial, MaterialKind
+from app.domains.notifications.models import NotificationType
+from app.domains.notifications.service import notify
+from app.domains.tasks.models import Task
+from app.domains.users.models import User
 
 router = APIRouter(prefix="/courses", tags=["courses"])
 
@@ -35,12 +43,13 @@ def _read_upload(file: UploadFile) -> bytes:
     return data
 
 
-def _course_out(course: Course, released: list[CourseMaterial], done: set[int]) -> dict:
+def _course_out(course: Course, submitted: set[int]) -> dict:
     counts = {k.value: 0 for k in MaterialKind}
     for m in course.materials:
         counts[m.kind] = counts.get(m.kind, 0) + 1
-    total = len(released)
-    completed = sum(1 for m in released if m.id in done)
+    sheets = [m for m in course.materials if m.kind == MaterialKind.TASKS]
+    total = len(sheets)
+    completed = sum(1 for m in sheets if m.id in submitted)
     return {
         "id": course.id,
         "title": course.title,
@@ -52,6 +61,7 @@ def _course_out(course: Course, released: list[CourseMaterial], done: set[int]) 
         "is_published": course.is_published,
         "sort_order": course.sort_order,
         "counts": counts,
+        # progress: task sheets submitted as Tasks out of all the course's sheets
         "total": total,
         "completed": completed,
         "percent": round(100 * completed / total) if total else 0,
@@ -59,12 +69,14 @@ def _course_out(course: Course, released: list[CourseMaterial], done: set[int]) 
     }
 
 
-def _material_out(m: CourseMaterial, done: set[int], manage: bool) -> dict:
+def _material_out(m: CourseMaterial, mine: dict[int, Task], manage: bool,
+                  stats: dict[int, dict]) -> dict:
     open_ = m.is_released or manage
     if m.external_url:
         url = m.external_url
     else:
         url = _file_url(m.course_id, m.path) if m.path else None
+    task = mine.get(m.id)
     return {
         "id": m.id,
         "kind": m.kind,
@@ -79,12 +91,12 @@ def _material_out(m: CourseMaterial, done: set[int], manage: bool) -> dict:
         "sort_order": m.sort_order,
         "is_released": m.is_released,
         "url": url if open_ else None,
-        "completed": m.id in done,
+        "completed": task is not None and task.status in service.DONE_STATUSES,
+        # the viewer's own Task for this sheet, if it was handed to them
+        "task": {"id": task.id, "status": task.status} if task is not None else None,
+        # managers: how many it went to / how many submitted
+        "handout": stats.get(m.id) if manage and m.kind == MaterialKind.TASKS else None,
     }
-
-
-def _released(course: Course) -> list[CourseMaterial]:
-    return [m for m in course.materials if m.is_released]
 
 
 @router.get("/kinds")
@@ -100,18 +112,19 @@ def list_courses(db: DB, user: CurrentUser) -> list[dict]:
     q = select(Course).order_by(Course.sort_order, Course.id)
     if not manage:
         q = q.where(Course.is_published.is_(True))
-    done = set(db.scalars(select(CourseProgress.material_id).where(CourseProgress.user_id == user.id)))
-    return [_course_out(c, _released(c), done) for c in db.scalars(q)]
+    done = service.submitted_ids(service.my_course_tasks(db, user))
+    return [_course_out(c, done) for c in db.scalars(q)]
 
 
 @router.get("/{course_id}")
 def get_course(course_id: int, db: DB, user: CurrentUser) -> dict:
     course = service.visible_course(db, user, course_id)
     manage = service.can_manage(db, user)
-    done = service.completed_ids(db, user, course.id)
+    mine = service.my_course_tasks(db, user, course.id)
+    stats = service.task_sheet_stats(db, course.id) if manage else {}
     mats = sorted(course.materials, key=service.material_sort_key)
-    out = _course_out(course, _released(course), done)
-    out["materials"] = [_material_out(m, done, manage) for m in mats]
+    out = _course_out(course, service.submitted_ids(mine))
+    out["materials"] = [_material_out(m, mine, manage, stats) for m in mats]
     out["can_manage"] = manage
     out["file_count"] = service.file_count(db, course.id) if manage else None
     return out
@@ -242,7 +255,7 @@ def add_material(
     audit_log(db, user.id, "courses", "material_added", "course_material", m.id,
               {"course_id": course.id, "kind": kind.value, "title": m.title})
     db.commit()
-    return _material_out(m, set(), True)
+    return _material_out(m, {}, True, {})
 
 
 @router.put("/{course_id}/materials/{material_id}/file")
@@ -254,7 +267,7 @@ def replace_material_file(course_id: int, material_id: int, db: DB, user: Curren
     service.replace_material_file(db, course, m, file.filename or "file", _read_upload(file))
     audit_log(db, user.id, "courses", "material_file_replaced", "course_material", m.id, {"course_id": course.id})
     db.commit()
-    return _material_out(m, set(), True)
+    return _material_out(m, {}, True, {})
 
 
 @router.delete("/{course_id}/materials/{material_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -308,24 +321,91 @@ def edit_material(course_id: int, material_id: int, payload: MaterialEdit, db: D
     return {"ok": True}
 
 
-@router.put("/{course_id}/materials/{material_id}/progress", status_code=status.HTTP_204_NO_CONTENT)
-def mark_done(course_id: int, material_id: int, db: DB, user: CurrentUser) -> None:
+@router.get("/{course_id}/learners")
+def learners(course_id: int, db: DB, user: CurrentUser) -> dict:
+    """Who task sheets can be handed to: everyone who can view courses, and
+    the live event teams (a team hands out to all its people at once)."""
+    access.require_privilege(db, user, "courses.manage")
     service.visible_course(db, user, course_id)
-    m = _material(db, course_id, material_id)
-    if not m.is_released and not service.can_manage(db, user):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "This material hasn't been released yet")
-    if db.get(CourseProgress, (user.id, m.id)) is None:
-        db.add(CourseProgress(user_id=user.id, material_id=m.id))
-        db.commit()
+    from app.domains.events.models import EventTeam
+    from app.domains.tasks.service import archived_team_ids
+
+    ids = access.users_with_privilege(db, "courses.view") - {user.id}
+    people = db.scalars(select(User).where(User.id.in_(ids)).order_by(User.full_name))
+    dead = archived_team_ids(db)
+    teams = [t for t in db.scalars(select(EventTeam)) if t.id not in dead]
+    return {
+        "people": [{"id": u.id, "full_name": u.full_name} for u in people],
+        "teams": sorted(({"id": t.id, "name": t.path_name} for t in teams), key=lambda t: t["name"]),
+    }
 
 
-@router.delete("/{course_id}/materials/{material_id}/progress", status_code=status.HTTP_204_NO_CONTENT)
-def unmark_done(course_id: int, material_id: int, db: DB, user: CurrentUser) -> None:
-    service.visible_course(db, user, course_id)
-    row = db.get(CourseProgress, (user.id, _material(db, course_id, material_id).id))
-    if row is not None:
-        db.delete(row)
-        db.commit()
+class HandOut(BaseModel):
+    """Hand task sheets out as Tasks: a whole unit ("week 2") or picked
+    sheets, to picked people and/or everyone on an event team."""
+    unit: int | None = None
+    material_ids: list[int] = Field(default_factory=list)
+    assignee_ids: list[int] = Field(default_factory=list)
+    event_team_id: int | None = None
+    due_date: date | None = None
+
+
+@router.post("/{course_id}/hand-out")
+def hand_out(course_id: int, payload: HandOut, db: DB, user: CurrentUser) -> dict:
+    """Releases the chosen task sheets and gives each learner one Task per
+    sheet (assigned by the instructor, so the instructor reviews it). The
+    Task is the only thing that moves progress: submitting it from the Tasks
+    tab. Someone who already has a Task for a sheet isn't given a second."""
+    access.require_privilege(db, user, "courses.manage")
+    course = service.visible_course(db, user, course_id)
+    sheets = [m for m in course.materials if m.kind == MaterialKind.TASKS and (
+        m.id in payload.material_ids
+        or (payload.unit is not None and m.unit == payload.unit))]
+    if not sheets:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No task sheets match")
+
+    learner_ids = set(payload.assignee_ids)
+    if payload.event_team_id is not None:
+        from app.domains.events.models import EventTeam
+        from app.domains.events.service import team_member_user_ids
+        if db.get(EventTeam, payload.event_team_id) is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Team not found")
+        learner_ids |= team_member_user_ids(db, payload.event_team_id)
+    learner_ids.discard(user.id)
+    learners = [u for u in (db.get(User, uid) for uid in sorted(learner_ids))
+                if u is not None and u.is_active and access.has_privilege(db, u, "courses.view")]
+    if not learners:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Nobody to hand this to")
+
+    have = set(db.execute(
+        select(Task.course_material_id, Task.assignee_id).where(
+            Task.course_material_id.in_([m.id for m in sheets]))).tuples())
+    created = skipped = 0
+    for m in sorted(sheets, key=service.material_sort_key):
+        m.is_released = True
+        batch = uuid4().hex if len(learners) > 1 else None
+        for learner in learners:
+            if (m.id, learner.id) in have:
+                skipped += 1
+                continue
+            when = f"{m.unit_label} · " if m.unit_label else ""
+            task = Task(
+                title=f"{course.title} · {when}{m.title}"[:255],
+                description=f"Course task sheet — open it from Courses → {course.title}.",
+                assigner_id=user.id, assignee_id=learner.id, due_date=payload.due_date,
+                category="Course", course_material_id=m.id, batch_id=batch,
+                event_team_id=payload.event_team_id,
+            )
+            db.add(task)
+            db.flush()
+            notify(db, learner.id, NotificationType.TASK_ASSIGNED,
+                   f"{user.full_name} assigned you a task: '{task.title}'", task_id=task.id)
+            created += 1
+    audit_log(db, user.id, "courses", "tasks_handed_out", "course", course.id,
+              {"materials": [m.id for m in sheets], "learners": len(learners),
+               "created": created, "skipped": skipped})
+    db.commit()
+    return {"created": created, "skipped": skipped, "learners": len(learners)}
 
 
 @router.get("/{course_id}/files/{path:path}")
