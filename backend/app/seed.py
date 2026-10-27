@@ -24,6 +24,7 @@ from app.domains.inventory import models as _inv_models  # noqa: F401
 from app.domains.positions import models as _pos_models  # noqa: F401
 from app.domains.notifications import models as _notif_models  # noqa: F401
 from app.domains.requests import models as _req_models
+from app.domains.courses import models as _course_models  # noqa: F401
 from app.domains.tasks import models as _task_models
 from app.domains.users import models as _user_models
 from app.core.security import hash_password
