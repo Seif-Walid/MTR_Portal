@@ -38,7 +38,7 @@ function PositionModal({ target, holders, levels, kinds, open, onClose, onSaved 
   target: EditTarget | null; holders: UserBrief[]; levels: AccessLevelT[]; kinds: EventKindT[];
   open: boolean; onClose: () => void; onSaved: () => void;
 }) {
-  const [form] = Form.useForm<{ title: string; is_technical: boolean; occupant_ids?: number[]; title_template: string; event: RoleEvent; access_level_id: number | null; event_kind_id: number | null }>();
+  const [form] = Form.useForm<{ title: string; is_technical: boolean; on_website: boolean; occupant_ids?: number[]; title_template: string; event: RoleEvent; access_level_id: number | null; event_kind_id: number | null }>();
   const [busy, setBusy] = useState(false);
   const [automatic, setAutomatic] = useState(false);
 
@@ -52,21 +52,21 @@ function PositionModal({ target, holders, levels, kinds, open, onClose, onSaved 
     form.resetFields();
     setAutomatic(false);
     if (target?.mode === 'edit' && target.node) {
-      form.setFieldsValue({ title: target.node.title, is_technical: target.node.is_technical, occupant_ids: target.node.occupants.map((u) => u.id), access_level_id: target.node.access_level_id });
+      form.setFieldsValue({ title: target.node.title, is_technical: target.node.is_technical, on_website: target.node.on_website ?? true, occupant_ids: target.node.occupants.map((u) => u.id), access_level_id: target.node.access_level_id });
     } else if (target?.mode === 'edit-template' && target.template) {
       form.setFieldsValue({ title_template: target.template.title_template, event: target.template.event, access_level_id: target.template.access_level_id, event_kind_id: target.template.event_kind_id });
     } else if (target?.mode === 'create-template-child') {
       form.setFieldsValue({ event: target.template?.event, access_level_id: null, event_kind_id: target.template?.event_kind_id ?? null });
     } else {
-      form.setFieldsValue({ is_technical: false, event: 'event_created', access_level_id: null, event_kind_id: null });
+      form.setFieldsValue({ is_technical: false, on_website: true, event: 'event_created', access_level_id: null, event_kind_id: null });
     }
   }, [open, target, form]);
 
-  const submit = async (values: { title: string; is_technical: boolean; occupant_ids?: number[]; title_template: string; event: RoleEvent; access_level_id?: number | null; event_kind_id?: number | null }) => {
+  const submit = async (values: { title: string; is_technical: boolean; on_website: boolean; occupant_ids?: number[]; title_template: string; event: RoleEvent; access_level_id?: number | null; event_kind_id?: number | null }) => {
     setBusy(true);
     try {
       if (target?.mode === 'edit' && target.node) {
-        await api.patch(`/api/org/positions/${target.node.id}`, { title: values.title, is_technical: values.is_technical, occupant_ids: values.occupant_ids ?? [], access_level_id: values.access_level_id ?? null, clear_access_level: values.access_level_id == null });
+        await api.patch(`/api/org/positions/${target.node.id}`, { title: values.title, is_technical: values.is_technical, on_website: values.on_website, occupant_ids: values.occupant_ids ?? [], access_level_id: values.access_level_id ?? null, clear_access_level: values.access_level_id == null });
       } else if (target?.mode === 'edit-template' && target.template) {
         await api.patch(`/api/org/roles/templates/${target.template.id}`, { title_template: values.title_template, event: values.event, access_level_id: values.access_level_id ?? null, clear_access_level: values.access_level_id == null, event_kind_id: values.event_kind_id ?? null, set_event_kind: true });
       } else if (target?.mode === 'create-template-child' && target.template) {
@@ -74,7 +74,7 @@ function PositionModal({ target, holders, levels, kinds, open, onClose, onSaved 
       } else if (automatic) {
         await api.post('/api/org/roles/templates', { title_template: values.title_template, event: values.event, access_level_id: values.access_level_id ?? null, event_kind_id: values.event_kind_id ?? null });
       } else {
-        await api.post('/api/org/positions', { title: values.title, is_technical: values.is_technical, parent_id: target?.mode === 'create-child' ? target.node?.id : null, occupant_ids: values.occupant_ids ?? [], access_level_id: values.access_level_id ?? null });
+        await api.post('/api/org/positions', { title: values.title, is_technical: values.is_technical, on_website: values.on_website, parent_id: target?.mode === 'create-child' ? target.node?.id : null, occupant_ids: values.occupant_ids ?? [], access_level_id: values.access_level_id ?? null });
       }
       message.success('Saved');
       onSaved();
@@ -159,6 +159,9 @@ function PositionModal({ target, holders, levels, kinds, open, onClose, onSaved 
               <Select allowClear placeholder="No level — confers nothing" options={levels.map((l) => ({ value: l.id, label: `${l.rank}. ${l.name}` }))} />
             </Form.Item>
             <Form.Item name="is_technical" label="Technical position" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+            <Form.Item name="on_website" label="Show on the website" valuePropName="checked" extra="Lists this seat and whoever holds it on the public People page. Keep roster seats off — members are never listed.">
               <Switch />
             </Form.Item>
           </>
@@ -269,6 +272,7 @@ export default function OrganizationPage() {
           )}
           {n.is_technical && <Chip text="technical" tone="accent" />}
           {n.role_template_id != null && <Chip text="automatic" tone="violet" />}
+          {n.role_template_id == null && n.on_website === false && <Chip text="off website" />}
           {canManage && (
             <>
               <Button type="text" size="small" icon={<PlusOutlined />} title="Add under" onClick={(e) => { e.stopPropagation(); openModal({ mode: 'create-child', node: n }); }} />

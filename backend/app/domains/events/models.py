@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from enum import StrEnum
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -65,6 +65,12 @@ class Event(Base):
     # for events that have no overall award (or per-team awards instead, see
     # EventTeam.award). Public API surfaces this verbatim.
     awards: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # Recruiting from the public website: while open, the site's join form
+    # offers "Join <this event>" and applications are filed against it.
+    # `public_summary` is the short pitch the site prints with it — kept apart
+    # from `description`, which is internal.
+    applications_open: Mapped[bool] = mapped_column(Boolean, default=False)
+    public_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # --- the event record (the member database's Events sheet) ---------------
     # A short stable code the roster and the finance books key events by,

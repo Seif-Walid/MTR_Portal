@@ -26,9 +26,9 @@ def test_people_lists_real_seats_with_names_only(client, org, db_session):
     assert r.status_code == 200
     tree = r.json()
     assert [n["title"] for n in tree] == ["President"]
-    assert tree[0]["people"] == [{"name": org["ceo"].full_name}]
+    assert tree[0]["people"] == [{"name": org["ceo"].full_name, "coached": []}]
     child = tree[0]["children"]
     assert [c["title"] for c in child] == ["Software Lead"]
     assert child[0]["technical"] is True
-    assert child[0]["people"] == [{"name": org["cto"].full_name}]  # inactive dropped
+    assert child[0]["people"] == [{"name": org["cto"].full_name, "coached": []}]  # inactive dropped
     assert "email" not in r.text and "@" not in r.text

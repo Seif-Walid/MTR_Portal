@@ -88,6 +88,9 @@ class EventOut(EventBrief):
     created_at: datetime
     # Competition-wide placements shown in the public Hall of Fame.
     awards: list[str] | None = None
+    # Recruiting on the public website's join form, with its public pitch.
+    applications_open: bool = False
+    public_summary: str | None = None
     kind: EventKindOut | None = None
     roles: list[EntityRoleOut] = []
     category_count: int = 0
@@ -113,6 +116,8 @@ class EventCreate(BaseModel):
     description: str = ""
     start_date: date | None = None
     end_date: date | None = None
+    applications_open: bool = False
+    public_summary: str | None = None
     # Where the very first role-template position ever goes in the org
     # chart. Only required if that hasn't happened yet at all, system-wide
     # (see GET /org/roles/root) — ignored after that, since the first
@@ -135,6 +140,9 @@ class EventEdit(BaseModel):
     # `clear_awards` empties it (to NULL). Leave both unset to keep as-is.
     awards: list[str] | None = None
     clear_awards: bool = False
+    applications_open: bool | None = None
+    # The site's pitch for the event; an empty string clears it.
+    public_summary: str | None = None
 
 
 class CategoryCreate(BaseModel):

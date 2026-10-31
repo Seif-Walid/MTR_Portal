@@ -33,6 +33,11 @@ class Application(Base):
     # NULL = "not sure yet — help me pick"
     subteam: Mapped[str | None] = mapped_column(String(50), nullable=True)
     motivation: Mapped[str] = mapped_column(Text)
+    # The event the applicant asked to join from the site (one that was open
+    # for applications at the time). NULL = a general "join the team".
+    event_id: Mapped[int | None] = mapped_column(
+        ForeignKey("events.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     status: Mapped[str] = mapped_column(String(20), default=ApplicationStatus.NEW, index=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     # The roster record this applicant became (or turned out to already be).
@@ -55,3 +60,4 @@ class Application(Base):
 
     reviewed_by = relationship("User", lazy="joined")
     member = relationship("MemberProfile", lazy="joined")
+    event = relationship("Event", lazy="joined")

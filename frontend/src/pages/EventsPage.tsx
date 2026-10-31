@@ -1,6 +1,6 @@
 import { DeleteOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import {
-  Button, DatePicker, Empty, Form, Input, List, Modal, Popconfirm, Space, Tag, Typography, message,
+  Button, DatePicker, Empty, Form, Input, List, Modal, Popconfirm, Space, Switch, Tag, Typography, message,
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useCallback, useEffect, useState } from 'react';
@@ -19,6 +19,8 @@ interface FormValues {
   name: string;
   description?: string;
   dates?: [Dayjs, Dayjs];
+  applications_open?: boolean;
+  public_summary?: string;
   role_root_position_id?: number;
 }
 
@@ -44,6 +46,8 @@ function EventModal({ kind, event, open, onClose, onSaved }: {
         description: event.description,
         dates: event.start_date && event.end_date
           ? [dayjs(event.start_date), dayjs(event.end_date)] : undefined,
+        applications_open: !!event.applications_open,
+        public_summary: event.public_summary ?? '',
       });
     } else {
       api.get<RoleRoot>('/api/org/roles/root')
@@ -59,6 +63,8 @@ function EventModal({ kind, event, open, onClose, onSaved }: {
       description: values.description ?? '',
       start_date: values.dates?.[0]?.format('YYYY-MM-DD') ?? null,
       end_date: values.dates?.[1]?.format('YYYY-MM-DD') ?? null,
+      applications_open: !!values.applications_open,
+      public_summary: values.public_summary ?? '',
       ...(event ? {} : { kind_id: kind.id, role_root_position_id: values.role_root_position_id ?? null }),
     };
     try {
@@ -85,6 +91,21 @@ function EventModal({ kind, event, open, onClose, onSaved }: {
         </Form.Item>
         <Form.Item name="description" label="Description">
           <Input.TextArea rows={2} />
+        </Form.Item>
+        <Form.Item
+          name="applications_open"
+          label="Open for applications on the website"
+          valuePropName="checked"
+          extra={`The site's join form offers "Join ${event?.name ?? 'this'}" while this is on. Archiving turns it off.`}
+        >
+          <Switch />
+        </Form.Item>
+        <Form.Item noStyle shouldUpdate={(a, b) => a.applications_open !== b.applications_open}>
+          {({ getFieldValue }) => getFieldValue('applications_open') && (
+            <Form.Item name="public_summary" label="Pitch shown on the website" extra="Public — one or two sentences on what joining means.">
+              <Input.TextArea rows={2} maxLength={400} showCount />
+            </Form.Item>
+          )}
         </Form.Item>
         {!event && needsRoot && (
           <Form.Item
@@ -150,7 +171,10 @@ function EventCard({ kind, c, onEdit, onStatus, onRemove, expanded, onToggle, on
       <div style={{ position: 'relative' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: active ? '#5cc6ff' : 'rgba(224,236,252,.45)', border: `1px solid ${active ? 'rgba(92,198,255,.35)' : 'rgba(120,170,230,.18)'}`, background: active ? 'rgba(92,198,255,.08)' : 'transparent', padding: '3px 8px', borderRadius: 5 }}>{c.status.toUpperCase()}</span>
-          <span style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(224,236,252,.45)' }}>{dates}</span>
+          <Space size={8}>
+            {c.applications_open && <Tag color="green" style={{ marginInlineEnd: 0 }}>Recruiting</Tag>}
+            <span style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(224,236,252,.45)' }}>{dates}</span>
+          </Space>
         </div>
         <div
           role="button"

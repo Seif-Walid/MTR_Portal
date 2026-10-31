@@ -330,6 +330,8 @@ export interface Event extends EventBrief {
   end_date: string | null;
   created_at: string;
   awards?: string[] | null; // competition-wide placements shown in the public Hall of Fame
+  applications_open?: boolean; // the website's join form recruits for it
+  public_summary?: string | null; // the pitch the website prints with it
   kind: EventKind | null;
   roles: EntityRole[];
   category_count: number;
@@ -467,6 +469,7 @@ export interface PositionNode {
   id: number;
   title: string;
   is_technical: boolean;
+  on_website?: boolean; // listed on the public website's People page
   parent_id: number | null;
   access_level_id: number | null; // power this seat confers
   occupants: UserBrief[];
@@ -791,6 +794,8 @@ export interface Application {
   year: string;
   subteam: string | null;
   motivation: string;
+  event_id: number | null; // the event they applied to join; null = the team in general
+  event_name: string | null;
   status: ApplicationStatus;
   notes: string | null;
   member_id: number | null;

@@ -98,6 +98,7 @@ def create_position(payload: PositionCreate, db: DB, user: CurrentUser) -> Posit
         title=payload.title,
         parent_id=payload.parent_id,
         is_technical=payload.is_technical,
+        on_website=payload.on_website,
         access_level_id=payload.access_level_id,
     )
     db.add(position)
@@ -122,6 +123,8 @@ def edit_position(position_id: int, payload: PositionEdit, db: DB, user: Current
         position.title = payload.title
     if payload.is_technical is not None:
         position.is_technical = payload.is_technical
+    if payload.on_website is not None:
+        position.on_website = payload.on_website
     if payload.parent_id is not None and payload.parent_id != position.parent_id:
         if db.get(Position, payload.parent_id) is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Parent position not found")

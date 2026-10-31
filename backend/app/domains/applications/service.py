@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.domains.access import service as access
 from app.domains.applications.models import Application, ApplicationStatus
 from app.domains.applications.schemas import ApplicationIn
+from app.domains.events.models import Event, EventStatus
 from app.domains.members.service import digits, roster
 from app.domains.notifications.models import NotificationType
 from app.domains.notifications.service import notify
@@ -58,7 +59,17 @@ def submit(db: Session, payload: ApplicationIn, sender: str | None) -> Applicati
                 "Too many applications from this connection — try again in an hour",
             )
 
+    event = None
+    if payload.event_id is not None:
+        event = db.get(Event, payload.event_id)
+        if event is None or event.status != EventStatus.ACTIVE or not event.applications_open:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Applications for that event are closed — refresh the page to see what's open",
+            )
+
     answers = {
+        "event_id": payload.event_id,
         "full_name": payload.name,
         "email": payload.email,
         "phone": payload.phone,
@@ -71,6 +82,9 @@ def submit(db: Session, payload: ApplicationIn, sender: str | None) -> Applicati
         select(Application)
         .where(
             Application.email == payload.email,
+            # applying to a second event is a second application, not a fix
+            Application.event_id.is_(None) if payload.event_id is None
+            else Application.event_id == payload.event_id,
             Application.status == ApplicationStatus.NEW,
             Application.created_at >= now - RESUBMIT_WINDOW,
         )
@@ -90,7 +104,8 @@ def submit(db: Session, payload: ApplicationIn, sender: str | None) -> Applicati
     for uid in reviewer_ids(db):
         notify(
             db, uid, NotificationType.APPLICATION_RECEIVED,
-            f"New application from {app.full_name} ({app.year})",
+            f"New application from {app.full_name} ({app.year})"
+            + (f" for {event.name}" if event else ""),
         )
     db.commit()
     return app

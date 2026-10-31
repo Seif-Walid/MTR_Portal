@@ -27,6 +27,10 @@ class Position(Base):
         ForeignKey("positions.id", ondelete="SET NULL"), nullable=True, index=True
     )
     is_technical: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Whether this seat — and whoever holds it — is listed on the public
+    # website's People page (see /api/public/people). Roster seats ("Software
+    # member") are kept off so members are never listed on the site.
+    on_website: Mapped[bool] = mapped_column(Boolean, default=True)
     # The power this seat confers on its occupants (see app/domains/access).
     # NULL — the default — confers nothing: creating org structure never
     # accidentally hands out privileges.

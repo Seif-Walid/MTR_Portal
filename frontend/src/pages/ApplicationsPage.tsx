@@ -124,6 +124,7 @@ function ApplicationDrawer({
             </Descriptions.Item>
             <Descriptions.Item label="School">{app.school}</Descriptions.Item>
             <Descriptions.Item label="Year">{app.year}</Descriptions.Item>
+            <Descriptions.Item label="Applied to">{app.event_name ?? 'The team'}</Descriptions.Item>
             <Descriptions.Item label="Subteam">{subteamLabel(app.subteam)}</Descriptions.Item>
             {app.reviewed_by && (
               <Descriptions.Item label="Last status change">
@@ -205,7 +206,7 @@ export default function ApplicationsPage() {
     const q = search.trim().toLowerCase();
     return rows.filter((r) =>
       (filter === 'all' || r.status === filter)
-      && (!q || [r.full_name, r.email, r.phone, r.school].some((v) => v.toLowerCase().includes(q))));
+      && (!q || [r.full_name, r.email, r.phone, r.school, r.event_name ?? ''].some((v) => v.toLowerCase().includes(q))));
   }, [rows, filter, search]);
 
   if (!can(me, 'members.view')) {
@@ -258,6 +259,7 @@ export default function ApplicationsPage() {
               </div>
             ),
           },
+          { title: 'Applied to', dataIndex: 'event_name', width: 170, ellipsis: true, render: (e: string | null) => e ?? 'The team' },
           { title: 'Year', dataIndex: 'year', width: 190 },
           { title: 'School', dataIndex: 'school', ellipsis: true },
           { title: 'Subteam', dataIndex: 'subteam', width: 130, render: subteamLabel },

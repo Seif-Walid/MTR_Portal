@@ -9,6 +9,7 @@ class PositionNode(BaseModel):
     id: int
     title: str
     is_technical: bool
+    on_website: bool = True
     parent_id: int | None
     access_level_id: int | None = None
     occupants: list[UserBrief] = []
@@ -23,6 +24,7 @@ class PositionCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     parent_id: int | None = None
     is_technical: bool = False
+    on_website: bool = True  # listed on the public site's People page
     access_level_id: int | None = None  # power this seat confers; None = nothing
     occupant_ids: list[int] = []
 
@@ -30,6 +32,7 @@ class PositionCreate(BaseModel):
 class PositionEdit(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     is_technical: bool | None = None
+    on_website: bool | None = None
     parent_id: int | None = None  # reparent
     occupant_ids: list[int] | None = None  # replaces the whole occupant list
     access_level_id: int | None = None

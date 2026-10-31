@@ -25,6 +25,9 @@ class ApplicationIn(BaseModel):
     year: str = Field(min_length=1, max_length=100)
     subteam: str | None = Field(default=None, max_length=50)
     why: str = Field(min_length=20, max_length=2000)
+    # The event this is for, from GET /api/public/events (one that is open for
+    # applications). Absent = a general application to the team.
+    event_id: int | None = None
     # Honeypot: hidden on the form, so only bots fill it in.
     website: str | None = Field(default=None, max_length=255)
 
@@ -73,6 +76,8 @@ class ApplicationOut(BaseModel):
     year: str
     subteam: str | None
     motivation: str
+    event_id: int | None
+    event_name: str | None
     status: ApplicationStatus
     notes: str | None
     member_id: int | None

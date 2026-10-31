@@ -94,6 +94,8 @@ def _delete_seats(db: Session, comp: Event) -> None:
 def archive_event(db: Session, comp: Event) -> None:
     """Archive: record the seats' people, then take the seats off the chart."""
     comp.status = EventStatus.ARCHIVED
+    # a finished event no longer recruits on the website
+    comp.applications_open = False
     record_seats(db, comp)
     _delete_seats(db, comp)
     resync_managers(db)

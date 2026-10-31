@@ -261,6 +261,8 @@ def _base_out(db: DB, comp: Event, manage: bool) -> dict:
         description=comp.description,
         start_date=comp.start_date, end_date=comp.end_date, created_at=comp.created_at,
         awards=comp.awards,
+        applications_open=comp.applications_open,
+        public_summary=comp.public_summary,
         kind=_kind_out(comp),
         roles=_entity_roles_out(db, "event_created", "event", comp.id, _names(comp), comp.kind_id),
         category_count=cats, team_count=teams, member_count=members, allocation_count=alloc,
@@ -586,6 +588,8 @@ def create_event(payload: EventCreate, db: DB, user: CurrentUser) -> EventDetail
         description=payload.description,
         start_date=payload.start_date,
         end_date=payload.end_date,
+        applications_open=payload.applications_open,
+        public_summary=(payload.public_summary or "").strip() or None,
     )
     db.add(comp)
     db.flush()
@@ -631,6 +635,10 @@ def edit_event(
         comp.full_name = payload.full_name
     if payload.description is not None:
         comp.description = payload.description
+    if payload.applications_open is not None:
+        comp.applications_open = payload.applications_open
+    if payload.public_summary is not None:
+        comp.public_summary = payload.public_summary.strip() or None
     if payload.clear_awards:
         comp.awards = None
     elif payload.awards is not None:

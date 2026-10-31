@@ -35,6 +35,8 @@ def _out(a: Application, index) -> ApplicationOut:
         year=a.year,
         subteam=a.subteam,
         motivation=a.motivation,
+        event_id=a.event_id,
+        event_name=a.event.name if a.event else None,
         status=a.status,
         notes=a.notes,
         member_id=a.member_id,
