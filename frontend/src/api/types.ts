@@ -783,7 +783,7 @@ export interface CourseDetail extends Course {
   file_count: number | null;
 }
 
-export type ApplicationStatus = 'new' | 'contacted' | 'accepted' | 'declined';
+export type ApplicationStatus = 'new' | 'contacted' | 'accepted' | 'waitlisted' | 'declined';
 
 export interface Application {
   id: number;

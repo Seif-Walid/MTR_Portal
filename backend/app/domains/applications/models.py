@@ -11,6 +11,7 @@ class ApplicationStatus(StrEnum):
     NEW = "new"
     CONTACTED = "contacted"
     ACCEPTED = "accepted"
+    WAITLISTED = "waitlisted"
     DECLINED = "declined"
 
 

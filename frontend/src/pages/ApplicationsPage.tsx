@@ -14,7 +14,7 @@ const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
 const DISPLAY = "'Space Grotesk Variable', 'Space Grotesk', sans-serif";
 
 type Filter = ApplicationStatus | 'all';
-const FILTERS: Filter[] = ['new', 'contacted', 'accepted', 'declined', 'all'];
+const FILTERS: Filter[] = ['new', 'contacted', 'accepted', 'waitlisted', 'declined', 'all'];
 
 const subteamLabel = (s: string | null) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Not sure yet');
 
@@ -154,6 +154,25 @@ function ApplicationDrawer({
             )}
           </div>
 
+          {canEdit && (
+            <Space.Compact block>
+              <Button block disabled={busy || app.status === 'waitlisted'} onClick={() => setStatus('waitlisted')}>
+                {app.status === 'waitlisted' ? 'Waitlisted' : 'Waitlist'}
+              </Button>
+              <Popconfirm
+                title="Decline this application?"
+                okText="Decline"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => setStatus('declined')}
+                disabled={app.status === 'declined'}
+              >
+                <Button block danger disabled={busy || app.status === 'declined'}>
+                  {app.status === 'declined' ? 'Declined' : 'Decline'}
+                </Button>
+              </Popconfirm>
+            </Space.Compact>
+          )}
+
           {canEdit && app.member_id == null && (
             <Popconfirm
               title={match ? `Link to ${match.name}?` : 'Add to the roster?'}
@@ -197,7 +216,7 @@ export default function ApplicationsPage() {
   useEffect(load, [load]);
 
   const counts = useMemo(() => {
-    const c: Record<Filter, number> = { new: 0, contacted: 0, accepted: 0, declined: 0, all: rows.length };
+    const c: Record<Filter, number> = { new: 0, contacted: 0, accepted: 0, waitlisted: 0, declined: 0, all: rows.length };
     rows.forEach((r) => { c[r.status] += 1; });
     return c;
   }, [rows]);

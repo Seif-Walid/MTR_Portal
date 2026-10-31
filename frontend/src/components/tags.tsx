@@ -80,6 +80,7 @@ export const APPLICATION_STATUS: Record<ApplicationStatus, { label: string; colo
   new: { label: 'New', color: C.accent },
   contacted: { label: 'Contacted', color: C.violet },
   accepted: { label: 'Accepted', color: C.teal },
+  waitlisted: { label: 'Waitlisted', color: C.amber },
   declined: { label: 'Declined', color: C.textMuted },
 };
 
