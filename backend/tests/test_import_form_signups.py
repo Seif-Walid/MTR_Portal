@@ -6,7 +6,8 @@ from datetime import datetime
 
 import openpyxl
 
-from app.domains.users.models import MemberProfile, User
+from app.domains.users.models import User
+from tests.conftest import make_member
 from scripts import import_form_signups as imp
 
 HEADERS = ["Timestamp", "Email Address", "Name", "Whatsapp phone no.", "Track"]
@@ -28,16 +29,16 @@ def _responses(tmp_path):
 
 def test_form_signups_add_only_new_members(db_session, tmp_path):
     db = db_session
-    db.add(MemberProfile(mtr_id="MTR-010", full_name="Known", email="known@t.local", phone="01200000001"))
-    db.add(MemberProfile(mtr_id="MTR-011", full_name="Phone Owner", phone="01200000002"))
-    db.add(MemberProfile(mtr_id="MTR-012", full_name="Roster Name", email="other@t.local"))
+    make_member(db, "Known", mtr_id="MTR-010", email="known@t.local", phone="01200000001")
+    make_member(db, "Phone Owner", mtr_id="MTR-011", phone="01200000002")
+    make_member(db, "Roster Name", mtr_id="MTR-012", email="other@t.local")
     db.commit()
 
     path = _responses(tmp_path)
     imp.run(db, path, "GT S4")
     db.commit()
 
-    by_mtr = {p.mtr_id: p for p in db.query(MemberProfile)}
+    by_mtr = {p.mtr_id: p for p in db.query(User) if p.mtr_id}
     assert set(by_mtr) == {"MTR-010", "MTR-011", "MTR-012", "MTR-013", "MTR-014"}
     assert by_mtr["MTR-010"].full_name == "Known"  # existing member untouched
     assert by_mtr["MTR-011"].email == "newphone@gmail.com"  # blank filled from the form
@@ -45,11 +46,11 @@ def test_form_signups_add_only_new_members(db_session, tmp_path):
     fresh = by_mtr["MTR-013"]  # the duplicate answer collapsed, latest wins
     assert (fresh.full_name, fresh.phone, fresh.data_confidence) == ("Fresh Person", "01200000004", "single")
     account = db.query(User).filter_by(email="fresh@gmail.com").one()
-    assert fresh.user_id == account.id and account.google_linked_at is not None
+    assert fresh.id == account.id and account.google_linked_at is not None
 
     twin = by_mtr["MTR-014"]
     assert twin.data_confidence == "review" and "MTR-012" in twin.review_note
 
     imp.run(db, path, "GT S4")
     db.commit()
-    assert db.query(MemberProfile).count() == 5
+    assert db.query(User).filter(User.mtr_id.is_not(None)).count() == 5

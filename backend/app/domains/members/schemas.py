@@ -18,8 +18,8 @@ class MemberRow(BaseModel):
     location: str | None
     joined_at: datetime | None
     data_confidence: str | None
-    has_account: bool
-    account_active: bool | None
+    claimed: bool  # account set up: a password or a linked Google identity
+    is_active: bool
     events: list[str]  # event codes/names this member took part in
 
 
@@ -48,12 +48,11 @@ class MemberDetail(MemberRow):
     uni_id: str | None
     source_records: int | None
     review_note: str | None
-    account_email: str | None
     participations: list[ParticipationOut]
 
 
 class MemberIn(BaseModel):
-    """Create / edit a roster member. On edit only the sent fields change."""
+    """Create / edit a member (their account). On edit only the sent fields change."""
 
     full_name: str | None = Field(default=None, max_length=255)
     email: str | None = Field(default=None, max_length=255)

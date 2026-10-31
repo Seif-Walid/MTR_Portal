@@ -10,6 +10,7 @@ import { api, ApiError } from '../api/client';
 import type { ItemBrief, UserBrief, WorkRequest } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { PriorityTag, RequestStatusTag, StatusTag } from '../components/tags';
+import { personOptions } from '../lib/people';
 
 const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
 const DISPLAY = "'Space Grotesk Variable', 'Space Grotesk', sans-serif";
@@ -57,7 +58,7 @@ function NewRequestModal({ open, onClose, onCreated }: { open: boolean; onClose:
       <Form form={form} layout="vertical" onFinish={submit} initialValues={{ priority: 'medium' }}>
         <Form.Item name="recipient_id" label="To" rules={[{ required: true }]}>
           <Select showSearch optionFilterProp="label" placeholder="Select a staff member"
-            options={staff.map((u) => ({ value: u.id, label: `${u.full_name} (${u.email})` }))} />
+            options={personOptions(staff)} />
         </Form.Item>
         <Space style={{ display: 'flex' }} align="start">
           <Form.Item name="item_id" label="Item (optional — search your inventory)" style={{ flex: 1, minWidth: 260 }}>
@@ -142,7 +143,7 @@ function AcceptModal({ request, onClose, onDone }: { request: WorkRequest | null
       {mode === 'delegate' && (
         <Select style={{ width: '100%', marginTop: 12 }} showSearch optionFilterProp="label" placeholder="Choose a team member"
           value={assignee} onChange={setAssignee}
-          options={team.map((u) => ({ value: u.id, label: `${u.full_name} (${u.email})` }))} />
+          options={personOptions(team)} />
       )}
     </Modal>
   );

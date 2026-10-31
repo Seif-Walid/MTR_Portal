@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
 import type { Condition, InventoryItem, UserBrief } from '../api/types';
+import { personOptions } from '../lib/people';
 
 interface FormValues {
   name: string;
@@ -99,7 +100,7 @@ export default function NewInventoryItemModal({
             showSearch
             optionFilterProp="label"
             placeholder="General storage"
-            options={holders.map((u) => ({ value: u.id, label: `${u.full_name} (${u.email})` }))}
+            options={personOptions(holders)}
           />
         </Form.Item>
         <Form.Item name="notes" label="Notes">

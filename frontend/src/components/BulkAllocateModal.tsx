@@ -19,6 +19,7 @@ import type {
   UserBrief,
 } from '../api/types';
 import { PURPOSE_META } from './tags';
+import { personOptions } from '../lib/people';
 
 const PURPOSES: AllocationPurpose[] = ['training', 'event', 'research', 'borrowed', 'other'];
 
@@ -52,7 +53,7 @@ export default function BulkAllocateModal({
   }, [open, items]);
 
   const holderOptions = useMemo(
-    () => holders.map((u) => ({ value: u.id, label: `${u.full_name} (${u.email})` })),
+    () => personOptions(holders),
     [holders],
   );
 

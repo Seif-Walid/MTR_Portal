@@ -16,17 +16,29 @@ class Department(StrEnum):
 
 
 class User(Base):
-    """An account. What a person can *do* is decided entirely by the access
-    ladder (see app/domains/access): their effective level is the strongest
-    of the org seats they occupy plus the personal override below — there is
-    no role list and no hardcoded job name anywhere. `manager_id` remains the
-    structural reporting line (task subtree, visibility)."""
+    """A person — member and account in one. Every member of the org has a
+    row here, whether or not they have ever signed in: the roster fields
+    (MTR ID, contact, university, …) live on the same row as the login, so
+    there is exactly one id per person and one person picker everywhere.
+
+    A row nobody has signed into yet is *unclaimed*: no usable password and
+    no Google link (see `claimed`). Its owner claims it by signing in with
+    Google, registering, or a password-reset mail to its email; members
+    without an email simply can't sign in until one is added.
+
+    What a person can *do* is decided entirely by the access ladder (see
+    app/domains/access): their effective level is the union of the org seats
+    they occupy plus the personal override below — there is no role list and
+    no hardcoded job name anywhere. `manager_id` remains the structural
+    reporting line (task subtree, visibility)."""
 
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    # NULL for members the roster has no email for — they can't sign in yet.
+    email: Mapped[str | None] = mapped_column(String(255), unique=True, index=True, nullable=True)
     full_name: Mapped[str] = mapped_column(String(255))
+    # UNUSABLE_PASSWORD (app.core.security) until the owner sets one.
     hashed_password: Mapped[str] = mapped_column(String(255))
     department: Mapped[str | None] = mapped_column(String(50), nullable=True)
     manager_id: Mapped[int | None] = mapped_column(
@@ -49,38 +61,9 @@ class User(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    manager: Mapped["User | None"] = relationship(remote_side=[id])
-    access_level = relationship("AccessLevel", lazy="joined")
-    profile: Mapped["MemberProfile | None"] = relationship(
-        back_populates="user", uselist=False, cascade="all, delete-orphan"
-    )
-
-    @property
-    def google_linked(self) -> bool:
-        return self.google_linked_at is not None
-
-
-class MemberProfile(Base):
-    """A member on the org's roster — the record the member database is made
-    of (MTR ID, contact and biographical fields, event participations, dues).
-
-    The roster is its own entity: a member may or may not have a portal
-    account. `user_id` links the two when they do (anyone with a Gmail on the
-    roster gets one, and signs in with Google); members without a Gmail stay
-    roster-only until one is added. `full_name` / `email` are the roster's own
-    copy, so roster views show the member database's name; the account's own
-    name stays the public display name (Hall of Fame).
-    Every field is optional: the source data is patchy."""
-
-    __tablename__ = "member_profiles"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), unique=True, index=True, nullable=True
-    )
+    # --- roster fields (the member database). Every one optional: the source
+    # data is patchy, and accounts like the bootstrap admin have none.
     mtr_id: Mapped[str | None] = mapped_column(String(20), unique=True, index=True, nullable=True)
-    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    email: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
     national_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     birthday: Mapped[date | None] = mapped_column(Date, nullable=True)
     university: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -105,15 +88,23 @@ class MemberProfile(Base):
     source_records: Mapped[int | None] = mapped_column(Integer, nullable=True)
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    user: Mapped["User | None"] = relationship(back_populates="profile")
+    manager: Mapped["User | None"] = relationship(remote_side=[id])
+    access_level = relationship("AccessLevel", lazy="joined")
 
     @property
-    def display_name(self) -> str:
-        """The roster's name for the member (the member database is the source
-        of truth), falling back to the account's name. Public surfaces like the
-        Hall of Fame keep using the account's name."""
-        if self.full_name:
-            return self.full_name
-        if self.user is not None:
-            return self.user.full_name
-        return self.email or self.mtr_id or f"Member #{self.id}"
+    def google_linked(self) -> bool:
+        return self.google_linked_at is not None
+
+    @property
+    def claimed(self) -> bool:
+        """Has the owner ever been able to sign in (a password of their own or
+        a linked Google identity)? False for members added by an admin or the
+        roster import who haven't been invited yet."""
+        from app.core.security import UNUSABLE_PASSWORD
+
+        return self.google_linked_at is not None or self.hashed_password != UNUSABLE_PASSWORD
+
+    @property
+    def label(self) -> str:
+        """How a person reads in any picker: MTR ID first when they have one."""
+        return f"{self.mtr_id} — {self.full_name}" if self.mtr_id else self.full_name

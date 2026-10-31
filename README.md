@@ -219,14 +219,15 @@ TimeBlockPanel.
 
 ## Members — the roster (`/members`)
 
-The member database lives in the portal. Each member is a **roster record**
-(`MemberProfile`) with the member database's columns: MTR ID, name, Gmail, phone,
-national ID, birthday, governorate, university, college, major, college ID, graduating
-year, guardian's number + kinship, first registration, data confidence and a review note.
-A member may or may not have a **portal account**: anyone with a Gmail on the roster gets
-one (and signs in with Google), members without one stay **roster-only**; when an account
-is later created for an email the roster already knows, it claims that roster row (MTR ID,
-participations and dues follow). People edit their own fields from `/profile`.
+The member database lives in the portal. **A member and an account are the same
+thing** — one `users` row, one id, one entry in every people picker. The row carries the
+member database's columns: MTR ID, name, Gmail, phone, national ID, birthday, governorate,
+university, college, major, college ID, graduating year, guardian's number + kinship,
+first registration, data confidence and a review note. Adding a member (roster form,
+accepted application, grid row, import) creates their account **unclaimed**: no password
+and no Google link yet. Its owner claims it by signing in with Google using the roster's
+email, registering with that email, or a password-reset mail; a member without an email
+can't sign in until one is added. People edit their own fields from `/profile`.
 
 - **Members page** — searchable/filterable directory, a detail drawer with every event the
   member took part in, inline edit, and **Add member**: the next free MTR ID is filled in
@@ -420,8 +421,8 @@ There are no organization-issued emails — people join with personal addresses:
 
 Either way, new accounts start as a **guest** (the ladder's bottom rung, no privileges)
 with no hierarchy position: they can sign in but see nothing until someone gives them an
-access level (or a seat that carries one) and a manager. Every account gets an empty
-MemberProfile roster row on creation. Deactivated accounts are blocked on every sign-in path.
+access level (or a seat that carries one) and a manager. Registering with an email
+the roster already holds claims that member's account instead (see Members). Deactivated accounts are blocked on every sign-in path.
 
 **Google sign-in is a second open-signup path**, same as Register: a verified Google
 email with no existing portal account gets a fresh guest account on the spot — same

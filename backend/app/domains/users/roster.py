@@ -1,33 +1,20 @@
-"""Roster helpers shared by every place an account is born.
+"""Roster helpers shared by every place a member is added."""
 
-A member can sit on the roster before they ever sign in (no Gmail at import
-time, or simply not signed up yet). When an account is created for an email the
-roster already knows, the new account claims that roster row instead of
-starting an empty one — so the member's MTR ID, participations and dues follow
-them into their account."""
-
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domains.users.models import MemberProfile
+from app.core.security import UNUSABLE_PASSWORD
+from app.domains.access.models import AccessLevel
+from app.domains.users.models import User
 
-
-def profile_for_new_account(db: Session, email: str) -> MemberProfile:
-    """The roster row a brand-new account for `email` should own: an unlinked
-    roster row carrying that email if there is one, otherwise a fresh empty one."""
-    existing = db.scalar(
-        select(MemberProfile).where(
-            MemberProfile.user_id.is_(None),
-            func.lower(MemberProfile.email) == email.lower(),
-        )
-    )
-    return existing if existing is not None else MemberProfile(email=email.lower())
+# the ladder level a new member starts on — the same one the roster import gives
+MEMBER_LEVEL = "Member"
 
 
 def next_mtr_id(db: Session) -> str:
     """The next free MTR ID, continuing after the current highest number."""
     highest = 0
-    for (mtr_id,) in db.execute(select(MemberProfile.mtr_id).where(MemberProfile.mtr_id.is_not(None))):
+    for (mtr_id,) in db.execute(select(User.mtr_id).where(User.mtr_id.is_not(None))):
         digits = "".join(ch for ch in mtr_id if ch.isdigit())
         if digits:
             highest = max(highest, int(digits))
@@ -36,3 +23,20 @@ def next_mtr_id(db: Session) -> str:
 
 def format_mtr_id(number: int) -> str:
     return f"MTR-{number:03d}"
+
+
+def unclaimed_account(db: Session, email: str) -> User | None:
+    """An account for `email` that its owner has never signed into (added from
+    the roster by an admin). Signing up with that email claims it instead of
+    being refused as a duplicate — the email is the member's, the record is
+    theirs."""
+    user = db.scalar(select(User).where(User.email == email.lower()))
+    return user if user is not None and not user.claimed else None
+
+
+def new_member(db: Session, **fields) -> User:
+    """A member added by staff (roster form, accepted application): their
+    account, unclaimed until they first sign in, on the Member level. Not
+    added to the session."""
+    level_id = db.scalar(select(AccessLevel.id).where(AccessLevel.name == MEMBER_LEVEL))
+    return User(hashed_password=UNUSABLE_PASSWORD, access_level_id=level_id, **fields)

@@ -157,6 +157,20 @@ def test_existing_password_account_requires_explicit_link_not_silent_match(
     assert "portal_session" not in r.cookies
 
 
+def test_roster_member_claims_their_account_with_google(client, org, google_enabled, monkeypatch, db_session):
+    """A member added from the roster has never signed in: Google proving they
+    own the roster's email is the claim — no password step, same account."""
+    from tests.conftest import make_member
+
+    m = make_member(db_session, "Roster Kid", email="kid@gmail.com", mtr_id="MTR-077")
+    db_session.commit()
+    _mock_google(monkeypatch, "kid@gmail.com")
+    r = _do_callback(client)
+    assert r.headers["location"].endswith("/tasks"), r.headers["location"]
+    me = client.get("/api/auth/me", cookies={"portal_session": r.cookies["portal_session"]}).json()
+    assert me["id"] == m.id and me["profile"]["mtr_id"] == "MTR-077" and me["google_linked"] is True
+
+
 def test_explicit_link_then_google_signin_works(client, org, google_enabled, monkeypatch):
     # 1) prove ownership with a normal password login
     login = client.post("/api/auth/login", json={"email": org["cto"].email, "password": "testpass123"})

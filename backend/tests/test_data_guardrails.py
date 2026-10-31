@@ -128,22 +128,21 @@ def test_matching_base_or_same_value_is_not_a_conflict(login, org, season):
 
 # --- phase 3: input rules ---------------------------------------------------------
 def test_input_rules_are_enforced_and_described(login, org, season, db_session):
-    from app.domains.users.models import MemberProfile
+    from tests.conftest import make_member
 
     admin = login("admin")
-    cols = {c["name"]: c for c in admin.get("/api/bulk/member_profiles").json()["columns"]}
+    cols = {c["name"]: c for c in admin.get("/api/bulk/members").json()["columns"]}
     assert cols["mtr_id"]["pattern"] and cols["mtr_id"]["pattern_hint"]
     res = admin.post("/api/bulk/spendings", json={"rows": [
         {"id": "", "season_id": str(season.id), "item": "X", "count": "-1"}], "partial": True}).json()
     assert res["errors"][0]["column"] == "count" and "at least 0" in res["errors"][0]["message"]
-    res = admin.post("/api/bulk/member_profiles", json={"rows": [
+    res = admin.post("/api/bulk/members", json={"rows": [
         {"id": "", "full_name": "A", "mtr_id": "123"}], "partial": True}).json()
     assert res["errors"][0]["column"] == "mtr_id"
     # a legacy value that breaks a rule can be sent back unchanged
-    m = MemberProfile(full_name="Legacy", phone="phone?")
-    db_session.add(m)
+    m = make_member(db_session, "Legacy", phone="phone?")
     db_session.commit()
-    ok = admin.post("/api/bulk/member_profiles", json={"rows": [
+    ok = admin.post("/api/bulk/members", json={"rows": [
         {"id": str(m.id), "phone": "phone?", "university": "AUC"}], "partial": True}).json()
     assert ok["ok"], ok
 
@@ -160,37 +159,35 @@ def _grant(db, login_name, org, *privs):
 
 
 def test_member_contact_columns_need_members_edit(login, org, db_session):
-    from app.domains.users.models import MemberProfile
+    from tests.conftest import make_member
 
-    m = MemberProfile(full_name="Private Pat", mtr_id="MTR-500", phone="01012345678", national_id="12345678901234")
-    db_session.add(m)
+    m = make_member(db_session, "Private Pat", mtr_id="MTR-500", phone="01012345678", national_id="12345678901234")
     db_session.commit()
     _grant(db_session, "ceo", org, "dashboard.view", "members.view")
     ceo = login("ceo")
-    rec = ceo.get(f"/api/explore/member_profiles/{m.id}").json()
+    rec = ceo.get(f"/api/explore/users/{m.id}").json()
     names = {f["name"] for f in rec["fields"]}
     assert "mtr_id" in names and "phone" not in names and "national_id" not in names
     # can't find someone by a number they aren't allowed to see
-    assert ceo.get("/api/explore/member_profiles", params={"q": "0101234"}).json()["total"] == 0
+    assert ceo.get("/api/explore/users", params={"q": "0101234"}).json()["total"] == 0
 
-    admin_rec = login("admin").get(f"/api/explore/member_profiles/{m.id}").json()
+    admin_rec = login("admin").get(f"/api/explore/users/{m.id}").json()
     assert "phone" in {f["name"] for f in admin_rec["fields"]}
 
 
 def test_narrowed_spec_drops_columns_and_values():
     from app.domains.bulk.registry import TABLES
 
-    spec = TABLES["member_profiles"].for_privileges(set())
+    spec = TABLES["members"].for_privileges(set())
     assert "phone" not in {c.name for c in spec.columns}
-    assert spec.full is TABLES["member_profiles"]
-    assert TABLES["member_profiles"].for_privileges({"members.edit"}) is TABLES["member_profiles"]
+    assert spec.full is TABLES["members"]
+    assert TABLES["members"].for_privileges({"members.edit"}) is TABLES["members"]
 
 
 def test_members_directory_redacts_contact_details(login, org, db_session):
-    from app.domains.users.models import MemberProfile
+    from tests.conftest import make_member
 
-    m = MemberProfile(full_name="Quiet Q", mtr_id="MTR-501", phone="01099998888", guardian_phone="01011112222")
-    db_session.add(m)
+    m = make_member(db_session, "Quiet Q", mtr_id="MTR-501", phone="01099998888", guardian_phone="01011112222")
     db_session.commit()
     _grant(db_session, "ceo", org, "members.view")
     ceo = login("ceo")

@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from app.core.security import hash_password
 from app.domains.access import service as access
@@ -9,8 +8,7 @@ from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.hierarchy.service import taskable_user_ids
 from app.domains.positions.models import Position, PositionOccupant
-from app.domains.users.models import MemberProfile, User
-from app.domains.users.roster import profile_for_new_account
+from app.domains.users.models import User
 from app.domains.users.schemas import (
     MemberProfileIn,
     MemberProfileOut,
@@ -67,7 +65,7 @@ def _admin_out(db: DB, u: User, level_by_user: dict[int, list[AccessLevel]],
     out.effective_rank = effective.rank if effective else None
     out.levels = [lvl.name for lvl in held]
     out.seats = seats_by_user.get(u.id, [])
-    out.profile = MemberProfileOut.model_validate(u.profile) if u.profile else None
+    out.profile = MemberProfileOut.model_validate(u)
     return out
 
 
@@ -90,9 +88,7 @@ def list_users(db: DB, user: CurrentUser) -> list[UserAdminOut]:
     org chart), computed effective level, and personal override."""
     access.require_privilege(db, user, "users.manage")
     users = list(
-        db.scalars(
-            select(User).options(selectinload(User.profile)).order_by(User.full_name)
-        )
+        db.scalars(select(User).order_by(User.full_name))
     )
     ids = [u.id for u in users]
     levels = access.held_levels_bulk(db, ids)
@@ -106,32 +102,17 @@ def _resolve_level(db: DB, level_id: int | None) -> None:
 
 
 def _apply_profile(db: DB, user: User, data: MemberProfileIn) -> None:
-    """Upsert the account's roster record. Only the fields the client actually
-    sent are touched; empty strings clear a field. The profile row is created
-    on demand so accounts that never had one (Google sign-ups, old-DB
-    carryovers) can be given member details."""
+    """Set the person's roster fields. Only the fields the client actually
+    sent are touched; empty strings clear a field."""
     fields = data.model_dump(exclude_unset=True)
     fields = {k: (v if v != "" else None) for k, v in fields.items()}
-    if not fields:
-        return
     mtr_id = fields.get("mtr_id")
     if mtr_id:
-        own_id = user.profile.id if user.profile is not None else None
-        clash = db.scalar(
-            select(MemberProfile).where(
-                MemberProfile.mtr_id == mtr_id,
-                MemberProfile.id != own_id if own_id is not None else True,
-            )
-        )
+        clash = db.scalar(select(User).where(User.mtr_id == mtr_id, User.id != user.id))
         if clash is not None:
             raise HTTPException(status.HTTP_409_CONFLICT, "MTR ID already in use")
-    profile = user.profile
-    if profile is None:
-        profile = profile_for_new_account(db, user.email)
-        user.profile = profile
-        db.add(profile)
     for field, value in fields.items():
-        setattr(profile, field, value)
+        setattr(user, field, value)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -149,8 +130,6 @@ def create_user(payload: UserCreate, db: DB, actor: CurrentUser) -> UserAdminOut
         full_name=payload.full_name,
         hashed_password=hash_password(payload.password),
         access_level_id=payload.access_level_id,
-        # every account is a member — claims its roster row if the roster knows the email
-        profile=profile_for_new_account(db, email),
     )
     db.add(user)
     db.commit()

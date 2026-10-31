@@ -14,8 +14,7 @@ from app.domains.applications.models import Application, ApplicationStatus
 from app.domains.applications.schemas import ApplicationOut, ApplicationPatch, RosterMatch
 from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, CurrentUser
-from app.domains.users.models import MemberProfile
-from app.domains.users.roster import next_mtr_id
+from app.domains.users.roster import new_member, next_mtr_id
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -46,7 +45,7 @@ def _out(a: Application, index) -> ApplicationOut:
         created_at=_utc(a.created_at),
         updated_at=_utc(a.updated_at),
         roster_matches=[
-            RosterMatch(id=m.id, mtr_id=m.mtr_id, name=m.display_name, matched_on=why)
+            RosterMatch(id=m.id, mtr_id=m.mtr_id, name=m.full_name, matched_on=why)
             for m, why in service.roster_matches(a, index)
         ],
     )
@@ -87,9 +86,10 @@ def update_application(application_id: int, payload: ApplicationPatch, db: DB, u
 
 @router.post("/{application_id}/add-to-roster")
 def add_to_roster(application_id: int, db: DB, user: CurrentUser) -> ApplicationOut:
-    """Accept the applicant onto the roster. Someone already on it by email or
-    phone is linked rather than added twice; otherwise a new roster member is
-    created with the next MTR ID and the application's contact details."""
+    """Accept the applicant onto the roster. Someone already there by email or
+    phone (a member, or anyone who has signed in) is linked rather than added
+    twice; otherwise a new member — an unclaimed account — is created with the
+    next MTR ID and the application's contact details."""
     access.require_privilege(db, user, "members.edit")
     a = _get(db, application_id)
     if a.member_id is not None:
@@ -104,10 +104,11 @@ def add_to_roster(application_id: int, db: DB, user: CurrentUser) -> Application
         m = matches[0][0]
         action = "linked"
     else:
-        m = MemberProfile(
+        m = new_member(
+            db,
             mtr_id=next_mtr_id(db),
             full_name=a.full_name,
-            email=a.email,
+            email=a.email.lower(),
             phone=a.phone,
             university=a.school,
             joined_at=datetime.now(timezone.utc),
@@ -117,7 +118,7 @@ def add_to_roster(application_id: int, db: DB, user: CurrentUser) -> Application
         db.add(m)
         db.flush()
         audit_log(db, user.id, "members", "created", "member", m.id,
-                  {"name": m.display_name, "mtr_id": m.mtr_id, "from_application": a.id})
+                  {"name": m.full_name, "mtr_id": m.mtr_id, "from_application": a.id})
         action = "added"
     a.member_id = m.id
     if a.status != ApplicationStatus.ACCEPTED:

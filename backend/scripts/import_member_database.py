@@ -4,8 +4,8 @@ Reads the two workbooks the team kept in Google Sheets (downloaded as .xlsx —
 File → Download → Microsoft Excel) and loads them into the portal:
 
   members workbook  (MTR_Members_Database)
-    Members            -> member_profiles   (the roster; sheet is the truth)
-    Review - check merges -> member_profiles.review_note
+    Members            -> users (roster fields; sheet is the truth)
+    Review - check merges -> users.review_note
     Events             -> events            (matched to existing events by name)
     Participations     -> event_participations
 
@@ -20,14 +20,16 @@ File → Download → Microsoft Excel) and loads them into the portal:
     Cash               -> cash_transfers
 
 Roster rules (the sheet is the source of truth):
-  * each sheet row is matched to an existing roster record by Gmail (account or
-    roster email), then phone, then national ID (only when unique), then name;
+  * each sheet row is matched to an existing member (account) by Gmail, then
+    phone, then national ID (only when unique), then name;
   * every MTR ID is re-keyed to the sheet's number (MTR-011, …); portal records
     the sheet doesn't contain keep their row but lose their old MTR ID (the old
     numbering would collide with the new one);
-  * a sheet value overwrites the portal's; a blank sheet cell keeps the portal's;
-  * new members with a Gmail get a portal account (pre-linked to Google, Member
-    level) so they can sign straight in; members without one are roster-only.
+  * a sheet value overwrites the portal's; a blank sheet cell keeps the portal's
+    (an existing member keeps their own name);
+  * every new member gets an account on the Member level — pre-linked to Google
+    when the sheet has their Gmail so they sign straight in, otherwise
+    unclaimed (no email, no sign-in) until one is added.
 
 Events rules:
   * matched events get the record columns; their name, status, kind and awards
@@ -48,7 +50,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import secrets
 import sys
 import unicodedata
 from collections import Counter
@@ -59,7 +60,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.security import hash_password
+from app.core.security import UNUSABLE_PASSWORD
 from app.domains.access.models import AccessLevel
 from app.domains.events.models import Event, EventKind, EventParticipation, EventStatus
 from app.domains.finance.models import (
@@ -83,7 +84,7 @@ from app.domains.finance.models import (
     Spending,
 )
 from app.domains.members.service import digits, name_key
-from app.domains.users.models import MemberProfile, User
+from app.domains.users.models import User
 from app.domains.users.roster import format_mtr_id
 
 # Sheet event IDs whose portal event is named differently.
@@ -181,8 +182,8 @@ class Report:
 
 
 # --- members -------------------------------------------------------------------
-def import_members(db: Session, wb, rep: Report) -> dict[int, MemberProfile]:
-    """Returns {sheet MTR number: roster record}."""
+def import_members(db: Session, wb, rep: Report) -> dict[int, User]:
+    """Returns {sheet MTR number: member}."""
     ws = wb["Members"]
     rows = []
     for r in sheet_rows(ws, 1):
@@ -200,21 +201,18 @@ def import_members(db: Session, wb, rep: Report) -> dict[int, MemberProfile]:
                 why = " — ".join(x for x in (s(r.get("Reason")), s(r.get("Match signals"))) if x)
                 review[n] = f"{review[n]}; {why}" if n in review else why
 
-    profiles = list(db.scalars(select(MemberProfile)))
-    users_by_email = {u.email.lower(): u for u in db.scalars(select(User))}
+    profiles = list(db.scalars(select(User)))  # every person is a potential match
+    users_by_email = {u.email.lower(): u for u in profiles if u.email}
     claimed: set[int] = set()
-    matched: dict[int, MemberProfile] = {}
+    matched: dict[int, User] = {}
 
-    def claim(number: int, p: MemberProfile, how: str) -> None:
+    def claim(number: int, p: User, how: str) -> None:
         claimed.add(p.id)
         matched[number] = p
         rep.add(f"members matched by {how}")
 
     # pass 1: Gmail — the strongest key
-    by_email: dict[str, MemberProfile] = {}
-    for p in profiles:
-        for e in {(p.email or "").lower(), (p.user.email.lower() if p.user else "")} - {""}:
-            by_email.setdefault(e, p)
+    by_email = users_by_email
     for number, r in rows:
         e = (s(r.get("Gmail")) or "").lower()
         p = by_email.get(e)
@@ -235,7 +233,7 @@ def import_members(db: Session, wb, rep: Report) -> dict[int, MemberProfile]:
         if p is None and nid and nid_counts[nid] == 1:
             p, how = next((p for p in free if p.national_id == nid), None), "national id"
         if p is None and key:
-            p, how = next((p for p in free if name_key(p.display_name) == key), None), "name"
+            p, how = next((p for p in free if name_key(p.full_name) == key), None), "name"
         if p is not None:
             claim(number, p, how)
 
@@ -244,7 +242,7 @@ def import_members(db: Session, wb, rep: Report) -> dict[int, MemberProfile]:
         p.mtr_id = None
     db.flush()
     unmatched_old = [p for p in profiles if p.id not in claimed]
-    rep.add("portal roster records not in the sheet (MTR ID cleared)", len(unmatched_old))
+    rep.add("portal members not in the sheet (MTR ID cleared)", len(unmatched_old))
 
     member_level = db.scalar(select(AccessLevel).where(AccessLevel.name == MEMBER_LEVEL))
     now = datetime.now(timezone.utc)
@@ -252,29 +250,28 @@ def import_members(db: Session, wb, rep: Report) -> dict[int, MemberProfile]:
         p = matched.get(number)
         gmail = (s(r.get("Gmail")) or "").lower() or None
         if p is None:
-            p = MemberProfile()
+            # a new member is a new account: pre-linked to their Gmail so they
+            # sign straight in with Google; without one it waits unclaimed
+            if gmail in users_by_email:
+                rep.add("new members whose Gmail belongs to someone else (email left blank)")
+                gmail = None
+            p = User(
+                email=gmail,
+                full_name=s(r.get("Name")),
+                hashed_password=UNUSABLE_PASSWORD,
+                google_linked_at=now if gmail else None,
+                access_level_id=member_level.id if member_level else None,
+            )
             db.add(p)
-            account = users_by_email.get(gmail) if gmail else None
-            if account is not None and account.profile is None:
-                p.user = account
-                rep.add("members linked to an existing account")
-            elif gmail and account is None:
-                account = User(
-                    email=gmail,
-                    full_name=s(r.get("Name")),
-                    hashed_password=hash_password(secrets.token_urlsafe(24)),
-                    google_linked_at=now,
-                    access_level_id=member_level.id if member_level else None,
-                )
-                db.add(account)
-                users_by_email[gmail] = account
-                p.user = account
-                rep.add("new members (portal account created)")
-            else:
-                rep.add("new members (roster-only, no Gmail)")
+            if gmail:
+                users_by_email[gmail] = p
+            rep.add("new members (with Gmail)" if gmail else "new members (no Gmail — can't sign in yet)")
+        elif gmail and not p.email and gmail not in users_by_email:
+            p.email = gmail
+            users_by_email[gmail] = p
+        # the sheet is the truth for roster fields; an existing account keeps
+        # its own name (what the Hall of Fame and website show)
         fields = {
-            "full_name": s(r.get("Name")),
-            "email": gmail,
             "phone": s(r.get("Phone number")),
             "national_id": s(r.get("National ID")),
             "birthday": as_date(r.get("Birthday")),
@@ -377,7 +374,7 @@ def import_events(db: Session, wb, rep: Report) -> dict[str, Event]:
     return out
 
 
-def import_participations(db: Session, wb, members: dict[int, MemberProfile],
+def import_participations(db: Session, wb, members: dict[int, User],
                           events: dict[str, Event], rep: Report) -> None:
     current = {(p.event_id, p.member_id): p for p in db.scalars(select(EventParticipation))}
     for r in sheet_rows(wb["Participations"], 1):
@@ -419,7 +416,7 @@ def _column(ws, col: int, start_row: int) -> list[str]:
     return out
 
 
-def import_finance(db: Session, wb, members: dict[int, MemberProfile],
+def import_finance(db: Session, wb, members: dict[int, User],
                    events: dict[str, Event], rep: Report) -> None:
     setup = wb["Setup"]
     options: dict[tuple[str, str], FinanceOption] = {}
@@ -508,7 +505,7 @@ def import_finance(db: Session, wb, members: dict[int, MemberProfile],
             name=name, type_id=opt(OptionList.PARTY_TYPE, r.get("Type")), phone=s(r.get("Phone")),
             payment_handle=s(r.get("Payment handle / account")),
             is_active=fold(s(r.get("Active"))) not in ("n", "no", "false"),
-            notes=s(r.get("Notes")), user_id=member.user_id if member else None,
+            notes=s(r.get("Notes")), user_id=member.id if member else None,
         )
         db.add(party)
         parties[fold(name)] = party
@@ -570,7 +567,7 @@ def import_finance(db: Session, wb, members: dict[int, MemberProfile],
     by_number = members
     by_name = {name_key(p.full_name): p for p in members.values() if p.full_name}
 
-    def member_of(mtr, name) -> MemberProfile | None:
+    def member_of(mtr, name) -> User | None:
         n = as_int(mtr)
         return by_number.get(n) if n is not None and n in by_number else by_name.get(name_key(s(name)))
 

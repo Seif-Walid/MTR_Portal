@@ -156,8 +156,9 @@ export default function MembersPage() {
       if (!showUnnumbered && !r.mtr_id) return false;
       if (uni && r.university !== uni) return false;
       if (conf && r.data_confidence !== conf) return false;
-      if (account === 'yes' && !r.has_account) return false;
-      if (account === 'no' && r.has_account) return false;
+      if (account === 'claimed' && !r.claimed) return false;
+      if (account === 'unclaimed' && r.claimed) return false;
+      if (account === 'inactive' && r.is_active) return false;
       if (eventFilter && !r.events.includes(eventFilter)) return false;
       if (!needle) return true;
       return [r.name, r.mtr_id, r.email, r.phone, r.major, r.college, r.location]
@@ -172,8 +173,8 @@ export default function MembersPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <StatRow min={160}>
         <StatTile label="Members on roster" value={t ? String(t.members) : '—'} sub={t ? `${t.active_members} took part in an event` : undefined} />
-        <StatTile label="With a portal account" value={t ? String(t.with_account) : '—'} sub="Sign in with their Gmail" />
-        <StatTile label="Roster only" value={t ? String(t.roster_only) : '—'} sub="No Gmail on file yet" />
+        <StatTile label="Account set up" value={t ? String(t.claimed) : '—'} sub="Password or Google linked" />
+        <StatTile label="Not set up yet" value={t ? String(t.unclaimed) : '—'} sub="Waiting for its owner to sign in" />
         <StatTile label="Participations" value={t ? String(t.participations) : '—'} sub="Member × event records" />
         <StatTile label="Needs review" value={t ? String(t.needs_review) : '—'} tone={t?.needs_review ? 'danger' : undefined} sub="Possible merge mistakes" />
       </StatRow>
@@ -193,11 +194,15 @@ export default function MembersPage() {
           options={eventCodes.map((c) => ({ value: c, label: c }))} />
         <Select allowClear placeholder="Data confidence" value={conf} onChange={setConf} style={{ minWidth: 150 }}
           options={Object.entries(CONFIDENCE).map(([value, c]) => ({ value, label: c.label }))} />
-        <Select allowClear placeholder="Portal account" value={account} onChange={setAccount} style={{ minWidth: 140 }}
-          options={[{ value: 'yes', label: 'Has account' }, { value: 'no', label: 'Roster only' }]} />
+        <Select allowClear placeholder="Account" value={account} onChange={setAccount} style={{ minWidth: 140 }}
+          options={[
+            { value: 'claimed', label: 'Set up' },
+            { value: 'unclaimed', label: 'Not set up yet' },
+            { value: 'inactive', label: 'Deactivated' },
+          ]} />
         {!!t?.unnumbered && (
           <Checkbox checked={showUnnumbered} onChange={(e) => setShowUnnumbered(e.target.checked)}>
-            Include {t.unnumbered} account{t.unnumbered === 1 ? '' : 's'} without an MTR ID
+            Include {t.unnumbered} {t.unnumbered === 1 ? 'person' : 'people'} without an MTR ID
           </Checkbox>
         )}
         <span style={{ flex: 1 }} />
@@ -250,13 +255,11 @@ export default function MembersPage() {
             render: (_, r) => (r.events.length ? r.events.length : <span style={{ opacity: 0.35 }}>0</span>),
           },
           {
-            title: 'Account', key: 'acct', width: 110,
+            title: 'Account', key: 'acct', width: 120,
             render: (_, r) =>
-              r.has_account ? (
-                <Tag color={r.account_active ? 'processing' : 'default'}>{r.account_active ? 'portal' : 'deactivated'}</Tag>
-              ) : (
-                <Tag>roster only</Tag>
-              ),
+              !r.is_active ? <Tag>deactivated</Tag>
+                : r.claimed ? <Tag color="processing">set up</Tag>
+                  : <Tag>not set up</Tag>,
           },
         ]}
       />
@@ -349,7 +352,7 @@ function MemberDrawer({
           <Space direction="vertical" size={0}>
             <span>{m.name}</span>
             <span className="u-mono" style={{ fontSize: 12, fontWeight: 400, color: token.colorTextTertiary }}>
-              {m.mtr_id ?? 'no MTR ID'} {m.has_account ? `· portal account ${m.account_email}` : '· roster only'}
+              {m.mtr_id ?? 'no MTR ID'} {m.claimed ? '· account set up' : m.email ? '· account not set up yet' : '· no email — can’t sign in yet'}
             </span>
           </Space>
         ) : (
@@ -365,9 +368,9 @@ function MemberDrawer({
             </Space>
           ) : (
             <Space>
-              {!m.has_account && (
-                <Popconfirm title="Remove this member from the roster?" description="Their participations go with them." okText="Remove" okButtonProps={{ danger: true }} onConfirm={remove}>
-                  <Button danger>Remove</Button>
+              {!m.claimed && (
+                <Popconfirm title="Delete this member?" description="Only for duplicates or mistakes — their account and participations go with them." okText="Delete" okButtonProps={{ danger: true }} onConfirm={remove}>
+                  <Button danger>Delete</Button>
                 </Popconfirm>
               )}
               <Button type="primary" onClick={startEdit}>Edit</Button>

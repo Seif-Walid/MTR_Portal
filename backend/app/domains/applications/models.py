@@ -41,9 +41,9 @@ class Application(Base):
     )
     status: Mapped[str] = mapped_column(String(20), default=ApplicationStatus.NEW, index=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # The roster record this applicant became (or turned out to already be).
+    # The member (account) this applicant became, or turned out to already be.
     member_id: Mapped[int | None] = mapped_column(
-        ForeignKey("member_profiles.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     # Salted hash of the sender's IP — enough to rate-limit the public form
     # without keeping anyone's address.
@@ -59,6 +59,6 @@ class Application(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    reviewed_by = relationship("User", lazy="joined")
-    member = relationship("MemberProfile", lazy="joined")
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_id], lazy="joined")
+    member = relationship("User", foreign_keys=[member_id], lazy="joined")
     event = relationship("Event", lazy="joined")

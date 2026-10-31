@@ -55,7 +55,7 @@ from app.domains.finance.models import (
 )
 from app.domains.events.models import EventParticipation
 from app.domains.positions.models import Position
-from app.domains.users.models import Department, MemberProfile, User
+from app.domains.users.models import Department, User
 
 ColType = Literal["int", "number", "str", "bool", "date", "datetime"]
 
@@ -85,7 +85,8 @@ class Ref:
 
 # Reference targets, keyed by the name a Column.ref points to.
 REFS: dict[str, Ref] = {
-    "user": Ref(User, "id", lambda u: f"{u.full_name} <{u.email}>"),
+    # one picker for people everywhere — an account and a member are the same row
+    "user": Ref(User, "id", lambda u: u.label, order_by=lambda: User.full_name),
     "access_level": Ref(AccessLevel, "name", lambda l: l.name),
     "event_kind": Ref(EventKind, "slug", lambda k: f"{k.slug} — {k.name}"),
     "position": Ref(Position, "id", lambda p: p.title),
@@ -94,11 +95,6 @@ REFS: dict[str, Ref] = {
     "event_team": Ref(EventTeam, "id", lambda t: t.name),
     "location": Ref(Location, "id", lambda l: l.name),
     "item": Ref(InventoryItem, "id", lambda i: i.name),
-    "member": Ref(
-        MemberProfile, "id",
-        lambda m: f"{m.mtr_id} — {m.display_name}" if m.mtr_id else m.display_name,
-        order_by=lambda: MemberProfile.mtr_id,
-    ),
     "fin_season": Ref(FinanceSeason, "id", lambda s: s.name, order_by=lambda: FinanceSeason.sort_order),
     "fin_party": Ref(FinanceParty, "id", lambda p: p.name, order_by=lambda: FinanceParty.name),
     "dues_tier": Ref(DuesTier, "id", lambda t: t.name, order_by=lambda: DuesTier.sort_order),
@@ -238,7 +234,7 @@ TABLES: dict[str, TableSpec] = {
         key="people", label="People", model=User, privilege="users.manage", delete="deactivate",
         columns=[
             Column("id", "int", editable=False),
-            Column("email", "str", required=True, **_EMAIL),
+            Column("email", "str", **_EMAIL),
             Column("full_name", "str", required=True, max_length=150),
             Column("department", "str", choices=_enum(Department)),
             Column("access_level", ref="access_level", attr="access_level_id"),
@@ -246,20 +242,20 @@ TABLES: dict[str, TableSpec] = {
             Column("is_active", "bool"),
         ],
     ),
-    "member_profiles": TableSpec(
-        # The roster (the member database's Members sheet). Gated at
-        # members.edit since it holds member PII (national_id, guardians).
-        # A row may have no portal account (user_id blank) — those can be
-        # deleted here; members with an account are retired by deactivating
-        # the account on the People tab (the guard below refuses the delete).
-        key="member_profiles", label="Members (roster)", model=MemberProfile,
+    "members": TableSpec(
+        # The roster (the member database's Members sheet) — the same people as
+        # the People tab, seen through their roster fields. Gated at
+        # members.edit since it holds member PII (national_id, guardians). A
+        # new row is a new member's account, unclaimed until they sign in; only
+        # never-claimed, unreferenced members can be deleted (the guard in
+        # service.py) — everyone else is retired by deactivating.
+        key="members", label="Members (roster)", model=User,
         privilege="members.edit", delete="hard", group="Members",
         columns=[
             Column("id", "int", editable=False),
             Column("mtr_id", "str", label="MTR ID", pattern=r"MTR-\d{3,}", pattern_hint="MTR- followed by the number, e.g. MTR-123"),
-            Column("full_name", "str", label="Name", max_length=150),
+            Column("full_name", "str", label="Name", required=True, max_length=150),
             Column("email", "str", label="Gmail", **_EMAIL),
-            Column("user_id", "int", ref="user", label="Portal account"),
             Column("phone", "str", view_privilege=_PII, **_PHONE),
             Column("national_id", "str", label="National ID", pattern=r"\d{14}", pattern_hint="the 14-digit national ID",
                    view_privilege=_PII),
@@ -285,7 +281,7 @@ TABLES: dict[str, TableSpec] = {
         columns=[
             Column("id", "int", editable=False),
             Column("event_id", "int", ref="event", required=True, label="Event"),
-            Column("member_id", "int", ref="member", required=True, label="Member"),
+            Column("member_id", "int", ref="user", required=True, label="Member"),
             Column("role", "str", label="Role / field"),
             Column("team", "str"),
             Column("mentor", "str", label="Coach / mentor"),
@@ -527,7 +523,7 @@ TABLES: dict[str, TableSpec] = {
         columns=[
             Column("id", "int", editable=False),
             Column("season_id", "int", ref="fin_season", required=True, label="Season"),
-            Column("member_id", "int", ref="member", required=True, label="Member"),
+            Column("member_id", "int", ref="user", required=True, label="Member"),
             Column("tier_id", "int", ref="dues_tier", required=True, label="Tier"),
             Column("status", "str", choices=_enum(EnrollmentStatus)),
             Column("maturity_override", "int", label="Maturity override (yrs)"),
@@ -542,7 +538,7 @@ TABLES: dict[str, TableSpec] = {
             Column("id", "int", editable=False),
             Column("season_id", "int", ref="fin_season", required=True, label="Season"),
             Column("paid_on", "date", required=True, label="Date"),
-            Column("member_id", "int", ref="member", required=True, label="Member"),
+            Column("member_id", "int", ref="user", required=True, label="Member"),
             Column("amount", "number", required=True, label="Amount (EGP)"),
             Column("method_id", "int", ref="opt_payment_method", label="Method"),
             Column("received_by_id", "int", ref="fin_party", label="Received by"),

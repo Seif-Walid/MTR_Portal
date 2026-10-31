@@ -59,7 +59,7 @@ export default function InsightsPage() {
           ) : (
             <>
               <StatRow min={170}>
-                <StatTile label="On the roster" value={count(t!.members)} sub={`${count(t!.with_account)} with a portal account`} />
+                <StatTile label="On the roster" value={count(t!.members)} sub={`${count(t!.claimed)} with their account set up`} />
                 <StatTile label="Took part in an event" value={count(t!.active_members)} sub={`${Math.round((t!.active_members / Math.max(t!.members, 1)) * 100)}% of the roster`} />
                 <StatTile label="Participations" value={count(t!.participations)} sub={`across ${stats.events.length} events`} />
                 <StatTile label="Graduating within a year" value={count(t!.graduating_soon)} />

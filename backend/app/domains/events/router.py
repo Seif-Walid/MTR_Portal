@@ -291,7 +291,7 @@ def event_participations(event_id: int, db: DB, user: CurrentUser) -> list[dict]
     rows = db.scalars(select(EventParticipation).where(EventParticipation.event_id == event_id))
     out = [
         {
-            "id": p.id, "member_id": p.member_id, "mtr_id": p.member.mtr_id, "name": p.member.display_name,
+            "id": p.id, "member_id": p.member_id, "mtr_id": p.member.mtr_id, "name": p.member.full_name,
             "role": p.role, "team": p.team, "mentor": p.mentor, "rating": p.rating,
             "registered_at": p.registered_at,
         }

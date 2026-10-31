@@ -1,6 +1,6 @@
-"""The member roster — the portal's copy of the member database. Members are
-roster records (MemberProfile) whether or not they have a portal account;
-viewing is gated by members.view, adding/editing by members.edit."""
+"""The member roster — the portal's copy of the member database. A member is
+a person (User): adding one here creates their account, unclaimed until they
+first sign in. Viewing is gated by members.view, adding/editing by members.edit."""
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
@@ -18,8 +18,8 @@ from app.domains.members.schemas import (
     MemberRow,
     ParticipationOut,
 )
-from app.domains.users.models import MemberProfile, User
-from app.domains.users.roster import next_mtr_id
+from app.domains.users.models import User
+from app.domains.users.roster import new_member, next_mtr_id
 
 router = APIRouter(prefix="/members", tags=["members"])
 
@@ -28,12 +28,12 @@ def _event_label(p: EventParticipation) -> str:
     return p.event.code or p.event.name
 
 
-def _row(m: MemberProfile, parts: list[EventParticipation]) -> dict:
+def _row(m: User, parts: list[EventParticipation]) -> dict:
     return {
         "id": m.id,
         "mtr_id": m.mtr_id,
-        "name": m.display_name,
-        "email": m.user.email if m.user else m.email,
+        "name": m.full_name,
+        "email": m.email,
         "phone": m.phone,
         "university": m.university,
         "college": m.college,
@@ -42,8 +42,8 @@ def _row(m: MemberProfile, parts: list[EventParticipation]) -> dict:
         "location": m.location,
         "joined_at": m.joined_at,
         "data_confidence": m.data_confidence,
-        "has_account": m.user_id is not None,
-        "account_active": m.user.is_active if m.user else None,
+        "claimed": m.claimed,
+        "is_active": m.is_active,
         "events": [_event_label(p) for p in sorted(parts, key=lambda p: p.event.start_date or p.event.created_at.date(), reverse=True)],
     }
 
@@ -57,7 +57,7 @@ def _participation_out(p: EventParticipation) -> ParticipationOut:
     )
 
 
-def _detail(db: DB, m: MemberProfile) -> MemberDetail:
+def _detail(db: DB, m: User) -> MemberDetail:
     parts = list(db.scalars(select(EventParticipation).where(EventParticipation.member_id == m.id)))
     parts.sort(key=lambda p: p.event.start_date or p.event.created_at.date(), reverse=True)
     return MemberDetail(
@@ -70,7 +70,6 @@ def _detail(db: DB, m: MemberProfile) -> MemberDetail:
         uni_id=m.uni_id,
         source_records=m.source_records,
         review_note=m.review_note,
-        account_email=m.user.email if m.user else None,
         participations=[_participation_out(p) for p in parts],
     )
 
@@ -79,7 +78,7 @@ def _redact(db: DB, user, out):
     """Blank the roster fields this viewer may not see (column-level privileges)."""
     from app.domains.bulk.registry import restricted_attrs
 
-    hidden = restricted_attrs("member_profiles", access.privileges_for(db, user))
+    hidden = restricted_attrs("users", access.privileges_for(db, user))
     if not hidden:
         return out
     if isinstance(out, list):
@@ -91,8 +90,8 @@ def _redact_one(o, hidden: set[str]):
     return o.model_copy(update={k: None for k in hidden if k in type(o).model_fields})
 
 
-def _get(db: DB, member_id: int) -> MemberProfile:
-    m = db.get(MemberProfile, member_id)
+def _get(db: DB, member_id: int) -> User:
+    m = db.get(User, member_id)
     if m is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
     return m
@@ -122,7 +121,7 @@ def check_duplicate(payload: DuplicateCheckIn, db: DB, user: CurrentUser) -> lis
     """Does someone on the roster already share this name / phone / email?"""
     access.require_privilege(db, user, "members.edit")
     return [
-        DuplicateHit(id=m.id, mtr_id=m.mtr_id, name=m.display_name, matched_on=why)
+        DuplicateHit(id=m.id, mtr_id=m.mtr_id, name=m.full_name, matched_on=why)
         for m, why in service.find_duplicates(db, payload.name, payload.phone, payload.email, payload.exclude_id)
     ]
 
@@ -133,32 +132,35 @@ def get_member(member_id: int, db: DB, user: CurrentUser) -> MemberDetail:
     return _redact(db, user, _detail(db, _get(db, member_id)))
 
 
-def _apply(db: DB, m: MemberProfile, data: dict) -> None:
+def _apply(db: DB, m: User, data: dict) -> None:
     data = {k: (v.strip() if isinstance(v, str) else v) for k, v in data.items()}
     data = {k: (None if v == "" else v) for k, v in data.items()}
-    if "email" in data and data["email"]:
+    if "full_name" in data and not data["full_name"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A member needs a name")
+    if data.get("email"):
         data["email"] = data["email"].lower()
+        clash = db.scalar(select(User).where(User.email == data["email"], User.id != (m.id or -1)))
+        if clash is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"{data['email']} is already {clash.full_name}'s")
     mtr_id = data.get("mtr_id")
     if mtr_id:
-        clash = db.scalar(select(MemberProfile).where(MemberProfile.mtr_id == mtr_id, MemberProfile.id != (m.id or -1)))
+        clash = db.scalar(select(User).where(User.mtr_id == mtr_id, User.id != (m.id or -1)))
         if clash is not None:
-            raise HTTPException(status.HTTP_409_CONFLICT, f"MTR ID {mtr_id} is already {clash.display_name}'s")
+            raise HTTPException(status.HTTP_409_CONFLICT, f"MTR ID {mtr_id} is already {clash.full_name}'s")
     for k, v in data.items():
         setattr(m, k, v)
-    # a roster email that belongs to an existing, unlinked account links them
-    if m.user_id is None and m.email:
-        account = db.scalar(select(User).where(User.email == m.email))
-        if account is not None and account.profile is None:
-            m.user_id = account.id
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_member(payload: MemberIn, db: DB, user: CurrentUser) -> MemberDetail:
+    """Add a member — which is creating their account. It starts unclaimed (no
+    password); its owner claims it by signing in with Google or a reset link
+    sent to the email."""
     access.require_privilege(db, user, "members.edit")
     data = payload.model_dump(exclude_unset=True)
     if not (data.get("full_name") or "").strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "A member needs a name")
-    m = MemberProfile()
+    m = new_member(db)
     if not data.get("mtr_id"):
         data["mtr_id"] = next_mtr_id(db)
     data.setdefault("data_confidence", "manual")
@@ -166,7 +168,7 @@ def create_member(payload: MemberIn, db: DB, user: CurrentUser) -> MemberDetail:
     _apply(db, m, data)
     db.add(m)
     db.flush()
-    audit_log(db, user.id, "members", "created", "member", m.id, {"name": m.display_name, "mtr_id": m.mtr_id})
+    audit_log(db, user.id, "members", "created", "member", m.id, {"name": m.full_name, "mtr_id": m.mtr_id})
     db.commit()
     db.refresh(m)
     return _detail(db, m)
@@ -177,7 +179,7 @@ def update_member(member_id: int, payload: MemberIn, db: DB, user: CurrentUser) 
     access.require_privilege(db, user, "members.edit")
     m = _get(db, member_id)
     _apply(db, m, payload.model_dump(exclude_unset=True))
-    audit_log(db, user.id, "members", "updated", "member", m.id, {"name": m.display_name})
+    audit_log(db, user.id, "members", "updated", "member", m.id, {"name": m.full_name})
     db.commit()
     db.refresh(m)
     return _detail(db, m)
@@ -185,15 +187,15 @@ def update_member(member_id: int, payload: MemberIn, db: DB, user: CurrentUser) 
 
 @router.delete("/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_member(member_id: int, db: DB, user: CurrentUser) -> None:
-    """Remove a roster-only member (e.g. a duplicate). Members with a portal
-    account are retired by deactivating the account instead."""
+    """Remove a member nobody ever signed into (e.g. a duplicate) who has no
+    dues on the books. Anyone else is retired by deactivating them."""
     access.require_privilege(db, user, "members.edit")
     m = _get(db, member_id)
-    if m.user_id is not None:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "This member has a portal account — deactivate the account in User Management instead",
-        )
-    audit_log(db, user.id, "members", "deleted", "member", m.id, {"name": m.display_name, "mtr_id": m.mtr_id})
+    from app.domains.bulk.service import member_delete_blocker
+
+    reason = member_delete_blocker(db, m)
+    if reason:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
+    audit_log(db, user.id, "members", "deleted", "member", m.id, {"name": m.full_name, "mtr_id": m.mtr_id})
     db.delete(m)
     db.commit()

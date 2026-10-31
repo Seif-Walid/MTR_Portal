@@ -1,14 +1,16 @@
 """The management view (/api/users) doubles as the member directory: it
-surfaces each account's roster profile alongside its access/seat data, and
+surfaces each person's roster fields alongside their access/seat data, and
 stays gated by users.manage."""
 
 from datetime import date
 
-from app.domains.users.models import MemberProfile
+from app.domains.users.models import User
 
 
 def _add_profile(db, user_id: int, **fields) -> None:
-    db.add(MemberProfile(user_id=user_id, **fields))
+    user = db.get(User, user_id)
+    for k, v in fields.items():
+        setattr(user, k, v)
     db.commit()
 
 
@@ -27,8 +29,8 @@ def test_users_list_carries_roster_profile(login, org, db_session):
     assert student["profile"]["graduating_year"] == 2030
     assert student["profile"]["birthday"] == "2007-01-10"
 
-    # a user without a roster row still appears, with profile == None
-    assert by_id[org["admin"].id]["profile"] is None
+    # someone with no roster data still appears, with an empty profile
+    assert by_id[org["admin"].id]["profile"]["mtr_id"] is None
 
 
 def test_users_list_requires_users_manage(login, org):
@@ -36,13 +38,9 @@ def test_users_list_requires_users_manage(login, org):
     assert login("cto").get("/api/users").status_code == 403
 
 
-def test_update_creates_profile_on_demand(login, org, db_session):
-    # the account has no roster row to begin with
+def test_update_sets_roster_fields(login, org, db_session):
     admin = login("admin")
-    assert admin.get("/api/users").json()  # sanity
     uid = org["admin"].id
-    before = {r["id"]: r for r in admin.get("/api/users").json()}[uid]
-    assert before["profile"] is None
 
     r = admin.patch(f"/api/users/{uid}", json={
         "profile": {"mtr_id": "MTR-500", "major": "Robotics", "graduating_year": 2029}

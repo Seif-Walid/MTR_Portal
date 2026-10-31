@@ -8,10 +8,10 @@ from collections import Counter, defaultdict
 from datetime import datetime
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.domains.events.models import Event, EventParticipation
-from app.domains.users.models import MemberProfile
+from app.domains.users.models import User
 
 
 def digits(phone: str | None) -> str | None:
@@ -24,15 +24,14 @@ def name_key(name: str | None) -> str:
     return re.sub(r"[^a-z؀-ۿ]", "", (name or "").lower())
 
 
-def roster(db: Session) -> list[MemberProfile]:
-    return list(db.scalars(
-        select(MemberProfile).options(selectinload(MemberProfile.user)).order_by(MemberProfile.id)
-    ))
+def roster(db: Session) -> list[User]:
+    """Every member — which is every person: a member and an account are one row."""
+    return list(db.scalars(select(User).order_by(User.id)))
 
 
 def find_duplicates(
     db: Session, name: str | None, phone: str | None, email: str | None, exclude_id: int | None = None
-) -> list[tuple[MemberProfile, list[str]]]:
+) -> list[tuple[User, list[str]]]:
     want_name, want_phone = name_key(name), digits(phone)
     want_email = (email or "").strip().lower()
     hits = []
@@ -40,12 +39,11 @@ def find_duplicates(
         if m.id == exclude_id:
             continue
         why = []
-        if want_name and name_key(m.display_name) == want_name:
+        if want_name and name_key(m.full_name) == want_name:
             why.append("name")
         if want_phone and digits(m.phone) == want_phone:
             why.append("phone")
-        emails = {(m.email or "").lower(), (m.user.email.lower() if m.user else "")} - {""}
-        if want_email and want_email in emails:
+        if want_email and want_email == (m.email or "").lower():
             why.append("email")
         if why:
             hits.append((m, why))
@@ -99,8 +97,8 @@ def stats(db: Session) -> dict:
         "totals": {
             "members": len(members),
             "unnumbered": len(everyone) - len(members),
-            "with_account": sum(1 for m in members if m.user_id is not None),
-            "roster_only": sum(1 for m in members if m.user_id is None),
+            "claimed": sum(1 for m in members if m.claimed),
+            "unclaimed": sum(1 for m in members if not m.claimed),
             "needs_review": sum(1 for m in members if m.data_confidence == "review"),
             "participations": len(parts),
             "active_members": sum(1 for m in members if per_member.get(m.id)),

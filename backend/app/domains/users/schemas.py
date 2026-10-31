@@ -9,9 +9,10 @@ class UserBrief(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    email: str
+    email: str | None  # members the roster has no email for
     full_name: str
     department: str | None
+    mtr_id: str | None = None
 
 
 class LevelBrief(BaseModel):
@@ -84,7 +85,7 @@ class MeOut(UserBrief):
     google_linked: bool
     created_at: datetime
     seats: list[str] = []  # org positions occupied — shown on the profile page
-    profile: MemberProfileOut | None = None  # roster record, if this account has one
+    profile: MemberProfileOut | None = None  # the person's roster fields
 
 
 class UserAdminOut(UserBrief):
@@ -97,8 +98,9 @@ class UserAdminOut(UserBrief):
     effective_rank: int | None = None
     levels: list[str] = []  # every level held (seats + override) — privileges add up
     seats: list[str] = []  # titles of org positions occupied — the org's reflection
-    # the roster record (imported biographical/contact fields), if any — the
-    # management view doubles as the member directory
+    claimed: bool = True  # False until the owner sets the account up (see User.claimed)
+    # the person's roster fields (biographical/contact) — the management view
+    # doubles as the member directory
     profile: MemberProfileOut | None = None
 
 
@@ -117,6 +119,5 @@ class UserUpdate(BaseModel):
     is_active: bool | None = None
     access_level_id: int | None = None
     clear_access_level: bool = False
-    # Roster record. Present -> upsert the member profile (created on demand for
-    # accounts that never had one, e.g. Google sign-ups / old-DB carryovers).
+    # Roster fields. Present -> the sent ones are set on the person.
     profile: MemberProfileIn | None = None

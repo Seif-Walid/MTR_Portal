@@ -8,7 +8,6 @@ all-or-nothing — if validation finds any problem, nothing is written.
 
 from __future__ import annotations
 
-import secrets
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
@@ -16,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.security import hash_password
+from app.core.security import UNUSABLE_PASSWORD
 from app.domains.access.models import AccessLevel
 from app.domains.audit import service as audit
 from app.domains.events.models import Event, EventCategory, EventTeam, EventTeamMember
@@ -571,9 +570,9 @@ def _insert_defaults(spec: TableSpec, fields: dict) -> dict:
     """Fill columns a new row needs but the grid never edits."""
     out = {**fields, **spec.insert_values}
     if spec.model is User:
-        # bulk-created accounts get an unguessable password; they sign in only
-        # after being explicitly linked (see auth.router), matching rebuild.
-        out.setdefault("hashed_password", hash_password(secrets.token_urlsafe(24)))
+        # a bulk-added person starts unclaimed: no password until its owner
+        # signs in with Google or follows a reset mail (see auth.router)
+        out.setdefault("hashed_password", UNUSABLE_PASSWORD)
     return out
 
 
@@ -629,23 +628,35 @@ def _guard_referenced(what: str):
     return guard
 
 
-def _guard_member(db: Session, mid: int) -> str | None:
+def member_delete_blocker(db: Session, m) -> str | None:
+    """Why member `m` can't be hard-deleted, or None. Only a never-claimed
+    member (a duplicate, a typo) may go; anyone who has signed in, paid dues
+    or is still referenced elsewhere is retired by deactivating instead."""
     from app.domains.finance.models import DuesPayment
-    from app.domains.users.models import MemberProfile
+    from app.domains.users.models import User
 
-    m = db.get(MemberProfile, mid)
-    if m is not None and m.user_id is not None:
-        return f"cannot delete member {mid}: they have a portal account — deactivate it on the People tab instead"
-    if db.scalar(select(func.count()).select_from(DuesPayment).where(DuesPayment.member_id == mid)):
-        return f"cannot delete member {mid}: they have dues payments on record"
+    if m.claimed:
+        return f"cannot delete member {m.id}: they have signed in — deactivate them instead"
+    if db.scalar(select(func.count()).select_from(DuesPayment).where(DuesPayment.member_id == m.id)):
+        return f"cannot delete member {m.id}: they have dues payments on record"
+    hits = _references_to(db, User, m.id)
+    if hits:
+        return f"cannot delete member {m.id}: still used by {', '.join(hits)} — deactivate them instead"
     return None
+
+
+def _guard_member(db: Session, mid: int) -> str | None:
+    from app.domains.users.models import User
+
+    m = db.get(User, mid)
+    return member_delete_blocker(db, m) if m is not None else None
 
 
 for _key in ("finance_seasons", "finance_parties", "dues_tiers"):
     TABLES[_key].delete_guard = _guard_referenced(_key)
 for _key in [k for k in TABLES if k.startswith("options_")]:
     TABLES[_key].delete_guard = _guard_referenced(_key)
-TABLES["member_profiles"].delete_guard = _guard_member
+TABLES["members"].delete_guard = _guard_member
 TABLES["positions"].delete_guard = _guard_position
 TABLES["event_kinds"].delete_guard = _guard_event_kind
 TABLES["events"].delete_guard = _guard_event

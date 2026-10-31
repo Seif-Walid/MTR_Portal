@@ -4,7 +4,7 @@ Reads a form's responses (downloaded as .xlsx — "Form Responses 1" tab) with
 the columns Timestamp, Email Address, Name and a phone column (any header
 containing "phone"), and adds everyone the roster doesn't know yet:
 
-  * a response is an existing member when its email (roster or account) or
+  * a response is an existing member when its email or
     phone number already belongs to someone on the roster — existing members
     are left alone, except that blank roster fields get the form's value;
   * a new member gets the next MTR ID and a portal account pre-linked to
@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import secrets
 import sys
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -36,10 +35,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.security import hash_password
+from app.core.security import UNUSABLE_PASSWORD
 from app.domains.access.models import AccessLevel
 from app.domains.members.service import digits, name_key, roster
-from app.domains.users.models import MemberProfile, User
+from app.domains.users.models import User
 from app.domains.users.roster import next_mtr_id
 
 MEMBER_LEVEL = "Member"
@@ -100,19 +99,16 @@ def read_responses(path: str) -> list[dict]:
 def run(db: Session, path: str, source: str) -> None:
     responses = read_responses(path)
     members = roster(db)
-    users_by_email = {u.email.lower(): u for u in db.scalars(select(User))}
+    users_by_email = {m.email.lower(): m for m in members if m.email}
     member_level = db.scalar(select(AccessLevel).where(AccessLevel.name == MEMBER_LEVEL))
     if member_level is None:
         print(f"  ! no '{MEMBER_LEVEL}' access level — new accounts get none")
-
-    def emails_of(m: MemberProfile) -> set[str]:
-        return {(m.email or "").lower(), (m.user.email.lower() if m.user else "")} - {""}
 
     added = existing = 0
     now = datetime.now(timezone.utc)
     for r in sorted(responses, key=lambda r: r["joined_at"] or now):
         phone = digits(r["phone"])
-        m = next((m for m in members if r["email"] in emails_of(m)), None)
+        m = users_by_email.get(r["email"])
         how = "email"
         if m is None and phone:
             m, how = next((m for m in members if digits(m.phone) == phone), None), "phone"
@@ -123,43 +119,34 @@ def run(db: Session, path: str, source: str) -> None:
             for k in filled:
                 setattr(m, k, form[k])
             extra = f"  (filled {', '.join(filled)})" if filled else ""
-            print(f"  = {m.mtr_id or '-':<8} {m.display_name}  <- {r['email']} [by {how}]{extra}")
+            print(f"  = {m.mtr_id or '-':<8} {m.full_name}  <- {r['email']} [by {how}]{extra}")
             continue
 
-        look_alike = next((m for m in members if r["name"] and name_key(m.display_name) == name_key(r["name"])), None)
-        p = MemberProfile(
+        look_alike = next((m for m in members if r["name"] and name_key(m.full_name) == name_key(r["name"])), None)
+        p = User(
             mtr_id=next_mtr_id(db),
-            full_name=r["name"],
+            full_name=r["name"] or r["email"].split("@")[0],
             email=r["email"],
+            # pre-linked to the Gmail they signed up with: they sign straight in
+            hashed_password=UNUSABLE_PASSWORD,
+            google_linked_at=now,
+            access_level_id=member_level.id if member_level else None,
             phone=r["phone"],
             joined_at=r["joined_at"],
             data_confidence="review" if look_alike else "single",
             source_records=1,
             review_note=(
                 f"Signed up via '{source}'; same name as {look_alike.mtr_id or '#' + str(look_alike.id)} "
-                f"({look_alike.display_name}) — merge if it's the same person"
+                f"({look_alike.full_name}) — merge if it's the same person"
                 if look_alike else None
             ),
         )
-        account = users_by_email.get(r["email"])
-        if account is not None and account.profile is None:
-            p.user = account
-        elif account is None:
-            account = User(
-                email=r["email"],
-                full_name=r["name"] or r["email"].split("@")[0],
-                hashed_password=hash_password(secrets.token_urlsafe(24)),
-                google_linked_at=now,
-                access_level_id=member_level.id if member_level else None,
-            )
-            db.add(account)
-            users_by_email[r["email"]] = account
-            p.user = account
         db.add(p)
         db.flush()
+        users_by_email[r["email"]] = p
         members.append(p)
         added += 1
-        flag = f"  ! same name as {look_alike.mtr_id} {look_alike.display_name}" if look_alike else ""
+        flag = f"  ! same name as {look_alike.mtr_id} {look_alike.full_name}" if look_alike else ""
         print(f"  + {p.mtr_id:<8} {p.full_name}  <{p.email}> {p.phone or ''}{flag}")
     print(f"\n  responses (unique emails) {len(responses):>4}\n  already on the roster     {existing:>4}\n  new members added         {added:>4}")
 

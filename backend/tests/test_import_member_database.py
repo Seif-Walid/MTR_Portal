@@ -7,7 +7,7 @@ from datetime import datetime
 import openpyxl
 
 from app.domains.events.models import Event, EventParticipation, EventStatus
-from app.domains.users.models import MemberProfile, User
+from app.domains.users.models import User
 from scripts import import_member_database as imp
 
 MEMBER_HEADERS = ["MTR ID", "Name", "Phone number", "National ID", "Birthday", "Governorate",
@@ -47,7 +47,7 @@ def test_import_roster_events_participations(db_session, org, tmp_path):
     db = db_session
     from app.domains.events.service import ensure_preset_kinds  # noqa: F401 — org fixture seeded kinds
     student = org["student"]
-    db.add(MemberProfile(user_id=student.id, mtr_id="MTR-099", location="Cairo"))
+    student.mtr_id, student.location = "MTR-099", "Cairo"
     archived = Event(name="MRC 2025", status=EventStatus.ARCHIVED, awards=["🥇 curated"])
     db.add(archived)
     db.commit()
@@ -56,17 +56,18 @@ def test_import_roster_events_participations(db_session, org, tmp_path):
     rep = imp.run(db, path, None, False)
     db.commit()
 
-    by_mtr = {p.mtr_id: p for p in db.query(MemberProfile)}
+    by_mtr = {p.mtr_id: p for p in db.query(User) if p.mtr_id}
     # matched by Gmail, re-keyed to the sheet number, sheet values win, blanks keep
-    assert by_mtr["MTR-011"].user_id == student.id
+    assert by_mtr["MTR-011"].id == student.id
     assert by_mtr["MTR-011"].location == "Alexandria" and by_mtr["MTR-011"].major == "CCE"
     assert by_mtr["MTR-011"].graduating_year == 2028
     assert "MTR-099" not in by_mtr
-    # roster-only member: no Gmail, no account
-    assert by_mtr["MTR-012"].user_id is None and by_mtr["MTR-012"].full_name == "No Gmail Person"
+    # no Gmail: still an account, just one nobody can sign into yet
+    no_gmail = by_mtr["MTR-012"]
+    assert no_gmail.email is None and no_gmail.full_name == "No Gmail Person" and not no_gmail.claimed
     # new member with a Gmail gets a Google-linked account
     new_user = db.query(User).filter_by(email="brandnew@gmail.com").one()
-    assert by_mtr["MTR-013"].user_id == new_user.id and new_user.google_linked_at is not None
+    assert by_mtr["MTR-013"].id == new_user.id and new_user.google_linked_at is not None
 
     # matched event keeps its curated name/status/awards, gains the record fields
     db.refresh(archived)
@@ -86,5 +87,5 @@ def test_import_roster_events_participations(db_session, org, tmp_path):
     rep2 = imp.run(db, path, None, False)
     db.commit()
     assert db.query(EventParticipation).count() == 2
-    assert db.query(MemberProfile).filter(MemberProfile.mtr_id.is_not(None)).count() == 3
-    assert rep2.counts["events created"] == 0 and rep2.counts["new members (portal account created)"] == 0
+    assert db.query(User).filter(User.mtr_id.is_not(None)).count() == 3
+    assert rep2.counts["events created"] == 0 and rep2.counts["new members (with Gmail)"] == 0

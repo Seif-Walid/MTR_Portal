@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
 import type { FileImportPreview, ImportResult, UserBrief } from '../api/types';
+import { personOptions } from '../lib/people';
 
 // target item field -> friendly label; name is required
 const FIELDS: { key: string; label: string; required?: boolean }[] = [
@@ -210,7 +211,7 @@ export default function ImportFromFileModal({
                     style={{ maxWidth: 360 }}
                     value={teamLeadId}
                     onChange={setTeamLeadId}
-                    options={holders.map((u) => ({ value: u.id, label: `${u.full_name} (${u.email})` }))}
+                    options={personOptions(holders)}
                   />
                 </Form.Item>
                 <Form.Item>

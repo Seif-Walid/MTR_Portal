@@ -274,3 +274,13 @@ def seat_role(admin, entity_json: dict, user_ids: list[int], role_index: int = 0
     assert position_id is not None, entity_json
     r = admin.put(f"/api/org/roles/positions/{position_id}/occupants", json={"user_ids": user_ids})
     assert r.status_code == 200, r.text
+
+
+def make_member(db, full_name: str = "Member", **fields) -> User:
+    """A member added from the roster: an account nobody has signed into yet."""
+    from app.core.security import UNUSABLE_PASSWORD
+
+    m = User(full_name=full_name, hashed_password=UNUSABLE_PASSWORD, **fields)
+    db.add(m)
+    db.flush()
+    return m

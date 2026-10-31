@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import type { AccessLevel as AccessLevelT, EventKind as EventKindT, PositionNode, RoleEvent, RoleTemplate, UserBrief } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
+import { personOptions } from '../lib/people';
 
 const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
 const DISPLAY = "'Space Grotesk Variable', 'Space Grotesk', sans-serif";
@@ -153,7 +154,7 @@ function PositionModal({ target, holders, levels, kinds, open, onClose, onSaved 
               <Input placeholder="e.g. Software Lead" />
             </Form.Item>
             <Form.Item name="occupant_ids" label="Occupants (optional — a seat can be vacant, or shared)">
-              <Select mode="multiple" allowClear showSearch optionFilterProp="label" placeholder="Vacant" options={holders.map((u) => ({ value: u.id, label: `${u.full_name} (${u.email})` }))} />
+              <Select mode="multiple" allowClear showSearch optionFilterProp="label" placeholder="Vacant" options={personOptions(holders)} />
             </Form.Item>
             <Form.Item name="access_level_id" label="Access level" extra="The power this seat gives whoever occupies it — none by default">
               <Select allowClear placeholder="No level — confers nothing" options={levels.map((l) => ({ value: l.id, label: `${l.rank}. ${l.name}` }))} />

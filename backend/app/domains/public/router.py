@@ -3,7 +3,7 @@
 This is the ONLY surface the public website (mindtechrobotics.com) may call.
 Everything it *returns* is deliberately anonymous and PII-free: it exposes a
 member's public name and technical discipline and nothing else — never the
-contact, national-ID, guardian, birthday or any other MemberProfile field, and
+contact, national-ID, guardian, birthday or any other roster field, and
 never a user id or email. Treat this router as published-to-the-world.
 
 The one write is the join form: POST /applications takes an applicant's

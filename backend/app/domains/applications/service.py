@@ -13,7 +13,7 @@ from app.domains.events.models import Event, EventStatus
 from app.domains.members.service import digits, roster
 from app.domains.notifications.models import NotificationType
 from app.domains.notifications.service import notify
-from app.domains.users.models import MemberProfile, User
+from app.domains.users.models import User
 
 # A person (well, an IP) can send this many applications an hour. Generous
 # for a family or a school lab sharing one connection; useless to a spammer.
@@ -118,23 +118,22 @@ def reviewer_ids(db: Session) -> list[int]:
     return [uid for uid in ids if REVIEW_PRIVILEGE in keys.get(uid, set())]
 
 
-def roster_index(db: Session) -> tuple[dict[str, list[MemberProfile]], dict[str, list[MemberProfile]]]:
-    """Roster members keyed by lower-cased email (roster or account) and by
-    phone digits, built once per list call."""
-    by_email: dict[str, list[MemberProfile]] = {}
-    by_phone: dict[str, list[MemberProfile]] = {}
+def roster_index(db: Session) -> tuple[dict[str, list[User]], dict[str, list[User]]]:
+    """Members keyed by lower-cased email and by phone digits, built once per
+    list call."""
+    by_email: dict[str, list[User]] = {}
+    by_phone: dict[str, list[User]] = {}
     for m in roster(db):
-        emails = {(m.email or "").lower(), (m.user.email.lower() if m.user else "")} - {""}
-        for e in emails:
-            by_email.setdefault(e, []).append(m)
+        if m.email:
+            by_email.setdefault(m.email.lower(), []).append(m)
         if d := digits(m.phone):
             by_phone.setdefault(d, []).append(m)
     return by_email, by_phone
 
 
-def roster_matches(app: Application, index) -> list[tuple[MemberProfile, list[str]]]:
+def roster_matches(app: Application, index) -> list[tuple[User, list[str]]]:
     by_email, by_phone = index
-    found: dict[int, tuple[MemberProfile, list[str]]] = {}
+    found: dict[int, tuple[User, list[str]]] = {}
     for m in by_email.get(app.email.lower(), []):
         found.setdefault(m.id, (m, []))[1].append("email")
     for m in by_phone.get(digits(app.phone) or "", []):

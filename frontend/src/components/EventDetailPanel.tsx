@@ -8,9 +8,10 @@ import { useAuth } from '../auth/AuthContext';
 import PositionPicker from './PositionPicker';
 import EventRecord from './EventRecord';
 import { AwardTag } from './tags';
+import { personOptions } from '../lib/people';
 
 function opts(users: UserBrief[]) {
-  return users.map((u) => ({ value: u.id, label: `${u.full_name} (${u.email})` }));
+  return personOptions(users);
 }
 
 async function run(p: Promise<unknown>, ok: string, after: () => void) {

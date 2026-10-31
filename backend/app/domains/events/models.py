@@ -221,7 +221,7 @@ class EventParticipation(Base):
         ForeignKey("events.id", ondelete="CASCADE"), index=True
     )
     member_id: Mapped[int] = mapped_column(
-        ForeignKey("member_profiles.id", ondelete="CASCADE"), index=True
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     role: Mapped[str | None] = mapped_column(String(255), nullable=True)  # role / field
     team: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -230,7 +230,7 @@ class EventParticipation(Base):
     registered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     event: Mapped[Event] = relationship(lazy="joined")
-    member = relationship("MemberProfile", lazy="joined")
+    member = relationship("User", foreign_keys=[member_id], lazy="joined")
 
 
 class EventSeatRecord(Base):

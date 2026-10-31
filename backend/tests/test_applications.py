@@ -6,7 +6,8 @@ from datetime import datetime, timedelta, timezone
 
 from app.domains.applications.models import Application
 from app.domains.notifications.models import Notification
-from app.domains.users.models import MemberProfile
+from app.domains.users.models import User
+from tests.conftest import make_member
 
 FORM = {
     "name": "Mariam Ahmed Hassan",
@@ -102,7 +103,7 @@ def test_status_and_notes(client, org, login):
 
 
 def test_add_to_roster_creates_member(client, org, login, db_session):
-    db_session.add(MemberProfile(mtr_id="MTR-0007", full_name="Someone Else"))
+    make_member(db_session, "Someone Else", mtr_id="MTR-0007")
     db_session.commit()
     _apply(client)
     admin = login("admin")
@@ -111,18 +112,19 @@ def test_add_to_roster_creates_member(client, org, login, db_session):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "accepted"
-    m = db_session.get(MemberProfile, body["member_id"])
+    m = db_session.get(User, body["member_id"])
     assert m.full_name == "Mariam Ahmed Hassan"
     assert m.email == "mariam@gmail.com"
     assert m.university == "Alexandria University"
     assert m.mtr_id and m.mtr_id != "MTR-0007"
+    assert not m.claimed  # an account waiting for its owner to sign in
     assert admin.post(f"/api/applications/{app_id}/add-to-roster").status_code == 409
 
 
 def test_add_to_roster_links_existing_member(client, org, login, db_session):
-    existing = MemberProfile(mtr_id="MTR-0042", full_name="Mariam A.", phone="+20 10 1234 5678")
-    db_session.add(existing)
+    existing = make_member(db_session, "Mariam A.", mtr_id="MTR-0042", phone="+20 10 1234 5678")
     db_session.commit()
+    people = db_session.query(User).count()
     _apply(client)
     admin = login("admin")
     row = admin.get("/api/applications").json()[0]
@@ -132,4 +134,4 @@ def test_add_to_roster_links_existing_member(client, org, login, db_session):
     body = admin.post(f"/api/applications/{row['id']}/add-to-roster").json()
     assert body["member_id"] == existing.id
     assert body["member_mtr_id"] == "MTR-0042"
-    assert db_session.query(MemberProfile).count() == 1
+    assert db_session.query(User).count() == people

@@ -879,3 +879,24 @@ automatic-role node in the org tree shows a kind tag.
   stateless across workers: a honeypot field and a per-connection hourly limit
   counted from the table itself (a salted IP hash, never the raw address).
 
+## Members are accounts: one person, one row
+
+- **Why.** The roster (`member_profiles`) and accounts (`users`) were two
+  entities with two id spaces. Participations, dues and applications pointed
+  at roster ids, everything else at user ids, so every people dropdown came in
+  two flavours and the explorer needed "twin" links between them. Every member
+  should simply have an account.
+- **What.** The roster columns moved onto `users` and `member_profiles` is
+  gone (migration `d8a3f6c2e9b4`). `member_id` columns keep their name but
+  reference `users.id`. One `user` reference serves every grid picker, labelled
+  "MTR ID — name".
+- **Unclaimed accounts.** A member nobody has signed into yet has the sentinel
+  password `!` (never verifies) and no Google link (`User.claimed` is false).
+  Google sign-in with that email, registering with it, or a reset mail claims
+  it; email is nullable for members the roster has no address for. This is the
+  hook for mailing members their account invitation later.
+- **Names.** An existing account kept its own name (it is the public Hall of
+  Fame / website name); a roster name that differed was kept in `review_note`.
+- **Deleting.** Only a never-claimed member with no dues payments and no other
+  references can be deleted (duplicates, typos); everyone else is deactivated.
+- Superseded: "The roster is its own entity" above.

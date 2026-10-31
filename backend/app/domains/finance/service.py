@@ -133,7 +133,7 @@ def dues_ledger(db: Session, season: FinanceSeason) -> dict:
         rows.append({
             "enrollment_id": e.id,
             "member_id": e.member_id,
-            "name": member.display_name if member else "",
+            "name": member.full_name if member else "",
             "mtr_id": member.mtr_id if member else None,
             "tier": tier.name,
             "joined_at": member.joined_at.date().isoformat() if member and member.joined_at else None,

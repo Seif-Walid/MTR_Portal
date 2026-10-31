@@ -234,13 +234,13 @@ class DuesEnrollment(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     season_id: Mapped[int] = mapped_column(ForeignKey("finance_seasons.id", ondelete="CASCADE"), index=True)
-    member_id: Mapped[int] = mapped_column(ForeignKey("member_profiles.id", ondelete="CASCADE"), index=True)
+    member_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     tier_id: Mapped[int] = mapped_column(ForeignKey("dues_tiers.id"))
     status: Mapped[str] = mapped_column(String(20), default=EnrollmentStatus.ACTIVE)
     maturity_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    member = relationship("MemberProfile", lazy="joined")
+    member = relationship("User", foreign_keys=[member_id], lazy="joined")
     tier = relationship(DuesTier, lazy="joined")
 
 
@@ -251,7 +251,7 @@ class DuesPayment(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     season_id: Mapped[int] = mapped_column(ForeignKey("finance_seasons.id"), index=True)
-    member_id: Mapped[int] = mapped_column(ForeignKey("member_profiles.id", ondelete="CASCADE"), index=True)
+    member_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     paid_on: Mapped[date] = mapped_column(Date)
     amount: Mapped[float] = mapped_column(Money)
     method_id: Mapped[int | None] = mapped_column(ForeignKey("finance_options.id"), nullable=True)
@@ -261,7 +261,7 @@ class DuesPayment(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    member = relationship("MemberProfile", lazy="joined")
+    member = relationship("User", foreign_keys=[member_id], lazy="joined")
 
 
 class FundingLine(Base):

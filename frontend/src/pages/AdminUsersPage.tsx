@@ -45,7 +45,7 @@ function UserModal({ user, levels, open, onClose, onSaved }: { user: AdminUser |
   useEffect(() => {
     if (open) {
       form.resetFields();
-      if (user) form.setFieldsValue({ email: user.email, full_name: user.full_name, access_level_id: user.access_level_id, profile: user.profile ?? {} });
+      if (user) form.setFieldsValue({ email: user.email ?? undefined, full_name: user.full_name, access_level_id: user.access_level_id, profile: user.profile ?? {} });
     }
   }, [open, user, form]);
 
@@ -328,8 +328,9 @@ export default function AdminUsersPage() {
                 <Space size={6}>
                   <span style={{ color: '#eaf2ff' }}>{u.full_name}</span>
                   {!u.is_active && <Chip text="deactivated" />}
+                  {u.is_active && !u.claimed && <Chip text="not set up yet" />}
                 </Space>
-                <div><Typography.Text type="secondary" style={{ fontSize: 12 }}>{u.email}</Typography.Text></div>
+                <div><Typography.Text type="secondary" style={{ fontSize: 12 }}>{u.email ?? 'no email'}</Typography.Text></div>
               </div>
             ),
           },

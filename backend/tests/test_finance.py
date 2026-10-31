@@ -21,7 +21,8 @@ from app.domains.finance.models import (
     FundingStatus,
     Spending,
 )
-from app.domains.users.models import MemberProfile
+from app.core.security import UNUSABLE_PASSWORD
+from app.domains.users.models import User
 
 
 @pytest.fixture()
@@ -46,11 +47,11 @@ def books(db_session):
         DuesDiscount(season_id=season.id, min_years=1, discount=0.5),
         DuesDiscount(season_id=season.id, min_years=2, discount=0.9),
     ])
-    veteran = MemberProfile(full_name="Veteran", mtr_id="MTR-001",
-                            joined_at=datetime(2024, 1, 1, tzinfo=timezone.utc))
-    rookie = MemberProfile(full_name="Rookie", mtr_id="MTR-011",
-                           joined_at=datetime(2026, 7, 1, tzinfo=timezone.utc))
-    quitter = MemberProfile(full_name="Quitter", mtr_id="MTR-012")
+    veteran = User(full_name="Veteran", mtr_id="MTR-001", hashed_password=UNUSABLE_PASSWORD,
+                   joined_at=datetime(2024, 1, 1, tzinfo=timezone.utc))
+    rookie = User(full_name="Rookie", mtr_id="MTR-011", hashed_password=UNUSABLE_PASSWORD,
+                  joined_at=datetime(2026, 7, 1, tzinfo=timezone.utc))
+    quitter = User(full_name="Quitter", mtr_id="MTR-012", hashed_password=UNUSABLE_PASSWORD)
     db.add_all([veteran, rookie, quitter])
     db.flush()
     db.add_all([

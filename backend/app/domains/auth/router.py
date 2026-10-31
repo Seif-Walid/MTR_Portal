@@ -28,7 +28,7 @@ from app.domains.auth.schemas import (
 from app.domains.hierarchy.service import taskable_user_ids
 from app.domains.positions.models import Position, PositionOccupant
 from app.domains.users.models import User
-from app.domains.users.roster import profile_for_new_account
+from app.domains.users.roster import unclaimed_account
 from app.domains.users.schemas import MeOut, MemberProfileOut, SelfProfileIn
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -67,7 +67,7 @@ def _me_payload(db: Session, user: User) -> MeOut:
         google_linked=user.google_linked,
         created_at=user.created_at,
         seats=list(seats),
-        profile=MemberProfileOut.model_validate(user.profile) if user.profile else None,
+        profile=MemberProfileOut.model_validate(user),
     )
 
 
@@ -112,17 +112,17 @@ def login(payload: LoginIn, response: Response, db: DB) -> MeOut:
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register(payload: RegisterIn, response: Response, db: DB) -> MeOut:
     """Open self-signup: the account starts with no access level and no seat
-    — a guest, until someone grants more."""
-    if db.scalar(select(User).where(User.email == payload.email)):
+    — a guest, until someone grants more. A member the roster already holds
+    under this email (never signed in yet) claims that account instead."""
+    email = payload.email.lower()
+    user = unclaimed_account(db, email)
+    if user is not None:
+        user.hashed_password = hash_password(payload.password)
+    elif db.scalar(select(User).where(User.email == email)):
         raise HTTPException(status.HTTP_409_CONFLICT, "An account with this email already exists")
-    user = User(
-        email=payload.email,
-        full_name=payload.full_name,
-        hashed_password=hash_password(payload.password),
-        # every login is a member — claims its roster row if the roster knows the email
-        profile=profile_for_new_account(db, payload.email),
-    )
-    db.add(user)
+    else:
+        user = User(email=email, full_name=payload.full_name, hashed_password=hash_password(payload.password))
+        db.add(user)
     db.commit()
     db.refresh(user)
     _issue_session(db, response, user.id)
@@ -152,12 +152,9 @@ def update_my_profile(payload: SelfProfileIn, db: DB, user: CurrentUser) -> MeOu
     """Self-service edit of the signed-in member's own roster fields. The
     org-assigned `mtr_id` is not in the payload, so it can never be changed
     here. Only fields the client actually sends are touched (partial update);
-    sending an explicit null clears one. Creates the roster row on demand for
-    accounts that never had one."""
-    if user.profile is None:
-        user.profile = profile_for_new_account(db, user.email)
+    sending an explicit null clears one."""
     for field, value in payload.model_dump(exclude_unset=True).items():
-        setattr(user.profile, field, value)
+        setattr(user, field, value)
     db.commit()
     return _me_payload(db, user)
 
@@ -424,8 +421,6 @@ def google_callback(
             full_name=info.get("name") or email.split("@")[0],
             hashed_password=hash_password(secrets.token_urlsafe(32)),
             google_linked_at=datetime.now(timezone.utc),
-            # every login is a member — claims its roster row if the roster knows the email
-            profile=profile_for_new_account(db, email),
         )
         db.add(user)
         db.commit()
@@ -440,6 +435,12 @@ def google_callback(
         return response
     if not user.is_active:
         return _login_error("account_disabled")
+    if user.google_linked_at is None and not user.claimed:
+        # A member added from the roster who never signed in: Google just
+        # proved they own the email the roster holds for them — that is the
+        # claim, so link and sign them in.
+        user.google_linked_at = datetime.now(timezone.utc)
+        db.commit()
     if user.google_linked_at is None:
         # First-time collision with an existing password account: prove
         # ownership by signing in with the password once, then link

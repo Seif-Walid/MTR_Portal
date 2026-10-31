@@ -36,12 +36,8 @@ class Entity:
     title_fn: Callable[[object], str] | None = None
 
 
-def _member_title(m) -> str:
-    return f"{m.mtr_id} · {m.display_name}" if m.mtr_id else m.display_name
-
-
 def _participation_title(p) -> str:
-    return f"{p.event.name} — {p.member.display_name}"
+    return f"{p.event.name} — {p.member.full_name}"
 
 
 def _money(n) -> str:
@@ -49,21 +45,19 @@ def _money(n) -> str:
 
 
 def _payment_title(p) -> str:
-    return f"{_money(p.amount)} · {p.member.display_name} · {p.paid_on.isoformat()}"
+    return f"{_money(p.amount)} · {p.member.full_name} · {p.paid_on.isoformat()}"
 
 
 def _enrollment_title(e) -> str:
-    return f"{e.member.display_name} — {e.tier.name} ({e.status})"
+    return f"{e.member.full_name} — {e.tier.name} ({e.status})"
 
 
 ENTITIES: list[Entity] = [
     # people
-    Entity("users", "Accounts", "Account", "People", "people.view",
-           title=("full_name", "email"), summary=("email", "is_active"),
-           hidden=("hashed_password",)),
-    Entity("member_profiles", "Members", "Member", "People", "members.view",
-           title=("full_name", "mtr_id", "email"), summary=("university", "major", "graduating_year"),
-           title_fn=_member_title),
+    # a person: member and account in one row
+    Entity("users", "Members", "Member", "People", "people.view",
+           title=("full_name", "mtr_id", "email"), summary=("email", "university", "is_active"),
+           hidden=("hashed_password",), title_fn=lambda u: u.label),
     Entity("event_participations", "Participations", "Participation", "People", "members.view",
            title=("role", "team"), summary=("role", "team", "rating"), title_fn=_participation_title),
     # events
@@ -427,16 +421,6 @@ def search(db: Session, q: str, visible: set[str], per_table: int = 6, privilege
 # --- one record -------------------------------------------------------------------
 RELATED_LIMIT = 100
 
-# Where a record has a twin in another table, show the twin's connections too
-# (a member's portal account holds their team seats; an account's roster record
-# holds their participations and dues).
-TWINS: dict[str, tuple[str, str, str]] = {
-    # table: (twin table, how to find the twin, label)
-    "member_profiles": ("users", "user_id", "Portal account"),
-    "users": ("member_profiles", "<-user_id", "Roster record"),
-}
-
-
 def _incoming(db: Session, table: str, rid: int, visible: set[str], titles: Titles, via: str | None = None) -> list[dict]:
     groups = []
     for link in LINKS:
@@ -530,28 +514,6 @@ def record(db: Session, entity: Entity, rid: int, visible: set[str], privileges:
 
     incoming = _incoming(db, entity.table, rid, visible, titles)
 
-    # the twin's connections (member <-> portal account)
-    twin = TWINS.get(entity.table)
-    if twin and twin[0] in visible:
-        twin_table, how, twin_label = twin
-        twin_id = None
-        if how.startswith("<-"):
-            twin_model = model_for(twin_table)
-            twin_id = db.scalar(select(twin_model.id).where(getattr(twin_model, how[2:]) == rid))
-        else:
-            twin_id = getattr(obj, how, None)
-        if twin_id is not None:
-            seen = {(g["table"], g["relation"]) for g in incoming}
-            for g in _incoming(db, twin_table, twin_id, visible, titles, via=twin_label):
-                # skip the edge that points straight back at this record
-                if g["table"] == entity.table:
-                    continue
-                if (g["table"], g["relation"]) not in seen:
-                    incoming.append(g)
-            for f in record_links(db, twin_table, twin_id, visible, titles):
-                if f["table"] != entity.table and all(o["table"] != f["table"] or o["id"] != f["id"] for o in outgoing):
-                    outgoing.append({**f, "via": twin_label})
-
     return {
         "table": entity.table,
         "entity": entity.singular,
@@ -562,20 +524,3 @@ def record(db: Session, entity: Entity, rid: int, visible: set[str], privileges:
         "outgoing": outgoing,
         "incoming": incoming,
     }
-
-
-def record_links(db: Session, table: str, rid: int, visible: set[str], titles: Titles) -> list[dict]:
-    """Just the outgoing references of a record (used for its twin)."""
-    model = model_for(table)
-    obj = db.get(model, rid)
-    out = []
-    for col in _columns(BY_TABLE[table]):
-        link = _link_for(table, col, obj)
-        value = getattr(obj, col, None)
-        if link is None or value is None or link.target not in visible:
-            continue
-        out.append({"table": link.target, "id": value, "title": titles.get(link.target, {value})[value],
-                    "entity": BY_TABLE[link.target].singular,
-                    "relation": label_for(table, col) if link.where_col is None else link.label})
-    return out
-

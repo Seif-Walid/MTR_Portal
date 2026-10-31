@@ -1,8 +1,9 @@
 export interface UserBrief {
   id: number;
-  email: string;
+  email: string | null; // null for members the roster has no email for yet
   full_name: string;
   department: string | null;
+  mtr_id?: string | null;
 }
 
 export interface MemberProfile {
@@ -47,7 +48,7 @@ export interface Me extends UserBrief {
   google_linked: boolean;
   created_at: string;
   seats: string[];
-  profile: MemberProfile | null;
+  profile: MemberProfile;
 }
 
 export interface AdminUser extends UserBrief {
@@ -60,7 +61,8 @@ export interface AdminUser extends UserBrief {
   levels: string[]; // every level held — their privileges add up
   effective_rank: number | null;
   seats: string[]; // org positions occupied — the org's reflection
-  profile: MemberProfile | null; // imported roster record (directory fields), if any
+  claimed: boolean; // has a password or a linked Google identity; false = waiting for its owner
+  profile: MemberProfile; // the person's roster fields
 }
 
 export type TaskStatus =
@@ -671,8 +673,8 @@ export interface RosterMember {
   location: string | null;
   joined_at: string | null;
   data_confidence: string | null;
-  has_account: boolean;
-  account_active: boolean | null;
+  claimed: boolean; // account set up (password or Google linked)?
+  is_active: boolean;
   events: string[];
 }
 
@@ -699,7 +701,6 @@ export interface RosterMemberDetail extends RosterMember {
   uni_id: string | null;
   source_records: number | null;
   review_note: string | null;
-  account_email: string | null;
   participations: Participation[];
 }
 
@@ -712,7 +713,7 @@ export interface DuplicateHit {
 
 export interface RosterStats {
   totals: {
-    members: number; unnumbered: number; with_account: number; roster_only: number; needs_review: number;
+    members: number; unnumbered: number; claimed: number; unclaimed: number; needs_review: number;
     participations: number; active_members: number; graduating_soon: number;
   };
   by_university: { name: string; count: number }[];

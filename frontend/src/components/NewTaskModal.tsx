@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import type { Task, TeamBlock, TeamOption, UserBrief } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
+import { personLabel } from '../lib/people';
 
 interface FormValues {
   assignee_ids?: number[];
@@ -146,7 +147,7 @@ export default function NewTaskModal({
                 placeholder={assignable.length ? 'Select one or more people' : 'No one to assign to'}
                 options={assignable.map((u) => ({
                   value: u.id,
-                  label: `${u.full_name}${u.id === me?.id ? ' (you)' : ''} (${u.email})`,
+                  label: u.id === me?.id ? `${personLabel(u)} · you` : personLabel(u),
                 }))}
               />
             </Form.Item>

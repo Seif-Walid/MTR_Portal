@@ -32,6 +32,7 @@ import RequestUnitsModal from './RequestUnitsModal';
 import { ConditionTag, PURPOSE_META, PurposeTag } from './tags';
 import UsageBreakdown from './UsageBreakdown';
 import WhereaboutsPanel from './WhereaboutsPanel';
+import { personOptions } from '../lib/people';
 
 const PURPOSES: AllocationPurpose[] = ['training', 'event', 'research', 'borrowed', 'other'];
 
@@ -71,7 +72,7 @@ export default function InventoryItemDrawer({
   }, [itemId, canManage, holders.length]);
 
   const holderOptions = useMemo(
-    () => holders.map((u) => ({ value: u.id, label: `${u.full_name} (${u.email})` })),
+    () => personOptions(holders),
     [holders],
   );
 
