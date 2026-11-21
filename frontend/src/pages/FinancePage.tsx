@@ -379,9 +379,9 @@ function CashTable({ data }: { data: FinanceDashboard }) {
           { title: 'Holder', dataIndex: 'name', fixed: 'left' },
           ...cash.methods.map((m) => ({
             title: m.name,
-            key: String(m.id),
+            key: m.key,
             align: 'right' as const,
-            render: (_: unknown, r: (typeof cash.rows)[number]) => egp(r.cells[String(m.id)] ?? 0),
+            render: (_: unknown, r: (typeof cash.rows)[number]) => egp(r.cells[m.key] ?? 0),
           })),
           { title: 'Total', dataIndex: 'total', align: 'right', render: (v: number) => <strong>{egp(v)}</strong> },
         ]}

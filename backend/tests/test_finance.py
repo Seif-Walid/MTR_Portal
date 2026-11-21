@@ -119,6 +119,21 @@ def test_cash_matrix(login, org, books):
     assert osama["cells"][str(books["cash"].id)] == 2540 and osama["total"] == 2540
 
 
+def test_cash_matrix_shows_unspecified_method(login, org, books, db_session):
+    # money received with no method must land in a visible "Unspecified" cell,
+    # under the key the column itself advertises, so the row adds up to its total
+    db_session.add(DuesPayment(season_id=books["season"].id, member_id=books["veteran"].id,
+                               paid_on=date(2026, 9, 4), amount=300, received_by_id=books["osama"].id))
+    db_session.commit()
+    body = login("admin").get("/api/finance/cash").json()
+    unspecified = next(m for m in body["methods"] if m["id"] is None)
+    assert unspecified["name"] == "Unspecified"
+    osama = next(r for r in body["rows"] if r["name"] == "Osama")
+    assert osama["cells"][unspecified["key"]] == 300
+    assert sum(osama["cells"][m["key"]] for m in body["methods"]) == osama["total"] == 2840
+    assert body["totals"][unspecified["key"]] == 300
+
+
 def test_finance_is_gated(login, org, books, db_session):
     assert login("ceo").get("/api/finance/dashboard").status_code == 403
     assert login("ceo").get("/api/bulk/budget_lines").status_code == 403

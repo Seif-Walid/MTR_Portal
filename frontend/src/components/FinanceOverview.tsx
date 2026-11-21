@@ -145,12 +145,12 @@ export default function FinanceOverview({ data, compactView = false }: { data: F
                 columns={[
                   { title: 'Holder', dataIndex: 'name' },
                   ...data.cash.methods
-                    .filter((m) => data.cash.totals[String(m.id)] !== 0)
+                    .filter((m) => data.cash.totals[m.key] !== 0)
                     .map((m) => ({
                       title: m.name,
-                      key: String(m.id),
+                      key: m.key,
                       align: 'right' as const,
-                      render: (_: unknown, r: (typeof data.cash.rows)[number]) => egp(r.cells[String(m.id)] ?? 0),
+                      render: (_: unknown, r: (typeof data.cash.rows)[number]) => egp(r.cells[m.key] ?? 0),
                     })),
                   { title: 'Total', dataIndex: 'total', align: 'right', render: (v: number) => <strong>{egp(v)}</strong> },
                 ]}

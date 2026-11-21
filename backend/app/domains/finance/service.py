@@ -213,22 +213,25 @@ def cash_balances(db: Session) -> dict:
         pid for pid, p in parties.items()
         if p.is_active and p.type is not None and p.type.value.strip().lower() in holder_type_names
     }
-    columns = [{"id": m.id, "name": m.value} for m in methods]
+    # Each column carries the string `key` its cells are stored under, so the
+    # client never has to rebuild it (str(None) is "None" here but
+    # String(null) is "null" in JS, which once hid the Unspecified money).
+    columns = [{"id": m.id, "key": str(m.id), "name": m.value} for m in methods]
     has_unassigned = any(None in by_method for by_method in bal.values())
     if has_unassigned:
-        columns.append({"id": None, "name": "Unspecified"})
+        columns.append({"id": None, "key": "none", "name": "Unspecified"})
 
     rows = []
     for pid in sorted(holder_ids, key=lambda i: parties[i].name.lower() if i in parties else ""):
         by_method = bal.get(pid, {})
-        cells = {str(c["id"]): by_method.get(c["id"], 0.0) for c in columns}
+        cells = {c["key"]: by_method.get(c["id"], 0.0) for c in columns}
         rows.append({
             "party_id": pid,
             "name": parties[pid].name if pid in parties else f"#{pid}",
             "cells": cells,
             "total": sum(by_method.values()),
         })
-    totals = {str(c["id"]): sum(r["cells"][str(c["id"])] for r in rows) for c in columns}
+    totals = {c["key"]: sum(r["cells"][c["key"]] for r in rows) for c in columns}
     return {"methods": columns, "rows": rows, "totals": totals, "total": sum(r["total"] for r in rows)}
 
 

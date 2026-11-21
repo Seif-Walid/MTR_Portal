@@ -586,7 +586,7 @@ export interface FinanceSeasonBrief {
 }
 
 export interface CashMatrix {
-  methods: { id: number | null; name: string }[];
+  methods: { id: number | null; key: string; name: string }[];
   rows: { party_id: number; name: string; cells: Record<string, number>; total: number }[];
   totals: Record<string, number>;
   total: number;
