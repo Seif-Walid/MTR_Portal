@@ -298,8 +298,7 @@ export default function AppLayout() {
   const railW = isMobile ? (collapsed ? 0 : RAIL_OPEN) : expanded ? RAIL_OPEN : RAIL_MINI;
   // Desktop: the rail always pushes the page, so opening it shifts everything.
   // Mobile: no room to push, so the rail floats over the content.
-  // peeking floats over the page; only a pinned rail pushes the content aside
-  const contentInset = isMobile ? 0 : pinned ? RAIL_OPEN : RAIL_MINI;
+  const contentInset = isMobile ? 0 : railW;
   const go = (key: string) => { navigate(key); if (isMobile) setCollapsed(true); };
   // real links (keyboard, middle-click, copy link) that still route client-side on a plain click
   const follow = (e: React.MouseEvent<HTMLAnchorElement>, key: string) => {
@@ -378,7 +377,7 @@ export default function AppLayout() {
           flexDirection: 'column',
           zIndex: 30,
           borderInlineEndWidth: railW ? 1 : 0,
-          boxShadow: (isMobile && railW) || (!isMobile && peek && !pinned) ? 'var(--shadow-floating)' : 'none',
+          boxShadow: isMobile && railW ? 'var(--shadow-floating)' : 'none',
           transition: 'width .16s cubic-bezier(0.33, 1, 0.68, 1), box-shadow .16s',
           willChange: 'width',
         }}
