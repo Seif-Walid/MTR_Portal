@@ -24,6 +24,13 @@ services:
       - "443:443"
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:?Set SITE_ADDRESS to your public host, e.g. portal.mindtechrobotics.com}
+      STAGING_ADDRESS: ${STAGING_ADDRESS:-staging.portal.mindtechrobotics.com}
+    # `default` reaches production; `portal-edge` reaches the separate staging
+    # stack (docker-compose.staging.yml). Create the network once with
+    #   docker network create portal-edge
+    networks:
+      - default
+      - edge
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -55,6 +62,11 @@ services:
       #   export GOOGLE_CLIENT_SECRET=... before `docker compose ... up`.
       GOOGLE_CLIENT_ID: "446030339213-jfn9k6rr3r3mqrkfjojbd4753694f2oi.apps.googleusercontent.com"
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?Set GOOGLE_CLIENT_SECRET in your shell before deploying (see deploy runbook)}
+
+networks:
+  edge:
+    name: portal-edge
+    external: true
 
 volumes:
   caddy_data:

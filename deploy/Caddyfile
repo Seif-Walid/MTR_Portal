@@ -1,12 +1,25 @@
-# Terminates HTTPS for the public hostname and hands everything to the
-# existing frontend nginx container, which already serves the SPA and
-# reverse-proxies /api/ to the backend on the same origin.
+# Terminates HTTPS for the public hostnames and hands everything to the
+# frontend nginx containers, which serve the SPA and reverse-proxy /api/ to
+# their own backend on the same origin.
 #
-# SITE_ADDRESS is the canonical public host (portal.mindtechrobotics.com),
-# injected from the environment. With a bare hostname (no scheme) Caddy
-# automatically provisions and renews a Let's Encrypt certificate for it and
-# redirects HTTP -> HTTPS.
+# With a bare hostname (no scheme) Caddy automatically provisions and renews a
+# Let's Encrypt certificate for it and redirects HTTP -> HTTPS. Both records
+# must stay DNS-only (grey cloud) in Cloudflare.
+#
+# Upstreams are addressed by CONTAINER name, not service name: Caddy sits on
+# both the production network and the shared `portal-edge` network, where the
+# staging stack's frontend service is also called "frontend".
+
+# Production — SITE_ADDRESS = portal.mindtechrobotics.com
 {$SITE_ADDRESS} {
 	encode zstd gzip
-	reverse_proxy frontend:80
+	reverse_proxy portal-frontend:80
+}
+
+# Staging — separate stack (docker-compose.staging.yml). Returns 502 while
+# that stack is down; production is unaffected.
+{$STAGING_ADDRESS:staging.portal.mindtechrobotics.com} {
+	encode zstd gzip
+	header X-Robots-Tag "noindex, nofollow"
+	reverse_proxy portal-staging-frontend:80
 }

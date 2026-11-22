@@ -1,0 +1,93 @@
+# Staging stack: a second, fully separate copy of the portal (own Postgres,
+# own uploads) served at https://staging.portal.mindtechrobotics.com on the
+# same VM as production.
+#
+# It is its own compose project ("portal-staging") and lives in its own
+# checkout on the VM (~/MTR_Portal_staging, branch `staging`), so deploying
+# staging never touches production containers, volumes or files.
+#
+# It publishes NO host ports. The production Caddy (docker-compose.prod.yml)
+# terminates HTTPS for both hostnames and reaches the staging frontend over
+# the shared external `portal-edge` network, by container name.
+#
+# Usage on the VM (normally done by CI on every push to the `staging` branch):
+#   docker network create portal-edge 2>/dev/null || true
+#   export BACKEND_IMAGE=ghcr.io/seif-walid/mtr_portal-backend:<sha>
+#   export FRONTEND_IMAGE=ghcr.io/seif-walid/mtr_portal-frontend:<sha>
+#   export GOOGLE_CLIENT_SECRET=...        # optional; Google sign-in needs it
+#   docker compose -f docker-compose.staging.yml up -d
+#
+# See deploy/STAGING.md.
+name: portal-staging
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: portal-staging-db
+    restart: unless-stopped
+    # Kept small: it shares a 1 GB VM with production.
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=30"]
+    environment:
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: portal
+      POSTGRES_DB: portal
+    volumes:
+      - staging_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portal"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/seif-walid/mtr_portal-backend:staging}
+    container_name: portal-staging-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # The staging checkout's own backend/.env (NOT production's). Everything
+    # below wins over it.
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://portal:portal@db:5432/portal
+      COOKIE_SECURE: "true"
+      # One worker: staging shares the small VM with production.
+      WEB_CONCURRENCY: "1"
+      FRONTEND_URL: "https://${STAGING_ADDRESS:-staging.portal.mindtechrobotics.com}"
+      GOOGLE_REDIRECT_URI: "https://${STAGING_ADDRESS:-staging.portal.mindtechrobotics.com}/api/auth/google/callback"
+      GOOGLE_CLIENT_ID: "446030339213-jfn9k6rr3r3mqrkfjojbd4753694f2oi.apps.googleusercontent.com"
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      APPLICATION_IP_SALT: ${APPLICATION_IP_SALT:-mtr-applications-staging}
+      # Staging data is a copy of production (real members' addresses), so it
+      # must never send real mail.
+      MAIL_BACKEND: disabled
+    volumes:
+      - staging_uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/auth/config')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/seif-walid/mtr_portal-frontend:staging}
+    container_name: portal-staging-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - default
+      - edge
+
+networks:
+  edge:
+    name: portal-edge
+    external: true
+
+volumes:
+  staging_pgdata:
+  staging_uploads:
