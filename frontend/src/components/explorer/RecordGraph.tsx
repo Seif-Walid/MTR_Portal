@@ -67,8 +67,8 @@ export default function RecordGraph({
         onKeyDown={(e) => e.key === 'Enter' && onClick()}
       >
         <rect width={nodeW} height={NODE_H} rx={7}
-          fill={on ? hexA(C.accent, 0.14) : 'rgba(15,20,29,.92)'}
-          stroke={on ? C.accent : hexA('#78aae6', 0.24)} />
+          fill={on ? hexA(C.accent, 0.14) : 'var(--surface)'}
+          stroke={on ? C.accent : hexA('var(--text-tertiary)', 0.24)} />
         <text x={align === 'left' ? 10 : nodeW - 10} y={14} fontSize={10} textAnchor={align === 'left' ? 'start' : 'end'}
           fill={token.colorTextTertiary} style={{ fontFamily: C.mono }}>
           {clip(sub, chars + 4)}
@@ -95,7 +95,7 @@ export default function RecordGraph({
           const key = `o-${r.table}-${r.id}-${i}`;
           return (
             <path key={`e${key}`} d={edge(16 + nodeW, y, cx - centreW / 2, cy)} fill="none"
-              stroke={hover === key ? C.accent : hexA('#78aae6', 0.3)} strokeWidth={hover === key ? 1.6 : 1} />
+              stroke={hover === key ? C.accent : hexA('var(--text-tertiary)', 0.3)} strokeWidth={hover === key ? 1.6 : 1} />
           );
         })}
         {right.map((g, i) => {
@@ -103,7 +103,7 @@ export default function RecordGraph({
           const key = `i-${g.key}`;
           return (
             <path key={`e${key}`} d={edge(cx + centreW / 2, cy, w - 16 - nodeW, y)} fill="none"
-              stroke={hover === key ? C.accent : hexA('#78aae6', 0.3)} strokeWidth={hover === key ? 1.6 : 1} />
+              stroke={hover === key ? C.accent : hexA('var(--text-tertiary)', 0.3)} strokeWidth={hover === key ? 1.6 : 1} />
           );
         })}
         <g transform={`translate(${cx - centreW / 2},${cy - 24})`}>

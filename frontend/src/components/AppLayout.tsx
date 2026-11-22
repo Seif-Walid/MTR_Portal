@@ -1,20 +1,26 @@
 import { GoogleOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons';
 import { Dropdown, message } from 'antd';
-import { useEffect, useState } from 'react';
-import { Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { AnimatePresence, LayoutGroup, motion, MotionConfig } from 'motion/react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useLocation, useNavigate, useOutlet, useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
 import { can, useAuth } from '../auth/AuthContext';
+import { useThemeMode } from '../theme/ThemeContext';
+import { LogoImage } from './Logo';
 import NotificationsBell from './NotificationsBell';
 
 /* ==========================================================================
-   CIRCUIT app shell — the bespoke rail + header from the prototype.
-   Replaces the generic AntD Layout/Sider/Menu. All routing, permission
-   gating, event-kind submenu, notifications, google-link, logout, and the
-   responsive collapse are preserved 1:1 — only the presentation changes.
-   Requires the shell classes in circuit-overrides.css (mtr-nav, mtr-sub,
-   mtr-online-dot).
+   App shell — "Workbench". Light/dark from role tokens; interaction in the
+   Webflow vein but held to the design system's motion rules: a pill that
+   glides between nav items as you hover, a sliding theme switch whose new
+   theme grows out of the click, and a short page transition. All routing,
+   permission gating, event-kind submenu, notifications, google-link, logout
+   and the responsive collapse are unchanged.
    ========================================================================== */
+
+const EASE = [0.33, 1, 0.68, 1] as const;
+const GLIDE = { type: 'spring', stiffness: 520, damping: 42, mass: 0.7 } as const;
 
 // --- icon set: prototype's thin-stroke SVGs, keyed by route -----------------
 function Ic({ children }: { children: React.ReactNode }) {
@@ -41,12 +47,13 @@ const ICONS: Record<string, React.ReactNode> = {
   '/members': <Ic><circle cx="10" cy="7" r="3" /><path d="M4 17c0-3.2 2.7-5 6-5s6 1.8 6 5" /></Ic>,
   '/applications': <Ic><rect x="4" y="3" width="12" height="14" rx="1.5" /><path d="M7 7.5h6M7 10.5h6M7 13.5l1.5 1.5 3-3" /></Ic>,
   '/courses': <Ic><path d="M10 5.5C8.3 4.3 6 3.8 3 4v11c3-.2 5.3.3 7 1.5 1.7-1.2 4-1.7 7-1.5V4c-3-.2-5.3.3-7 1.5z" /><path d="M10 5.5v11" /></Ic>,
+  '/assistant': <Ic><path d="M4 5.5A2.5 2.5 0 016.5 3h7A2.5 2.5 0 0116 5.5v5a2.5 2.5 0 01-2.5 2.5H9l-3.5 3v-3A2.5 2.5 0 014 10.5z" /><path d="M10 5.6l.7 1.7 1.7.7-1.7.7-.7 1.7-.7-1.7-1.7-.7 1.7-.7z" /></Ic>,
   '/finance': <Ic><rect x="3" y="5" width="14" height="10.5" rx="1.5" /><path d="M3 8.5h14" /><circle cx="13" cy="12" r="1.2" /></Ic>,
 };
 
 // --- header eyebrow + title per route ---------------------------------------
 const TITLES: Record<string, [string, string]> = {
-  '/home': ['Dashboard', 'Command deck'],
+  '/home': ['Home', 'Home'],
   '/tasks': ['Tasks', 'My Tasks'],
   '/calendar': ['Schedule', 'Calendar'],
   '/inventory': ['Inventory', 'Components'],
@@ -65,8 +72,6 @@ const TITLES: Record<string, [string, string]> = {
   '/courses': ['Learning', 'Courses'],
 };
 
-const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
-const DISPLAY = "'Space Grotesk Variable', 'Space Grotesk', sans-serif";
 
 function useClock() {
   const [now, setNow] = useState(() => new Date());
@@ -74,11 +79,65 @@ function useClock() {
     const t = window.setInterval(() => setNow(new Date()), 30_000);
     return () => window.clearInterval(t);
   }, []);
-  const date = now
-    .toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short' })
-    .toUpperCase();
-  const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-  return `${date} · ${time}`;
+  const date = now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  const time = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return `${date}, ${time}`;
+}
+
+/* Theme switch: three options, a thumb that slides to the chosen one. */
+function ThemeSwitch() {
+  const { pref, setPref } = useThemeMode();
+  const opts = [
+    { k: 'light' as const, label: 'Light', icon: <><circle cx="10" cy="10" r="3.2" /><path d="M10 2.5v1.8M10 15.7v1.8M2.5 10h1.8M15.7 10h1.8M4.7 4.7l1.3 1.3M14 14l1.3 1.3M15.3 4.7L14 6M6 14l-1.3 1.3" /></> },
+    { k: 'dark' as const, label: 'Dark', icon: <path d="M15.5 12.2A6 6 0 017.8 4.5a6 6 0 107.7 7.7z" /> },
+    { k: 'system' as const, label: 'Auto', icon: <><rect x="3" y="4" width="14" height="10" rx="1.5" /><path d="M7.5 17h5M10 14v3" /></> },
+  ];
+  return (
+    <div role="radiogroup" aria-label="Colour theme" className="mtr-theme-switch">
+      {opts.map((o) => {
+        const on = pref === o.k;
+        return (
+          <button
+            key={o.k}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            title={`${o.label} theme`}
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setPref(o.k, { x: r.left + r.width / 2, y: r.top + r.height / 2 });
+            }}
+            className={on ? 'on' : undefined}
+          >
+            {on && <motion.span layoutId="theme-thumb" className="mtr-theme-thumb" transition={GLIDE} />}
+            <svg viewBox="0 0 20 20" width={15} height={15} fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden="true">{o.icon}</svg>
+            <span>{o.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* Freezes the outgoing page so AnimatePresence can fade it out. */
+function AnimatedOutlet() {
+  const location = useLocation();
+  const outlet = useOutlet();
+  const [frozen] = useState<Record<string, ReactElement | null>>({});
+  const key = location.pathname;
+  frozen[key] = outlet;
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={key}
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0, transition: { duration: 0.3, ease: EASE } }}
+        exit={{ opacity: 0, y: -4, transition: { duration: 0.12, ease: [0.32, 0, 0.67, 0] } }}
+      >
+        {frozen[key]}
+      </motion.div>
+    </AnimatePresence>
+  );
 }
 
 export default function AppLayout() {
@@ -86,14 +145,35 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const clock = useClock();
-  const [collapsed, setCollapsed] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  // read the breakpoint synchronously so phones never paint the rail open first
+  const [collapsed, setCollapsed] = useState(() => window.matchMedia('(max-width: 991px)').matches);
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 991px)').matches);
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [eventKinds, setEventKinds] = useState<{ slug: string; name: string }[]>([]);
   const [eventsOpen, setEventsOpen] = useState(true);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [scrolled, setScrolled] = useState(false);
+  // Desktop rail: a slim icon strip that opens while the pointer (or keyboard
+  // focus) is on it and pushes the page aside; the menu button pins it open.
+  const [pinned, setPinned] = useState(() => {
+    try { return localStorage.getItem('mtr.nav.pinned') === '1'; } catch { return false; }
+  });
+  const [peek, setPeek] = useState(false);
+  const peekTimer = useRef<number | undefined>(undefined);
+  const schedulePeek = (open: boolean, delay: number) => {
+    window.clearTimeout(peekTimer.current);
+    peekTimer.current = window.setTimeout(() => setPeek(open), delay);
+  };
+  const togglePinned = () => setPinned((p) => {
+    try { localStorage.setItem('mtr.nav.pinned', p ? '0' : '1'); } catch { /* storage off */ }
+    if (p) setPeek(false);
+    return !p;
+  });
+  const sentinel = useRef<HTMLDivElement>(null);
   // collapsed nav sections, remembered per browser
   const [closedSections, setClosedSections] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem('mtr.nav.closed') ?? '[]')); } catch { return new Set(); }
+    // Administration starts folded for browsers that never chose; a saved choice wins
+    try { return new Set(JSON.parse(localStorage.getItem('mtr.nav.closed') ?? '["admin"]')); } catch { return new Set(['admin']); }
   });
   const toggleSection = (id: string) => setClosedSections((prev) => {
     const next = new Set(prev);
@@ -134,6 +214,15 @@ export default function AppLayout() {
     return () => mq.removeEventListener('change', apply);
   }, []);
 
+  // header picks up a hairline once content scrolls under it
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el) return;
+    const io = new IntersectionObserver(([e]) => setScrolled(!e.isIntersecting));
+    io.observe(el);
+    return () => io.disconnect();
+  }, [me]);
+
   if (!me) return null;
 
   // --- permission-gated nav, grouped into collapsible sections -------------
@@ -145,7 +234,8 @@ export default function AppLayout() {
     { id: 'work', title: 'Workspace', items: [
       { key: '/home', label: 'Home' },
       ...(can(me, 'dashboard.view') ? [{ key: '/explore', label: 'Dashboard' }] : []),
-      ...(can(me, 'tasks.use') ? [{ key: '/tasks', label: 'My Tasks' }, { key: '/requests', label: 'Requests' }] : []),
+      ...(can(me, 'ai.use') ? [{ key: '/assistant', label: 'Assistant' }] : []),
+      ...(can(me, 'tasks.use') ? [{ key: '/tasks', label: 'My tasks' }, { key: '/requests', label: 'Requests' }] : []),
       ...(can(me, 'tasks.use') || can(me, 'events.view') || can(me, 'inventory.view')
         ? [{ key: '/calendar', label: 'Calendar' }]
         : []),
@@ -160,15 +250,15 @@ export default function AppLayout() {
       { key: '/archive', label: 'Archive' },
     ] },
     { id: 'people', title: 'People', items: [
-      ...(can(me, 'people.view') && (me.has_team || can(me, 'users.manage')) ? [{ key: '/team', label: 'My Teams' }] : []),
+      ...(can(me, 'people.view') && (me.has_team || can(me, 'users.manage')) ? [{ key: '/team', label: 'My teams' }] : []),
       ...(can(me, 'org.view') ? [{ key: '/organization', label: 'Organization' }] : []),
       ...(can(me, 'members.view') ? [{ key: '/members', label: 'Members' }, { key: '/applications', label: 'Applications' }] : []),
     ] },
     { id: 'admin', title: 'Administration', items: [
       ...(can(me, 'finance.view') ? [{ key: '/finance', label: 'Finance' }] : []),
-      ...(can(me, 'users.manage') ? [{ key: '/admin/users', label: 'User Management' }] : []),
-      ...(canDataTables ? [{ key: '/admin/data', label: 'Data Tables' }] : []),
-      ...(can(me, 'audit.view') ? [{ key: '/admin/audit', label: 'Audit Log' }] : []),
+      ...(can(me, 'users.manage') ? [{ key: '/admin/users', label: 'User management' }] : []),
+      ...(canDataTables ? [{ key: '/admin/data', label: 'Data tables' }] : []),
+      ...(can(me, 'audit.view') ? [{ key: '/admin/audit', label: 'Audit log' }] : []),
     ] },
   ] as NavSection[]).filter((sec) => sec.items.length > 0);
   const items = sections.flatMap((sec) => sec.items);
@@ -180,9 +270,9 @@ export default function AppLayout() {
   const isActive = (key: string) =>
     key === '/events' ? location.pathname.startsWith('/events') : selected === key;
 
-  // header eyebrow/title — for an events sub-route, show the kind name
+  // header title — for an events sub-route, show the kind name
   const base = TITLES[selected as string] ?? TITLES['/' + (location.pathname.split('/')[1] ?? 'home')] ?? ['', ''];
-  let [eyebrow, title] = base;
+  let [, title] = base;
   if (location.pathname.startsWith('/events/')) {
     const slug = location.pathname.split('/')[2];
     const kind = eventKinds.find((k) => k.slug === slug);
@@ -202,56 +292,112 @@ export default function AppLayout() {
     ],
   };
 
-  const railW = collapsed ? 0 : 222;
-  // On mobile the rail floats over the content instead of pushing it aside.
-  const contentInset = isMobile ? 0 : railW;
+  const RAIL_OPEN = 240;
+  const RAIL_MINI = 72;
+  const expanded = isMobile ? !collapsed : pinned || peek;
+  const railW = isMobile ? (collapsed ? 0 : RAIL_OPEN) : expanded ? RAIL_OPEN : RAIL_MINI;
+  // Desktop: the rail always pushes the page, so opening it shifts everything.
+  // Mobile: no room to push, so the rail floats over the content.
+  // peeking floats over the page; only a pinned rail pushes the content aside
+  const contentInset = isMobile ? 0 : pinned ? RAIL_OPEN : RAIL_MINI;
   const go = (key: string) => { navigate(key); if (isMobile) setCollapsed(true); };
+  // real links (keyboard, middle-click, copy link) that still route client-side on a plain click
+  const follow = (e: React.MouseEvent<HTMLAnchorElement>, key: string) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    go(key);
+  };
+
+  // the pill shows under the hovered item, else under the active one
+  const pillOn = (key: string, active: boolean) => (hovered ? hovered === key : active);
+
+  // a render helper, not a component: a component declared here would remount
+  // on every hover and drop keyboard focus
+  const navLink = (k: string, label: string, sub?: boolean) => {
+    const active = sub ? selected === k : isActive(k);
+    return (
+      <a
+        key={k}
+        href={k}
+        className={`${sub ? 'mtr-sub' : 'mtr-nav'}${active ? ' active' : ''}`}
+        aria-current={selected === k ? 'page' : undefined}
+        onClick={(e) => follow(e, k)}
+        onMouseEnter={() => setHovered(k)}
+        onFocus={() => setHovered(k)}
+      >
+        {pillOn(k, active) && (
+          <motion.span layoutId="nav-pill" className={`mtr-nav-pill${active ? ' is-active' : ''}`} transition={GLIDE} />
+        )}
+        {active && !sub && <motion.span layoutId="nav-bar" className="mtr-nav-bar" transition={GLIDE} />}
+        {!sub && <span className="mtr-nav-icon">{ICONS[k]}</span>}
+        {label}
+        {active && <motion.span layoutId={sub ? 'nav-dot-sub' : 'nav-dot'} className="mtr-nav-dot" transition={GLIDE} aria-hidden />}
+      </a>
+    );
+  };
 
   return (
+    <MotionConfig reducedMotion="user">
     <div style={{ display: 'flex', minHeight: '100vh' }}>
-      {isMobile && !collapsed && (
-        <button
-          type="button"
-          aria-label="Close menu"
-          className="mtr-nav-backdrop"
-          onClick={() => setCollapsed(true)}
-        />
-      )}
+      <a href="#main" className="mtr-skip-link">Skip to content</a>
+      <AnimatePresence>
+        {isMobile && !collapsed && (
+          <motion.button
+            type="button"
+            aria-label="Close menu"
+            className="mtr-nav-backdrop"
+            onClick={() => setCollapsed(true)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: { duration: 0.25 } }}
+            exit={{ opacity: 0, transition: { duration: 0.18 } }}
+          />
+        )}
+      </AnimatePresence>
       {/* NAV RAIL */}
       <aside
-        className="mtr-scroll"
+        className={`mtr-scroll mtr-rail${!isMobile && !expanded ? ' is-mini' : ''}`}
+        aria-label="Main navigation"
+        // a folded mobile rail is width 0 — keep its links out of the tab order and the reading order
+        {...(isMobile && collapsed ? { inert: '' } : {})}
+        onMouseEnter={() => !isMobile && !pinned && schedulePeek(true, 0)}
+        onMouseLeave={() => !isMobile && !pinned && schedulePeek(false, 120)}
+        onFocus={() => !isMobile && !pinned && schedulePeek(true, 0)}
+        onBlur={(e) => {
+          if (!isMobile && !pinned && !e.currentTarget.contains(e.relatedTarget as Node)) schedulePeek(false, 0);
+        }}
         style={{
           width: railW,
           flexShrink: 0,
-          background: 'linear-gradient(180deg,#080a10,#060709)',
-          borderRight: railW ? '1px solid rgba(120,170,230,.1)' : 'none',
           position: 'fixed',
           insetInlineStart: 0,
           top: 0,
           height: '100vh',
-          overflowY: 'auto',
+          overflowY: expanded ? 'auto' : 'hidden',
           overflowX: 'hidden',
           display: 'flex',
           flexDirection: 'column',
           zIndex: 30,
-          transition: 'width .18s ease',
+          borderInlineEndWidth: railW ? 1 : 0,
+          boxShadow: (isMobile && railW) || (!isMobile && peek && !pinned) ? 'var(--shadow-floating)' : 'none',
+          transition: 'width .16s cubic-bezier(0.33, 1, 0.68, 1), box-shadow .16s',
+          willChange: 'width',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '18px 16px 16px', whiteSpace: 'nowrap' }}>
-          <img src="/logo.png" width={38} height={38} style={{ borderRadius: 9, boxShadow: '0 0 18px rgba(92,198,255,.25)', flexShrink: 0 }} alt="MTR" />
-          <div>
-            <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 13, letterSpacing: '.14em', color: '#eaf2ff', lineHeight: 1 }}>MIND·TECH</div>
-            <div style={{ fontFamily: MONO, fontSize: 9, letterSpacing: '.34em', color: '#5cc6ff', marginTop: 4 }}>ROBOTICS</div>
-          </div>
-        </div>
-        <div style={{ height: 1, background: 'rgba(120,170,230,.1)', margin: '4px 14px 10px' }} />
-        <nav style={{ flex: 1 }}>
+        <a href="/home" onClick={(e) => follow(e, '/home')} className="mtr-brand" aria-label="Mind Tech Robotics, home">
+          <LogoImage size={40} label="" />
+          <span>
+            <span className="mtr-brand__name">Mind Tech</span>
+            <span className="mtr-brand__sub">Robotics portal</span>
+          </span>
+        </a>
+        <LayoutGroup id="rail">
+        <nav style={{ flex: 1, paddingBottom: 8 }} aria-label="Pages" onMouseLeave={() => setHovered(null)} onBlur={() => setHovered(null)}>
           {sections.map((sec) => {
             // the section holding the current page always shows
             const holdsActive = sec.items.some((it) => isActive(it.key));
             const open = holdsActive || !closedSections.has(sec.id);
             return (
-              <div key={sec.id} style={{ marginBottom: 6 }}>
+              <div key={sec.id}>
                 <button
                   type="button"
                   className="mtr-nav-section"
@@ -260,103 +406,121 @@ export default function AppLayout() {
                   disabled={holdsActive}
                 >
                   {sec.title}
-                  <svg viewBox="0 0 20 20" width={11} height={11} fill="none" stroke="currentColor" strokeWidth={1.8}
-                    style={{ marginInlineStart: 'auto', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .16s ease' }}>
-                    <path d="M7 5l6 5-6 5" />
-                  </svg>
+                  {!holdsActive && (
+                    <svg viewBox="0 0 20 20" width={11} height={11} fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true"
+                      style={{ marginInlineStart: 'auto', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .25s cubic-bezier(0.33, 1, 0.68, 1)' }}>
+                      <path d="M7 5l6 5-6 5" />
+                    </svg>
+                  )}
                 </button>
-                {open && sec.items.map((it) => (
-                  <div key={it.key}>
-                    <div className={`mtr-nav${isActive(it.key) ? ' active' : ''}`} onClick={() => go(it.key)}>
-                      {ICONS[it.key]}
-                      {it.label}
-                      {it.children && (
-                        <button
-                          type="button"
-                          aria-label={eventsOpen ? 'Collapse' : 'Expand'}
-                          aria-expanded={eventsOpen}
-                          onClick={(e) => { e.stopPropagation(); setEventsOpen((o) => !o); }}
-                          className="mtr-nav-chevron"
-                          style={{ marginInlineStart: 'auto' }}
-                        >
-                          <svg viewBox="0 0 20 20" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.7}
-                            style={{ transform: eventsOpen ? 'rotate(90deg)' : 'none', transition: 'transform .16s ease' }}>
-                            <path d="M7 5l6 5-6 5" />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
-                    {it.children && eventsOpen && it.children.map((c) => (
-                      <div key={c.key} className={`mtr-sub${selected === c.key ? ' active' : ''}`} onClick={() => go(c.key)}>
-                        {c.label}
-                      </div>
-                    ))}
-                  </div>
-                ))}
+                <AnimatePresence initial={false}>
+                  {open && (
+                    <motion.div
+                      key="items"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1, transition: { duration: 0.25, ease: EASE } }}
+                      exit={{ height: 0, opacity: 0, transition: { duration: 0.2, ease: [0.32, 0, 0.67, 0] } }}
+                      style={{ overflow: 'hidden' }}
+                    >
+                      {sec.items.map((it) => (
+                        <div key={it.key} className={it.children ? 'mtr-nav-group' : undefined}>
+                          {navLink(it.key, it.label)}
+                          {it.children && (
+                            <button
+                              type="button"
+                              aria-label={`${eventsOpen ? 'Hide' : 'Show'} ${it.label.toLowerCase()} kinds`}
+                              aria-expanded={eventsOpen}
+                              onClick={() => setEventsOpen((o) => !o)}
+                              className="mtr-nav-chevron"
+                            >
+                              <svg viewBox="0 0 20 20" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.7} aria-hidden="true"
+                                style={{ transform: eventsOpen ? 'rotate(90deg)' : 'none', transition: 'transform .25s cubic-bezier(0.33, 1, 0.68, 1)' }}>
+                                <path d="M7 5l6 5-6 5" />
+                              </svg>
+                            </button>
+                          )}
+                          {it.children && eventsOpen && expanded && it.children.map((c) => navLink(c.key, c.label, true))}
+                        </div>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             );
           })}
         </nav>
-        <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(120,170,230,.08)', whiteSpace: 'nowrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontFamily: MONO, fontSize: 9.5, letterSpacing: '.16em', color: 'rgba(224,236,252,.35)' }}>
-            <span className="mtr-online-dot" />SYSTEM ONLINE
-          </div>
+        </LayoutGroup>
+        <div className="mtr-rail-foot">
+          <ThemeSwitch />
         </div>
       </aside>
 
       {/* CONTENT COLUMN */}
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', marginInlineStart: contentInset, transition: 'margin .18s ease' }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', marginInlineStart: contentInset, transition: 'margin .16s cubic-bezier(0.33, 1, 0.68, 1)' }}>
+        <div ref={sentinel} style={{ height: 1, marginBottom: -1 }} aria-hidden="true" />
         {/* HEADER */}
         <header
-          className="mtr-header"
+          className={`mtr-header${scrolled ? ' is-scrolled' : ''}`}
           style={{
             position: 'sticky',
             top: 0,
             zIndex: 20,
-            height: 62,
+            height: 60,
             display: 'flex',
             alignItems: 'center',
-            gap: 16,
+            gap: 12,
             padding: '0 24px',
-            background: 'rgba(8,11,17,.72)',
-            backdropFilter: 'blur(16px)',
-            borderBottom: '1px solid rgba(120,170,230,.1)',
           }}
         >
           <button
             type="button"
-            aria-label={collapsed ? 'Open menu' : 'Collapse menu'}
-            onClick={() => setCollapsed((c) => !c)}
+            aria-label={isMobile ? (collapsed ? 'Open menu' : 'Close menu') : pinned ? 'Unpin menu' : 'Pin menu open'}
+            aria-expanded={expanded}
+            onClick={() => (isMobile ? setCollapsed((c) => !c) : togglePinned())}
             className="mtr-icon-btn"
-            style={{ marginInlineStart: -6 }}
+            style={{ marginInlineStart: -8 }}
           >
-            <svg viewBox="0 0 20 20" width={17} height={17} fill="none" stroke="currentColor" strokeWidth={1.6}>
-              <path d="M3 5h14M3 10h14M3 15h14" />
+            <svg viewBox="0 0 20 20" width={17} height={17} fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden="true">
+              <path d="M3 6h14M3 10h9M3 14h14" />
             </svg>
           </button>
-          <div>
-            <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.24em', textTransform: 'uppercase', color: '#5cc6ff' }}>{eyebrow}</div>
-            <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 16, color: '#eaf2ff', lineHeight: 1.1, marginTop: 2 }}>{title}</div>
-          </div>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.h1
+              key={title}
+              className="mtr-header__title"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0, transition: { duration: 0.25, ease: EASE } }}
+              exit={{ opacity: 0, y: -6, transition: { duration: 0.12 } }}
+            >
+              {title}
+            </motion.h1>
+          </AnimatePresence>
           <div style={{ flex: 1 }} />
-          <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '.08em', color: 'rgba(224,236,252,.4)' }} className="mtr-clock">{clock}</div>
+          <div className="mtr-clock">{clock}</div>
           <NotificationsBell />
-          <Dropdown menu={userMenu} placement="bottomRight">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingInlineStart: 14, borderInlineStart: '1px solid rgba(120,170,230,.12)', cursor: 'pointer' }}>
-              <div style={{ width: 36, height: 36, borderRadius: 9, background: 'linear-gradient(135deg,rgba(92,198,255,.3),rgba(92,198,255,.08))', border: '1px solid rgba(92,198,255,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: MONO, fontWeight: 600, fontSize: 13, color: '#5cc6ff' }}>{initials}</div>
+          <Dropdown menu={userMenu} placement="bottomRight" trigger={['click']}>
+            <button
+              type="button"
+              className="mtr-user-btn"
+              aria-label={`Account menu for ${me.full_name}`}
+              aria-haspopup="menu"
+              style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+            >
+              <div aria-hidden="true" className="mtr-avatar">{initials}</div>
               <div style={{ lineHeight: 1.25 }} className="mtr-userchip">
-                <div style={{ fontSize: 13, fontWeight: 500, color: '#eaf2ff', whiteSpace: 'nowrap' }}>{me.full_name}</div>
-                <div style={{ fontFamily: MONO, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(224,236,252,.45)' }}>{me.level ? me.level.name : 'No level'}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{me.full_name}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{me.level ? me.level.name : 'No level'}</div>
               </div>
-            </div>
+            </button>
           </Dropdown>
         </header>
 
         {/* MAIN */}
-        <main className="mtr-scroll mtr-main" style={{ flex: 1, minWidth: 0, padding: '28px 28px 60px' }}>
-          <Outlet />
+        <main id="main" tabIndex={-1} className="mtr-scroll mtr-main" style={{ flex: 1, minWidth: 0, padding: '24px 32px 64px' }}>
+          <AnimatedOutlet />
         </main>
       </div>
     </div>
+    </MotionConfig>
   );
 }

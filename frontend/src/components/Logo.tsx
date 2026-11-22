@@ -1,15 +1,15 @@
-/** The actual Mind-Tech Robotics logo (frontend/public/logo.png). */
-export function LogoImage({ size = 40, radius = 10 }: { size?: number; radius?: number }) {
+import markSvg from '../assets/logo-mark.svg?raw';
+
+/** The Mind-Tech Robotics mark as inline SVG with no background around it.
+    Its own colours (black ink, white fill, grey shading, red ticks) are fixed
+    so it looks the same in light and dark. Traced from the website's logo-mark. */
+export function LogoImage({ size = 40, label = 'Mind-Tech Robotics' }: { size?: number; radius?: number; label?: string }) {
   return (
-    <img
-      src="/logo.png"
-      alt="Mind-Tech Robotics"
-      style={{
-        height: size,
-        width: 'auto',
-        borderRadius: radius,
-        display: 'block',
-      }}
+    <span
+      className="mtr-logo"
+      {...(label ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}
+      style={{ height: size, width: size * (541 / 620) }}
+      dangerouslySetInnerHTML={{ __html: markSvg.replace('role="img" aria-label="Mind Tech Robotics"', 'aria-hidden="true"') }}
     />
   );
 }

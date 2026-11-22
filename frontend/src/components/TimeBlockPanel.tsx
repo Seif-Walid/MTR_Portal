@@ -6,8 +6,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type { TeamBlock, TimeBlock } from '../api/types';
 
-const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
-const AMBER = '#ffb26b';
+const MONO = 'var(--font-mono)';
+const AMBER = 'var(--cat-amber)';
 
 // bit i = Python weekday: Monday=0 .. Sunday=6
 const WEEKDAYS = [
@@ -137,7 +137,7 @@ export default function TimeBlockPanel({ block }: { block: TeamBlock }) {
   return (
     <div style={{ marginTop: 4, marginBottom: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: blocks.length ? 10 : 0 }}>
-        <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(224,236,252,.45)' }}>
+        <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>
           <CalendarOutlined style={{ marginRight: 6, color: AMBER }} />Calendar time
         </span>
         {block.can_schedule && (
@@ -147,23 +147,23 @@ export default function TimeBlockPanel({ block }: { block: TeamBlock }) {
 
       <Space direction="vertical" size={6} style={{ width: '100%' }}>
         {blocks.map((b) => (
-          <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 12px', borderRadius: 8, border: `1px solid rgba(255,178,107,.25)`, background: 'rgba(255,178,107,.06)' }}>
-            <span style={{ color: '#eaf2ff', fontSize: 13 }}>{b.title || block.name}</span>
-            <span style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(224,236,252,.6)' }}>
+          <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 12px', borderRadius: 8, border: `1px solid color-mix(in srgb, var(--cat-amber) 25%, transparent)`, background: 'color-mix(in srgb, var(--cat-amber) 6%, transparent)' }}>
+            <span style={{ color: 'var(--text-primary)', fontSize: 13 }}>{b.title || block.name}</span>
+            <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--text-tertiary)' }}>
               {b.start_date} → {b.end_date}
             </span>
-            <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase', color: AMBER, border: `1px solid rgba(255,178,107,.3)`, padding: '1px 7px', borderRadius: 5 }}>
+            <span style={{ fontSize: 11.5, color: AMBER, border: `1px solid color-mix(in srgb, var(--cat-amber) 30%, transparent)`, padding: '1px 7px', borderRadius: 999 }}>
               {maskLabel(b.weekday_mask)}
             </span>
             {timeLabel(b) && (
-              <span style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(224,236,252,.75)' }}>{timeLabel(b)}</span>
+              <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--text-secondary)' }}>{timeLabel(b)}</span>
             )}
             <span style={{ flex: 1 }} />
             {block.can_schedule && (
               <>
-                <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(b)} />
+                <Button aria-label="Edit time block" size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(b)} />
                 <Popconfirm title="Remove this time block?" onConfirm={() => remove(b.id)} okText="Remove" okButtonProps={{ danger: true }}>
-                  <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                  <Button aria-label="Remove time block" size="small" type="text" danger icon={<DeleteOutlined />} />
                 </Popconfirm>
               </>
             )}

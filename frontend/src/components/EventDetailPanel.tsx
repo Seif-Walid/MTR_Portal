@@ -1,5 +1,5 @@
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Card, Divider, Empty, Input, Popconfirm, Select, Space, Tag, Typography, message } from 'antd';
+import { Button, Card, Divider, Skeleton, Input, Popconfirm, Select, Space, Tag, Typography, message } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
@@ -252,7 +252,7 @@ function TeamCard({ team, teams, categoryId, teamLabel, dir, canManageComp, isAd
               description="It's kept for history but hidden everywhere."
               onConfirm={() => run(api.delete(`/api/events/teams/${team.id}`), 'Team removed', onChanged)}
             >
-              <Button size="small" danger icon={<DeleteOutlined />} />
+              <Button aria-label="Remove team" size="small" danger icon={<DeleteOutlined />} />
             </Popconfirm>
             {isAdmin && (
               <Popconfirm
@@ -260,7 +260,7 @@ function TeamCard({ team, teams, categoryId, teamLabel, dir, canManageComp, isAd
                 description="Really removes it and its member history. Admin-only."
                 onConfirm={() => run(api.delete(`/api/events/teams/${team.id}?permanent=true`), 'Team permanently deleted', onChanged)}
               >
-                <Button size="small" danger type="text" icon={<DeleteOutlined />} title="Permanently delete (admin)" />
+                <Button aria-label="Permanently delete team" size="small" danger type="text" icon={<DeleteOutlined />} title="Permanently delete (admin)" />
               </Popconfirm>
             )}
           </Space>
@@ -308,7 +308,7 @@ function TeamCard({ team, teams, categoryId, teamLabel, dir, canManageComp, isAd
               {m.role ? `· ${m.role}` : (canMembers ? '· add role' : '')}
             </Typography.Text>
             {canMembers && (
-              <Button
+              <Button aria-label="Remove member"
                 size="small" type="text" danger icon={<DeleteOutlined />}
                 onClick={() => run(api.delete(`/api/events/teams/${team.id}/members/${m.user.id}`), 'Removed', onChanged)}
               />
@@ -335,7 +335,7 @@ function TeamCard({ team, teams, categoryId, teamLabel, dir, canManageComp, isAd
         </Button>
       )}
       {(children.length > 0 || addingSub) && (
-        <div style={{ marginTop: 12, paddingLeft: 12, borderLeft: '2px solid var(--ant-color-border-secondary, #f0f0f0)' }}>
+        <div style={{ marginTop: 12, paddingLeft: 12, borderLeft: '2px solid var(--border)' }}>
           {children.length > 0 && (
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>Sub-{label}s</Typography.Text>
           )}
@@ -404,7 +404,7 @@ export default function EventDetailPanel({ eventId, onChanged }: {
 
   const refresh = () => { load(); onChanged(); };
 
-  if (!detail) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Loading…" />;
+  if (!detail) return <Skeleton active paragraph={{ rows: 4 }} />;
   const canManage = detail.can_manage;
   const teamLabel = detail.kind?.team_label ?? 'Team';
   const categoryLabel = detail.kind?.category_label ?? 'Category';
@@ -465,7 +465,7 @@ export default function EventDetailPanel({ eventId, onChanged }: {
             </Typography.Text>
           }
           extra={canManage && (
-            <Button size="small" danger icon={<DeleteOutlined />}
+            <Button aria-label="Remove category" size="small" danger icon={<DeleteOutlined />}
               onClick={() => run(api.delete(`/api/events/categories/${cat.id}`), 'Category removed', refresh)} />
           )}
         >

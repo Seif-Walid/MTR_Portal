@@ -5,12 +5,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import type { AccessLevel, AdminUser, Privilege } from '../api/types';
 
-const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
-const DISPLAY = "'Space Grotesk Variable', 'Space Grotesk', sans-serif";
+const MONO = 'var(--font-mono)';
+const DISPLAY = 'var(--font-display)';
 
 function Chip({ text, tone = 'muted' }: { text: string; tone?: 'accent' | 'gold' | 'muted' }) {
-  const c = tone === 'accent' ? '#5cc6ff' : tone === 'gold' ? '#f5c451' : 'rgba(224,236,252,.5)';
-  return <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.06em', textTransform: 'uppercase', color: c, border: `1px solid ${c}55`, background: `${c}14`, padding: '2px 8px', borderRadius: 5, whiteSpace: 'nowrap' }}>{text}</span>;
+  const c = tone === 'accent' ? 'var(--brand-fg)' : tone === 'gold' ? 'var(--cat-amber)' : 'var(--text-tertiary)';
+  return <span style={{ fontSize: 11.5, fontWeight: 500, color: c, background: c.startsWith('#') || c.startsWith('var(') ? `color-mix(in srgb, ${c} 12%, transparent)` : 'color-mix(in srgb, var(--text-primary) 6%, transparent)', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>{text}</span>;
 }
 
 const dash = (v: string | number | null | undefined) =>
@@ -169,10 +169,10 @@ function LevelsEditor({ levels, privileges, onChanged }: { levels: AccessLevel[]
         ),
         extra: (
           <Space size={0} onClick={(e) => e.stopPropagation()}>
-            <Button type="text" size="small" icon={<ArrowUpOutlined />} disabled={i === 0} onClick={() => move(level, -1)} />
-            <Button type="text" size="small" icon={<ArrowDownOutlined />} disabled={i === levels.length - 1} onClick={() => move(level, 1)} />
+            <Button aria-label="Move level up" type="text" size="small" icon={<ArrowUpOutlined />} disabled={i === 0} onClick={() => move(level, -1)} />
+            <Button aria-label="Move level down" type="text" size="small" icon={<ArrowDownOutlined />} disabled={i === levels.length - 1} onClick={() => move(level, 1)} />
             <Popconfirm title="Delete this level?" description="Seats and overrides using it fall back to no level." onConfirm={() => remove(level)} disabled={level.is_top}>
-              <Button type="text" size="small" danger icon={<DeleteOutlined />} disabled={level.is_top} />
+              <Button aria-label="Delete level" type="text" size="small" danger icon={<DeleteOutlined />} disabled={level.is_top} />
             </Popconfirm>
           </Space>
         ),
@@ -227,7 +227,7 @@ function DriveCard() {
         : <Button type="primary" href="/api/drive/connect">Connect Google Drive</Button>}>
       <Typography.Text type="secondary" style={{ fontSize: 13 }}>
         {status.connected
-          ? <>Task submissions go to the Google Drive of <b style={{ color: '#eaf2ff' }}>{status.email}</b>, in a folder named “MTR Portal uploads” (up to {limit} per file, sent straight from the browser to Google). The portal can only see the files it put there.</>
+          ? <>Task submissions go to the Google Drive of <b style={{ color: 'var(--text-primary)' }}>{status.email}</b>, in a folder named “MTR Portal uploads” (up to {limit} per file, sent straight from the browser to Google). The portal can only see the files it put there.</>
           : <>Not connected — submissions are limited to links and small files kept on the server. Connect the club's Google account to accept big files like CAD assemblies (up to {limit} each).</>}
       </Typography.Text>
     </Card>
@@ -281,11 +281,11 @@ export default function AdminUsersPage() {
     <>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
         <div style={{ maxWidth: 640 }}>
-          <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: '#eaf2ff' }}>People &amp; Access</h2>
-          <div style={{ fontSize: 13, color: 'rgba(224,236,252,.5)', marginTop: 6, lineHeight: 1.5 }}>
+          <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: 'var(--text-primary)' }}>People &amp; Access</h2>
+          <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 6, lineHeight: 1.5 }}>
             The full directory and the management view in one: each person's seats come from the Organization chart, their power from the access ladder, their roster details from the member import. The only thing granted here directly is the override.
           </div>
-          <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '.08em', color: 'rgba(224,236,252,.45)', marginTop: 8 }}>
+          <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '.08em', color: 'var(--text-tertiary)', marginTop: 8 }}>
             {users.length} ACCOUNT{users.length === 1 ? '' : 'S'}{query.trim() ? ` · ${filtered.length} SHOWN` : ''}
           </div>
         </div>
@@ -319,14 +319,14 @@ export default function AdminUsersPage() {
           {
             title: 'MTR ID', dataIndex: ['profile', 'mtr_id'], width: 110,
             sorter: (a, b) => (a.profile?.mtr_id ?? '').localeCompare(b.profile?.mtr_id ?? ''),
-            render: (v) => (v ? <span style={{ fontFamily: MONO, fontSize: 12, color: '#5cc6ff', letterSpacing: '.04em' }}>{v}</span> : dash(v)),
+            render: (v) => (v ? <span style={{ fontFamily: MONO, fontSize: 12, color: 'var(--brand-fg)', letterSpacing: '.04em' }}>{v}</span> : dash(v)),
           },
           {
             title: 'Name', sorter: (a, b) => a.full_name.localeCompare(b.full_name),
             render: (_, u) => (
               <div style={{ lineHeight: 1.3 }}>
                 <Space size={6}>
-                  <span style={{ color: '#eaf2ff' }}>{u.full_name}</span>
+                  <span style={{ color: 'var(--text-primary)' }}>{u.full_name}</span>
                   {!u.is_active && <Chip text="deactivated" />}
                   {u.is_active && !u.claimed && <Chip text="not set up yet" />}
                 </Space>

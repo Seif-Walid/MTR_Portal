@@ -109,7 +109,7 @@ def test_connect_callback_stores_the_drive(login, org, monkeypatch, db_session):
     admin = login("admin")
     start = admin.get("/api/drive/connect", follow_redirects=False)
     state = start.headers["location"].split("state=")[1].split("&")[0]
-    admin.client.cookies.set("g_oauth_state", state)
+    admin.cookies["g_oauth_state"] = state
     r = admin.get(f"/api/auth/google/callback?code=abc&state={state}", follow_redirects=False)
     assert r.headers["location"].endswith("/admin/users?drive=connected")
     assert seen == {"code": "abc", "uid": org["admin"].id}

@@ -1199,9 +1199,13 @@ export default function DataGrid({
   // selection tints mixed from the primary colour (the theme's own *Bg tokens are light in dark mode)
   const tint = (pct: number) => `color-mix(in srgb, ${token.colorPrimary} ${pct}%, transparent)`;
   const css = `
+    .sg-wrap { border-radius: 14px; background: color-mix(in srgb, var(--text-primary) 1.5%, transparent); }
     .sg-wrap:focus { outline: none; }
+    .sg-wrap:focus-visible { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-fg) 45%, transparent); }
     .sg-table { border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: 13px; }
-    .sg-table td, .sg-table th { border-right: 1px solid ${token.colorBorderSecondary}; border-bottom: 1px solid ${token.colorBorderSecondary}; }
+    .sg-table td, .sg-table th { border-right: 1px solid var(--border-light); border-bottom: 1px solid var(--border-light); }
+    .sg-row { transition: background .12s; }
+    .sg-row:hover .sg-td { background-color: color-mix(in srgb, var(--brand-fg) 4.5%, transparent); }
     .sg-th { position: sticky; top: 0; z-index: 3; height: ${HEAD_H}px; font-weight: 600; text-align: left; padding: 0 8px; user-select: none; cursor: default; }
     .sg-th-inner { display: flex; align-items: center; gap: 4px; height: 100%; overflow: hidden; white-space: nowrap; }
     .sg-th-label { overflow: hidden; text-overflow: ellipsis; flex: 1; }
@@ -1230,9 +1234,9 @@ export default function DataGrid({
     .sg-row:hover .sg-num.can-open { display: none; }
     .sg-row.draft .sg-rh { color: ${token.colorWarning}; }
     .sg-dim { color: ${token.colorTextQuaternary}; }
-    .sg-menu { position: fixed; z-index: 1200; background: ${token.colorBgElevated}; box-shadow: ${token.boxShadowSecondary}; border-radius: 8px; padding: 4px; min-width: 200px; font-size: 13px; }
-    .sg-menu button { all: unset; box-sizing: border-box; display: flex; justify-content: space-between; gap: 16px; width: 100%; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
-    .sg-menu button:hover { background: ${token.controlItemBgHover}; }
+    .sg-menu { position: fixed; z-index: 1200; background: ${token.colorBgElevated}; box-shadow: ${token.boxShadowSecondary}; border-radius: 14px; padding: 6px; min-width: 200px; font-size: 13px; }
+    .sg-menu button { all: unset; box-sizing: border-box; display: flex; justify-content: space-between; gap: 16px; width: 100%; padding: 7px 10px; border-radius: 8px; cursor: pointer; transition: background .12s, color .12s; }
+    .sg-menu button:hover { background: color-mix(in srgb, var(--brand-fg) 14%, transparent); color: ${token.colorPrimary}; }
     .sg-menu button[disabled] { opacity: .4; cursor: default; }
     .sg-menu kbd { font-family: inherit; color: ${token.colorTextTertiary}; font-size: 12px; }
     .sg-menu hr { border: 0; border-top: 1px solid ${token.colorSplit}; margin: 4px 0; }
@@ -1379,7 +1383,7 @@ export default function DataGrid({
             placeholder="Filter rows"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ width: compact ? 160 : 200 }}
+            style={{ width: compact ? 160 : 200, maxWidth: '100%' }}
           />
           {readOnly ? (
             <Tooltip title={frozenScope ? 'Reopen the season on the Seasons table (Setup tab) to edit it.' : undefined}>
@@ -1405,33 +1409,33 @@ export default function DataGrid({
                 </Button>
               )}
               <Tooltip title="Undo (Ctrl+Z)">
-                <Button icon={<UndoOutlined />} disabled={!undoStack.current.length} onClick={undo} />
+                <Button aria-label="Undo" icon={<UndoOutlined />} disabled={!undoStack.current.length} onClick={undo} />
               </Tooltip>
               <Tooltip title="Redo (Ctrl+Y)">
-                <Button icon={<RedoOutlined />} disabled={!redoStack.current.length} onClick={redo} />
+                <Button aria-label="Redo" icon={<RedoOutlined />} disabled={!redoStack.current.length} onClick={redo} />
               </Tooltip>
             </>
           )}
           {canDelete && !compact && (
             <Tooltip title="Recycle bin — restore deleted rows">
-              <Button icon={<RestOutlined />} onClick={() => setBinOpen(true)} />
+              <Button aria-label="Recycle bin" icon={<RestOutlined />} onClick={() => setBinOpen(true)} />
             </Tooltip>
           )}
           <Tooltip title="Refresh from the server (keeps unsaved edits)">
-            <Button icon={<ReloadOutlined />} onClick={() => void load()} />
+            <Button aria-label="Refresh from server" icon={<ReloadOutlined />} onClick={() => void load()} />
           </Tooltip>
           {!compact && (
             <Tooltip title="Download as Excel">
-              <Button icon={<DownloadOutlined />} loading={downloading} onClick={download} />
+              <Button aria-label="Download as Excel" icon={<DownloadOutlined />} loading={downloading} onClick={download} />
             </Tooltip>
           )}
           {allowUpload && !compact && payload && !readOnly && (
             <Tooltip title="Upload an edited .xlsx/.csv — diffed against the table, you confirm before anything changes. (For a few rows, just paste them into the sheet.)">
-              <Button icon={<UploadOutlined />} loading={uploading} onClick={() => fileInput.current?.click()} />
+              <Button aria-label="Upload a spreadsheet" icon={<UploadOutlined />} loading={uploading} onClick={() => fileInput.current?.click()} />
             </Tooltip>
           )}
           <Popover content={shortcuts} title="Working in the sheet" placement="bottomRight" trigger="click">
-            <Button icon={<QuestionCircleOutlined />} />
+            <Button aria-label="Keyboard shortcuts and help" icon={<QuestionCircleOutlined />} />
           </Popover>
           <input ref={fileInput} type="file" accept=".xlsx,.xlsm,.csv" style={{ display: 'none' }} onChange={onPickFile} />
         </Space>

@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.domains.access.router import router as access_router
+from app.domains.ai.router import router as ai_router
 from app.domains.applications.router import router as applications_router
 from app.domains.archive.router import router as archive_router
 from app.domains.audit.router import router as audit_router
@@ -67,6 +68,7 @@ for domain_router in (
     archive_router,
     timeblocks_router,
     public_router,
+    ai_router,
     drive_router,
 ):
     app.include_router(domain_router, prefix="/api")

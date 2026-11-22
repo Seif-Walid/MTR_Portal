@@ -1,67 +1,89 @@
-import type { ThemeConfig } from 'antd';
+import { theme as antdThemeApi, type ThemeConfig } from 'antd';
 
-// CIRCUIT — Ant Design v5 dark theme. Wrap <App/> in:
-//   <ConfigProvider theme={circuitTheme}> ... </ConfigProvider>
-// Pair with circuit.css (fonts, body bg, table row hover, custom bits).
-export const circuitTheme: ThemeConfig = {
-  token: {
-    colorPrimary: '#5cc6ff',
-    colorInfo: '#5cc6ff',
-    colorSuccess: '#4fd6c4',
-    colorWarning: '#ffb26b',
-    colorError: '#ff5a6e',
+import { FONT_SANS, ROLES, type Mode } from './tokens';
 
-    // Dark-tinted status backgrounds. Without these, AntD keeps its light-mode
-    // pastel fills (e.g. error #fff2f0) while text inherits the near-white
-    // colorText above — making Alert/message/Tag copy invisible. See BulkDataPage.
-    colorErrorBg: 'rgba(255,90,110,.12)',
-    colorErrorBorder: 'rgba(255,90,110,.35)',
-    colorSuccessBg: 'rgba(79,214,196,.12)',
-    colorSuccessBorder: 'rgba(79,214,196,.35)',
-    colorWarningBg: 'rgba(255,178,107,.12)',
-    colorWarningBorder: 'rgba(255,178,107,.35)',
-    colorInfoBg: 'rgba(92,198,255,.12)',
-    colorInfoBorder: 'rgba(92,198,255,.35)',
+// Ant Design config for one brightness, built from the same role values the
+// CSS custom properties use (tokens.ts). antd derives hover/active shades from
+// concrete colours, so it gets the resolved hex rather than var() references.
+export function antdTheme(mode: Mode): ThemeConfig {
+  const r = ROLES[mode];
+  return {
+    algorithm: mode === 'dark' ? antdThemeApi.darkAlgorithm : antdThemeApi.defaultAlgorithm,
+    cssVar: true,
+    token: {
+      colorPrimary: r.primary,
+      colorInfo: r.info,
+      colorSuccess: r.success,
+      colorWarning: r.warning,
+      colorError: r.error,
+      colorLink: r['brand-fg'],
 
-    colorBgBase: '#06080c',
-    colorBgLayout: '#06080c',
-    colorBgContainer: 'rgba(15,20,29,.55)',
-    colorBgElevated: '#0f141d',
-    colorBorder: 'rgba(120,170,230,.12)',
-    controlItemBgHover: 'rgba(92,198,255,.10)',
-    controlItemBgActive: 'rgba(92,198,255,.16)',
-    controlItemBgActiveHover: 'rgba(92,198,255,.22)',
-    colorBorderSecondary: 'rgba(120,170,230,.07)',
+      colorErrorBg: r['error-surface'],
+      colorSuccessBg: r['success-surface'],
+      colorWarningBg: r['warning-surface'],
+      colorInfoBg: r['info-surface'],
 
-    colorText: '#eaf2ff',
-    colorTextSecondary: 'rgba(224,236,252,.72)',
-    colorTextTertiary: 'rgba(224,236,252,.55)',
-    colorTextQuaternary: 'rgba(224,236,252,.4)',
+      colorBgBase: r.background,
+      colorBgLayout: r.background,
+      colorBgContainer: r.surface,
+      colorBgElevated: r['surface-raised'],
+      colorBorder: r.border,
+      colorBorderSecondary: r['border-light'],
+      colorFillQuaternary: r['surface-alt'],
 
-    fontFamily: "'Geist Variable', 'Geist', system-ui, sans-serif",
-    borderRadius: 8,
-    borderRadiusLG: 12,
-    wireframe: false,
-  },
-  components: {
-    Table: {
-      headerBg: 'rgba(8,11,17,.4)',
-      headerColor: 'rgba(224,236,252,.4)',
-      rowHoverBg: 'rgba(255,255,255,.02)',
-      borderColor: 'rgba(120,170,230,.07)',
-      cellPaddingBlock: 14,
+      colorText: r['text-primary'],
+      colorTextSecondary: r['text-secondary'],
+      colorTextTertiary: r['text-tertiary'],
+      colorTextQuaternary: r['text-tertiary'],
+      colorTextPlaceholder: r['text-tertiary'],
+      colorTextDisabled: r['text-disabled'],
+      colorTextLightSolid: r['on-primary'],
+
+      controlItemBgHover: r['surface-alt'],
+      controlItemBgActive: r['primary-surface'],
+      controlItemBgActiveHover: r['primary-surface'],
+      controlOutline: 'transparent',
+
+      fontFamily: FONT_SANS,
+      fontSize: 14,
+      borderRadius: 8,
+      borderRadiusLG: 12,
+      borderRadiusSM: 4,
+      controlHeight: 36,
+      motionDurationFast: '0.1s',
+      motionDurationMid: '0.15s',
+      motionDurationSlow: '0.25s',
+      motionEaseOut: 'cubic-bezier(0.33, 1, 0.68, 1)',
+      boxShadow: `0 8px 24px ${r['shadow-color']}, 0 2px 6px ${r['shadow-color']}`,
+      boxShadowSecondary: `0 8px 24px ${r['shadow-color']}, 0 2px 6px ${r['shadow-color']}`,
+      boxShadowTertiary: `0 1px 2px ${r['shadow-color']}`,
+      wireframe: false,
     },
-    Card: { colorBgContainer: 'rgba(15,20,29,.55)' },
-    Segmented: {
-      trackBg: 'rgba(8,11,17,.6)',
-      itemSelectedBg: 'rgba(92,198,255,.16)',
-      itemSelectedColor: '#eaf2ff',
-      itemColor: 'rgba(224,236,252,.5)',
+    components: {
+      Table: {
+        headerBg: r['surface-alt'],
+        headerColor: r['text-secondary'],
+        rowHoverBg: r['surface-alt'],
+        rowSelectedBg: r['primary-surface'],
+        rowSelectedHoverBg: r['primary-surface'],
+        borderColor: r['border-light'],
+        cellPaddingBlock: 12,
+        cellPaddingInline: 14,
+      },
+      Segmented: {
+        trackBg: r['surface-alt'],
+        itemSelectedBg: r.surface,
+        itemSelectedColor: r['text-primary'],
+        itemColor: r['text-secondary'],
+      },
+      Button: { primaryShadow: 'none', defaultShadow: 'none', dangerShadow: 'none', fontWeight: 500 },
+      Tabs: { inkBarColor: r['brand-fg'], itemActiveColor: r['text-primary'], itemSelectedColor: r['text-primary'], itemHoverColor: r['text-primary'] },
+      Modal: { contentBg: r['surface-raised'], headerBg: r['surface-raised'], footerBg: r['surface-raised'] },
+      Drawer: { colorBgElevated: r['surface-raised'] },
+      Select: { optionSelectedBg: r['primary-surface'], optionActiveBg: r['surface-alt'], optionSelectedColor: r['text-primary'] },
+      Menu: { itemSelectedBg: r['primary-surface'], itemSelectedColor: r['text-primary'] },
+      Tag: { defaultBg: r['surface-alt'], defaultColor: r['text-secondary'] },
+      Badge: { colorError: r.signal },
     },
-    Button: { primaryShadow: '0 0 20px rgba(92,198,255,.35)' },
-    Tabs: { inkBarColor: '#5cc6ff', itemActiveColor: '#5cc6ff', itemSelectedColor: '#eaf2ff' },
-    Modal: { contentBg: '#0f141d', headerBg: '#0f141d' },
-    Input: { colorBgContainer: 'rgba(8,11,17,.7)' },
-    Select: { colorBgContainer: 'rgba(8,11,17,.7)', optionSelectedBg: 'rgba(92,198,255,.16)', optionActiveBg: 'rgba(92,198,255,.10)', optionSelectedColor: '#eaf2ff' },
-  },
-};
+  };
+}

@@ -55,7 +55,7 @@ export default function BulkDataPage() {
         styles={{ body: { padding: 8, maxHeight: '75vh', overflowY: 'auto' } }}>
         {groups.map(([group, items]) => (
           <div key={group} style={{ marginBottom: 10 }}>
-            <div className="u-label" style={{ padding: '6px 8px 4px', opacity: 0.6 }}>{group}</div>
+            <div className="u-label" style={{ padding: '6px 8px 4px' }}>{group}</div>
             {items.map((t) => (
               <button
                 key={t.key}
@@ -73,7 +73,7 @@ export default function BulkDataPage() {
                   padding: '5px 8px',
                   borderRadius: 6,
                   fontWeight: t.key === active ? 600 : 400,
-                  background: t.key === active ? 'rgba(92,198,255,0.12)' : undefined,
+                  background: t.key === active ? 'color-mix(in srgb, var(--brand-fg) 12%, transparent)' : undefined,
                 }}
               >
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.label}</span>
@@ -84,7 +84,7 @@ export default function BulkDataPage() {
         ))}
       </Card>
 
-      <Card style={{ flex: 1, minWidth: 0 }}>
+      <Card style={{ flex: '1 1 480px', minWidth: 0, maxWidth: '100%' }}>
         {current ? (
           <DataGrid
             key={current.key}

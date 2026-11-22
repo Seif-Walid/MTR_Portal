@@ -9,9 +9,10 @@ import { api, ApiError } from '../api/client';
 import type { Application, ApplicationStatus } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
 import { APPLICATION_STATUS, ApplicationStatusTag } from '../components/tags';
+import { openableRow } from '../components/a11y';
 
-const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
-const DISPLAY = "'Space Grotesk Variable', 'Space Grotesk', sans-serif";
+const MONO = 'var(--font-mono)';
+const DISPLAY = 'var(--font-display)';
 
 type Filter = ApplicationStatus | 'all';
 const FILTERS: Filter[] = ['new', 'contacted', 'accepted', 'waitlisted', 'declined', 'all'];
@@ -241,32 +242,30 @@ export default function ApplicationsPage() {
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
-        <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: '#eaf2ff' }}>Join applications</h2>
+        <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: 'var(--text-primary)' }}>Join applications</h2>
         <Input.Search allowClear placeholder="Name, email, phone, school" style={{ width: 280 }}
           value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
 
-      <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4, background: 'rgba(8,11,17,.6)', border: '1px solid rgba(120,170,230,.12)', borderRadius: 10, padding: 4, marginBottom: 20 }}>
+      <div className="mtr-pills" role="tablist">
         {FILTERS.map((f) => {
           const on = filter === f;
           return (
-            <div key={f} onClick={() => setFilter(f)}
+            <button type="button" role="tab" aria-selected={on} key={f} onClick={() => setFilter(f)}
+              className={`mtr-pill${on ? ' on' : ''}`}
               style={{
-                display: 'flex', alignItems: 'center', gap: 8, padding: '7px 16px', borderRadius: 7, fontSize: 13, cursor: 'pointer',
-                color: on ? '#eaf2ff' : 'rgba(224,236,252,.5)',
-                background: on ? 'linear-gradient(90deg,rgba(92,198,255,.2),rgba(92,198,255,.05))' : 'transparent',
-                border: `1px solid ${on ? 'rgba(92,198,255,.3)' : 'transparent'}`,
+                display: 'flex', alignItems: 'center', gap: 8,
               }}>
               {f === 'all' ? 'All' : APPLICATION_STATUS[f].label}
-              <span style={{ fontFamily: MONO, fontSize: 10, color: on ? '#5cc6ff' : 'inherit' }}>{counts[f]}</span>
-            </div>
+              <span style={{ fontFamily: MONO, fontSize: 10, color: on ? 'var(--brand-fg)' : 'inherit' }}>{counts[f]}</span>
+            </button>
           );
         })}
       </div>
 
       <Table className="circuit-table" rowKey="id" loading={loading} dataSource={shown}
         pagination={{ defaultPageSize: 20, hideOnSinglePage: true }} scroll={{ x: 'max-content' }}
-        onRow={(r) => ({ onClick: () => open(r.id), style: { cursor: 'pointer' } })}
+        onRow={(r) => openableRow(() => open(r.id))}
         locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={rows.length ? 'Nothing here' : 'No applications yet'} /> }}
         columns={[
           {
@@ -274,7 +273,7 @@ export default function ApplicationsPage() {
             render: (_, r) => (
               <div>
                 <div>{r.full_name}</div>
-                <div style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(224,236,252,.45)' }}>{r.email}</div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: 'var(--text-tertiary)' }}>{r.email}</div>
               </div>
             ),
           },

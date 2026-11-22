@@ -408,6 +408,7 @@ TABLES: dict[str, TableSpec] = {
             Column("location", "str"),  # free-text location note, not the FK
             Column("condition", "str", choices=_enum(Condition)),
             Column("notes", "str"),
+            Column("aliases", "str", label="Also known as"),
             Column("team_lead_id", "int", ref="user"),
         ],
     ),
@@ -477,6 +478,7 @@ TABLES: dict[str, TableSpec] = {
             Column("id", "int", editable=False),
             Column("season_id", "int", ref="fin_season", required=True, label="Season"),
             Column("event_id", "int", ref="event", label="Event"),
+            Column("event_team_id", "int", ref="event_team", label="Event team"),
             Column("spent_on", "date", label="Date"),
             Column("item", "str", required=True),
             Column("category_id", "int", ref="opt_category", label="Category"),
@@ -525,6 +527,7 @@ TABLES: dict[str, TableSpec] = {
             Column("season_id", "int", ref="fin_season", required=True, label="Season"),
             Column("member_id", "int", ref="user", required=True, label="Member"),
             Column("tier_id", "int", ref="dues_tier", required=True, label="Tier"),
+            Column("event_team_id", "int", ref="event_team", label="Event team"),
             Column("status", "str", choices=_enum(EnrollmentStatus)),
             Column("maturity_override", "int", label="Maturity override (yrs)"),
             Column("note", "str"),

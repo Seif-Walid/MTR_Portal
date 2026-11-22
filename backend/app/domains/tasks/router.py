@@ -69,7 +69,14 @@ def list_tasks(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_task(payload: TaskCreate, db: DB, user: CurrentUser) -> list[TaskOut]:
-    access.require_privilege(db, user, "tasks.assign")
+    tasks = do_create_tasks(db, user, payload)
+    db.commit()
+    for task in tasks:
+        db.refresh(task)
+    return [TaskOut.model_validate(t) for t in tasks]
+
+
+def do_create_tasks(db: DB, user: User, payload: TaskCreate) -> list[Task]:
     """Creates one task per assignee. With more than one assignee ("team
     assignment"), the resulting tasks share a batch_id so the assigner can
     track them together — each still moves through the workflow independently.
@@ -79,7 +86,10 @@ def create_task(payload: TaskCreate, db: DB, user: CurrentUser) -> list[TaskOut]
     With both, the named people are assigned and the team is the task's
     *context* — which team the work belongs to, since one person is often on
     several (see GET /tasks/team-options). Either way every resulting task is
-    stamped with the team link + team_visible."""
+    stamped with the team link + team_visible.
+
+    Does not commit — shared by the HTTP route and AI-confirmed actions."""
+    access.require_privilege(db, user, "tasks.assign")
     event_team_id: int | None = None
     assignee_ids = list(dict.fromkeys(payload.assignee_ids))  # de-dupe, keep order
     team: EventTeam | None = None
@@ -154,10 +164,7 @@ def create_task(payload: TaskCreate, db: DB, user: CurrentUser) -> list[TaskOut]
             task_id=task.id,
         )
         tasks.append(task)
-    db.commit()
-    for task in tasks:
-        db.refresh(task)
-    return [TaskOut.model_validate(t) for t in tasks]
+    return tasks
 
 
 @router.get("/team-options")

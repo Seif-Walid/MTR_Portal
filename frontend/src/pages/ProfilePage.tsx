@@ -215,7 +215,7 @@ export default function ProfilePage() {
                       onChange={(e) => patchGuardian(i, { other: e.target.value })}
                     />
                   )}
-                  <Button
+                  <Button aria-label="Remove guardian"
                     type="text"
                     icon={<DeleteOutlined />}
                     onClick={() => setGuardians((gs) => gs.filter((_, j) => j !== i))}

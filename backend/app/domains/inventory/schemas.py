@@ -15,6 +15,8 @@ class AllocationOut(BaseModel):
     purpose: str
     label: str
     event: EventBrief | None
+    event_team_id: int | None = None
+    team_name: str | None = None
     display_label: str
     holder: UserBrief | None
     notes: str
@@ -35,12 +37,24 @@ class ItemOut(BaseModel):
     location: str | None
     condition: str
     notes: str
+    aliases: str = ""
     team_lead: UserBrief | None
     # computed capacity
     in_use: int
     free: int
     by_purpose: dict[str, int]
     allocations: list[AllocationOut] = []
+    # market value (per unit) + where it came from — see models.InventoryItem
+    unit_value: float | None = None
+    total_value: float | None = None
+    value_currency: str | None = None
+    value_source: str | None = None
+    value_ref: str | None = None
+    value_title: str | None = None
+    value_url: str | None = None
+    value_note: str = ""
+    value_checked_at: datetime | None = None
+    value_error: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -56,6 +70,7 @@ class ItemCreate(BaseModel):
     location: str | None = Field(default=None, max_length=255)
     condition: Condition = Condition.GOOD
     notes: str = ""
+    aliases: str = ""
     team_lead_id: int | None = None
 
 
@@ -70,6 +85,7 @@ class ItemEdit(BaseModel):
     location: str | None = Field(default=None, max_length=255)
     condition: Condition | None = None
     notes: str | None = None
+    aliases: str | None = None
     team_lead_id: int | None = None
     clear_team_lead: bool = False
 
@@ -131,6 +147,7 @@ class AllocationCreate(BaseModel):
     purpose: AllocationPurpose = AllocationPurpose.OTHER
     label: str = Field(default="", max_length=255)
     event_id: int | None = None
+    event_team_id: int | None = None
     holder_id: int | None = None
     notes: str = ""
 
@@ -147,6 +164,7 @@ class BulkAllocationCreate(BaseModel):
     purpose: AllocationPurpose = AllocationPurpose.OTHER
     label: str = Field(default="", max_length=255)
     event_id: int | None = None
+    event_team_id: int | None = None
     holder_id: int | None = None
     notes: str = ""
 
@@ -157,6 +175,8 @@ class AllocationEdit(BaseModel):
     label: str | None = Field(default=None, max_length=255)
     event_id: int | None = None
     clear_event: bool = False
+    event_team_id: int | None = None
+    clear_team: bool = False
     holder_id: int | None = None
     clear_holder: bool = False
     notes: str | None = None
@@ -224,3 +244,32 @@ class RequestIssue(BaseModel):
 
 class RequestReturn(BaseModel):
     to_location_id: int
+
+
+# --- market value ----------------------------------------------------------
+class ValueSet(BaseModel):
+    """Pin a shop listing (`source` makers/future + `ref`; the price is fetched
+    server-side, never taken from the client) or record a manual estimate
+    (`source` manual + `unit_value`)."""
+
+    source: str = Field(pattern="^(makers|future|manual)$")
+    ref: str | None = Field(default=None, max_length=255)
+    unit_value: float | None = Field(default=None, ge=0)
+    note: str = ""
+
+
+class ValueRefreshOut(BaseModel):
+    checked: int
+    changed: int
+    failed: list[dict]
+
+
+class ValueSummaryOut(BaseModel):
+    currency: str
+    total: float  # every priced item, unit value x total quantity owned
+    by_source: dict[str, dict]  # source -> {items, units, total}
+    priced_items: int
+    unpriced_items: int
+    unpriced_units: int
+    stale_items: int  # pinned listings whose last refresh failed
+    other_currencies: dict[str, float]  # should stay empty; never mixed into total

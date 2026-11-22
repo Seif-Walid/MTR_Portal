@@ -431,13 +431,56 @@ export interface InventoryItem {
   location: string | null;
   condition: Condition;
   notes: string;
+  aliases?: string;
   team_lead: UserBrief | null;
   in_use: number;
   free: number;
   by_purpose: Partial<Record<AllocationPurpose, number>>;
   allocations: Allocation[];
+  // market value per unit; value_source says where it came from
+  unit_value: number | null;
+  total_value: number | null;
+  value_currency: string | null;
+  value_source: ValueSource | null;
+  value_ref: string | null;
+  value_title: string | null;
+  value_url: string | null;
+  value_note: string;
+  value_checked_at: string | null;
+  value_error: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type ValueSource = 'makers' | 'future' | 'manual';
+
+export interface PriceCandidate {
+  source: 'makers' | 'future';
+  ref: string;
+  title: string;
+  unit_price: number;
+  currency: string;
+  in_stock: boolean;
+  url: string;
+  score: number;
+}
+
+export interface PriceCandidates {
+  query: Partial<Record<'makers' | 'future', string>>;
+  makers: PriceCandidate[];
+  future: PriceCandidate[];
+  errors: Partial<Record<'makers' | 'future', string>>;
+}
+
+export interface ValueSummary {
+  currency: string;
+  total: number;
+  by_source: Partial<Record<ValueSource, { items: number; units: number; total: number }>>;
+  priced_items: number;
+  unpriced_items: number;
+  unpriced_units: number;
+  stale_items: number;
+  other_currencies: Record<string, number>;
 }
 
 export interface ImportResult {
@@ -806,4 +849,70 @@ export interface Application {
   created_at: string;
   updated_at: string;
   roster_matches: { id: number; mtr_id: string | null; name: string; matched_on: string[] }[];
+}
+
+// --- AI assistant -----------------------------------------------------------
+export type AiMode = 'assistant' | 'planner';
+
+export interface AiConversation {
+  id: number;
+  title: string;
+  mode: AiMode;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AiToolUse {
+  name: string;
+  input: Record<string, unknown>;
+  result?: unknown;
+}
+
+export interface AiMessage {
+  id: number;
+  role: 'user' | 'assistant' | 'note';
+  text: string;
+  tools: AiToolUse[];
+  created_at: string;
+}
+
+export interface AiAction {
+  id: number;
+  conversation_id: number | null;
+  tool: string;
+  summary: string;
+  status: 'pending' | 'done' | 'rejected' | 'failed';
+  input: Record<string, unknown>;
+  result: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface AiConversationDetail extends AiConversation {
+  messages: AiMessage[];
+  actions: AiAction[];
+}
+
+export interface AiStatus {
+  provider: string;
+  available: boolean;
+  models: { assistant: string; planner: string };
+  embedder: string;
+}
+
+export interface AiConnectInfo {
+  token: string;
+  expires_in_hours: number;
+  mcp_json: unknown;
+  command: string;
+}
+
+export interface SearchHit {
+  type: 'inventory' | 'event' | 'team' | 'person' | 'budget_line';
+  id: number;
+  score: number;
+  semantic: number;
+  lexical: number;
+  text: string;
+  name?: string;
+  [key: string]: unknown;
 }

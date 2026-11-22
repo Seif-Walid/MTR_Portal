@@ -6,6 +6,7 @@ import AppLayout from './components/AppLayout';
 import AdminUsersPage from './pages/AdminUsersPage';
 import ApplicationsPage from './pages/ApplicationsPage';
 import ArchivePage from './pages/ArchivePage';
+import AssistantPage from './pages/AssistantPage';
 import BulkDataPage from './pages/BulkDataPage';
 import AuditLogPage from './pages/AuditLogPage';
 import EventsPage from './pages/EventsPage';
@@ -28,7 +29,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
+      <div role="status" aria-label="Loading the portal" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
         <Spin size="large" />
       </div>
     );
@@ -51,6 +52,7 @@ export default function App() {
           <Route path="/applications" element={<ApplicationsPage />} />
           <Route path="/finance" element={<FinancePage />} />
           <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/assistant" element={can(me, 'ai.use') ? <AssistantPage /> : <Navigate to="/home" replace />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/events" element={<EventsPage />} />

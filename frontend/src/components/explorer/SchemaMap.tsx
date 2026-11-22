@@ -107,7 +107,7 @@ export default function SchemaMap({
               key={`${e.source}>${e.target}`}
               d={path(e.source, e.target)}
               fill="none"
-              stroke={on ? C.accent : hexA('#78aae6', neighbours ? 0.06 : 0.22)}
+              stroke={on ? C.accent : hexA('var(--text-tertiary)', neighbours ? 0.06 : 0.22)}
               strokeWidth={on ? 1.6 : 1}
             >
               <title>{`${e.source} → ${e.target}: ${e.labels.join(', ')}`}</title>
@@ -134,8 +134,8 @@ export default function SchemaMap({
                 width={p.w}
                 height={NODE_H}
                 rx={7}
-                fill={active ? hexA(C.accent, 0.14) : 'rgba(15,20,29,.92)'}
-                stroke={active ? C.accent : hexA('#78aae6', 0.22)}
+                fill={active ? hexA(C.accent, 0.14) : 'var(--surface)'}
+                stroke={active ? C.accent : hexA('var(--text-tertiary)', 0.22)}
               />
               <text x={10} y={21} fontSize={12.5} fill={token.colorText}>
                 {e.label.length > 22 ? `${e.label.slice(0, 21)}…` : e.label}

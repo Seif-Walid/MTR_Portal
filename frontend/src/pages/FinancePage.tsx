@@ -124,13 +124,14 @@ export default function FinancePage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 22, margin: 0, color: 'var(--text-primary)' }}>Finance</h2>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <Typography.Text type="secondary">
+        <Typography.Text type="secondary" style={{ maxWidth: 640 }}>
           The team's books — plan, spending, dues, funding and cash. Every grey column is computed; everything else
           is editable in place and saves itself.
         </Typography.Text>
         <Space>
-          <span className="u-label" style={{ opacity: 0.6 }}>Season</span>
+          <span className="u-label">Season</span>
           <Select
             value={season}
             onChange={setSeason}

@@ -7,12 +7,12 @@ sharing auth, users, and the permission layer; **finance** can be added the same
 
 **Stack:** FastAPI · SQLAlchemy 2 · Alembic · PostgreSQL · React + TypeScript (Vite) · Ant Design
 
-The UI is the **CIRCUIT** design system (see `DESIGN.md`): a printed-circuit-board look
-— near-black void background, translucent panels, electric-blue accent, monospace data
-labels, red reserved strictly for alerts. It is **dark-only by design**; the theme
-provider (`frontend/src/theme/ThemeContext.tsx`) exists but has a single mode, and the
-tokens live in `frontend/src/theme/circuitTokens.ts` / `circuitTheme.ts`. The logo is at
-`frontend/public/logo.png`, rendered through `frontend/src/components/Logo.tsx`.
+The UI is the **Workbench** design system (see `DESIGN.md`), built on the portable
+design system rules: steel-grey neutrals, ink as the brand voice, the logo's red reserved
+for things that need attention, Archivo type. It ships **full light and dark themes**
+(light / dark / follow-the-OS, switch at the foot of the nav rail). Every colour is a role
+token defined once in `frontend/src/theme/tokens.ts`; interaction uses Motion
+(`motion/react`). The logo is at `frontend/public/logo.png`.
 
 Companion docs: **`PRODUCT.md`** (what the product is), **`DESIGN.md`** (the design
 system), **`DECISIONS.md`** (judgment calls and why), **`deploy/RUNBOOK.md`** (how

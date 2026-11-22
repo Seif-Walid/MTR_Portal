@@ -8,8 +8,8 @@ from app.core.config import settings
 from app.domains.audit.service import log as audit_log
 from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
-from app.domains.events.models import Event
-from app.domains.inventory import file_import, stock
+from app.domains.events.models import Event, EventTeam
+from app.domains.inventory import file_import, pricing, stock
 from app.domains.inventory.models import (
     Condition,
     InventoryAllocation,
@@ -32,6 +32,9 @@ from app.domains.inventory.schemas import (
     MovementCreate,
     MovementOut,
     PlaceOnHand,
+    ValueRefreshOut,
+    ValueSet,
+    ValueSummaryOut,
     WhereaboutsOut,
 )
 from app.domains.inventory.service import (
@@ -269,6 +272,81 @@ def low_stock_items(db: DB, user: CurrentUser) -> list[ItemOut]:
     return [ItemOut.model_validate(i) for i in items if i.quantity <= i.low_stock_threshold]
 
 
+# --- market value ---------------------------------------------------------
+@router.get("/value-summary")
+def value_summary(db: DB, user: CurrentUser) -> ValueSummaryOut:
+    """What the storage is worth: unit value x total owned (allocated units
+    included). Unpriced items are counted, never estimated."""
+    if not can_view_inventory(db, user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Your access level does not allow this")
+    items = db.scalars(visible_items_query(db, user)).unique().all()
+    by_source: dict[str, dict] = {}
+    other: dict[str, float] = {}
+    total = 0.0
+    priced = unpriced = unpriced_units = stale = 0
+    for i in items:
+        if i.unit_value is None:
+            unpriced += 1
+            unpriced_units += i.quantity
+            continue
+        if (i.value_currency or "EGP") != "EGP":
+            other[i.value_currency] = round(other.get(i.value_currency, 0) + i.total_value, 2)
+            continue
+        priced += 1
+        stale += bool(i.value_error)
+        total += i.total_value
+        s = by_source.setdefault(i.value_source or "manual", {"items": 0, "units": 0, "total": 0.0})
+        s["items"] += 1
+        s["units"] += i.quantity
+        s["total"] = round(s["total"] + i.total_value, 2)
+    return ValueSummaryOut(
+        currency="EGP", total=round(total, 2), by_source=by_source, priced_items=priced,
+        unpriced_items=unpriced, unpriced_units=unpriced_units, stale_items=stale,
+        other_currencies=other,
+    )
+
+
+@router.post("/values/refresh")
+def refresh_values(db: DB, user: CurrentUser) -> ValueRefreshOut:
+    """Re-price every pinned shop listing from the shop APIs. Manual values
+    are left alone — they have no source to follow."""
+    require_manage(db, user)
+    items = db.scalars(
+        select(InventoryItem).where(
+            InventoryItem.deleted_at.is_(None),
+            InventoryItem.value_source.in_(pricing.SOURCES),
+        )
+    ).unique().all()
+    changed, failed = 0, []
+    now = datetime.now(timezone.utc)
+    for item in items:
+        try:
+            listing = pricing.fetch_listing(item.value_source, item.value_ref)
+        except pricing.PricingError as exc:
+            item.value_error = str(exc)[:255]
+            failed.append({"id": item.id, "name": item.name, "error": item.value_error})
+            continue
+        if listing.unit_price != item.unit_value:
+            audit_log(db, user.id, "inventory", "value_refreshed", "inventory_item", item.id,
+                      {"name": item.name, "before": item.unit_value, "after": listing.unit_price,
+                       "source": item.value_source})
+            changed += 1
+        _apply_listing(item, listing, now)
+    db.commit()
+    return ValueRefreshOut(checked=len(items), changed=changed, failed=failed)
+
+
+def _apply_listing(item: InventoryItem, listing: pricing.Listing, now: datetime) -> None:
+    item.unit_value = listing.unit_price
+    item.value_currency = listing.currency
+    item.value_source = listing.source
+    item.value_ref = listing.ref
+    item.value_title = listing.title
+    item.value_url = listing.url
+    item.value_checked_at = now
+    item.value_error = None
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_item(payload: ItemCreate, db: DB, user: CurrentUser) -> ItemOut:
     require_manage(db, user)
@@ -283,6 +361,7 @@ def create_item(payload: ItemCreate, db: DB, user: CurrentUser) -> ItemOut:
         location=payload.location,
         condition=payload.condition,
         notes=payload.notes,
+        aliases=payload.aliases,
         team_lead_id=_resolve_user(db, payload.team_lead_id, "Team lead"),
     )
     db.add(item)
@@ -306,7 +385,7 @@ def edit_item(item_id: int, payload: ItemEdit, db: DB, user: CurrentUser) -> Ite
                   {"name": item.name, "before": item.quantity, "after": payload.quantity})
         item.quantity = payload.quantity
     for field in ("name", "category", "asset_tag", "sku", "low_stock_threshold",
-                  "unit", "location", "condition", "notes"):
+                  "unit", "location", "condition", "notes", "aliases"):
         value = getattr(payload, field)
         if value is not None:
             setattr(item, field, value)
@@ -341,31 +420,121 @@ def delete_item(item_id: int, db: DB, user: CurrentUser, permanent: bool = False
     db.commit()
 
 
+@router.get("/{item_id}/price-candidates")
+def price_candidates(item_id: int, db: DB, user: CurrentUser, q: str | None = None) -> dict:
+    """Listings from Makers and Future that might be this item, for a person
+    to confirm. `q` overrides the search text (default: the item name)."""
+    item = get_item_or_404(db, user, item_id)
+    require_manage(db, user)
+    return pricing.search(item.name, (q or "").strip() or None)
+
+
+@router.put("/{item_id}/value")
+def set_value(item_id: int, payload: ValueSet, db: DB, user: CurrentUser) -> ItemOut:
+    item = get_item_or_404(db, user, item_id)
+    require_manage(db, user)
+    before = {"source": item.value_source, "unit_value": item.unit_value}
+    now = datetime.now(timezone.utc)
+    if payload.source == pricing.MANUAL:
+        if payload.unit_value is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "A manual value needs a unit value")
+        item.unit_value = round(payload.unit_value, 2)
+        item.value_currency = "EGP"
+        item.value_source = pricing.MANUAL
+        item.value_ref = item.value_title = item.value_url = item.value_error = None
+        item.value_checked_at = now
+    else:
+        if not payload.ref:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pick a listing to pin")
+        try:
+            listing = pricing.fetch_listing(payload.source, payload.ref)
+        except pricing.PricingError as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Could not price that listing: {exc}")
+        _apply_listing(item, listing, now)
+    item.value_note = payload.note
+    audit_log(db, user.id, "inventory", "value_set", "inventory_item", item.id,
+              {"name": item.name, "before": before,
+               "after": {"source": item.value_source, "unit_value": item.unit_value,
+                         "ref": item.value_ref}})
+    db.commit()
+    db.refresh(item)
+    return ItemOut.model_validate(item)
+
+
+@router.delete("/{item_id}/value")
+def clear_value(item_id: int, db: DB, user: CurrentUser) -> ItemOut:
+    item = get_item_or_404(db, user, item_id)
+    require_manage(db, user)
+    audit_log(db, user.id, "inventory", "value_cleared", "inventory_item", item.id,
+              {"name": item.name, "source": item.value_source, "unit_value": item.unit_value})
+    item.unit_value = item.value_currency = item.value_source = None
+    item.value_ref = item.value_title = item.value_url = item.value_error = None
+    item.value_checked_at = None
+    item.value_note = ""
+    db.commit()
+    db.refresh(item)
+    return ItemOut.model_validate(item)
+
+
 # --- allocations ----------------------------------------------------------
+def _resolve_team(db: DB, event_team_id: int | None, event_id: int | None) -> tuple[int | None, int | None]:
+    """Validate a team link; a team implies its event. Returns (team_id, event_id)."""
+    if event_team_id is None:
+        return None, event_id
+    team = db.get(EventTeam, event_team_id)
+    if team is None or team.deleted_at is not None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Team not found")
+    team_event = team.category.event_id
+    if event_id is not None and event_id != team_event:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "That team belongs to a different event")
+    return team.id, team_event
+
+
+def do_allocate(
+    db: DB, user: User, lines: list[tuple[int, int]], *, purpose: str, label: str = "",
+    event_id: int | None = None, event_team_id: int | None = None,
+    holder_id: int | None = None, notes: str = "",
+) -> list[InventoryItem]:
+    """Allocate (item_id, quantity) lines with shared fields, without committing.
+    Every line is checked first (lines for the same item are summed), so a
+    batch either fits completely or adds nothing."""
+    require_manage(db, user)
+    event_team_id, event_id = _resolve_team(db, event_team_id, event_id)
+    event_id = _resolve_event(db, event_id)
+    holder_id = _resolve_user(db, holder_id, "Holder")
+    wanted: dict[int, int] = {}
+    for item_id, quantity in lines:
+        wanted[item_id] = wanted.get(item_id, 0) + quantity
+    resolved = {iid: get_item_or_404(db, user, iid) for iid in wanted}
+    for iid, total in wanted.items():
+        assert_fits(resolved[iid], total)
+    items: list[InventoryItem] = []
+    for item_id, quantity in lines:
+        item = resolved[item_id]
+        allocation = InventoryAllocation(
+            quantity=quantity, purpose=purpose, label=label, event_id=event_id,
+            event_team_id=event_team_id, holder_id=holder_id, notes=notes,
+        )
+        item.allocations.append(allocation)
+        db.flush()
+        audit_log(db, user.id, "inventory", "allocated", "inventory_item", item.id,
+                  {"quantity": quantity, "purpose": str(purpose), "event_id": event_id,
+                   "event_team_id": event_team_id, "holder_id": holder_id})
+        if item not in items:
+            items.append(item)
+    return items
+
+
 @router.post("/allocations/bulk", status_code=status.HTTP_201_CREATED)
 def add_bulk_allocations(
     payload: BulkAllocationCreate, db: DB, user: CurrentUser
 ) -> list[ItemOut]:
     """Allocate many items at once, all sharing one purpose/holder/event/label."""
-    require_manage(db, user)
-    event_id = _resolve_event(db, payload.event_id)
-    holder_id = _resolve_user(db, payload.holder_id, "Holder")
-    items = []
-    for line in payload.lines:
-        item = get_item_or_404(db, user, line.item_id)
-        assert_fits(item, line.quantity)
-        db.add(
-            InventoryAllocation(
-                item_id=item.id,
-                quantity=line.quantity,
-                purpose=payload.purpose,
-                label=payload.label,
-                event_id=event_id,
-                holder_id=holder_id,
-                notes=payload.notes,
-            )
-        )
-        items.append(item)
+    items = do_allocate(
+        db, user, [(line.item_id, line.quantity) for line in payload.lines],
+        purpose=payload.purpose, label=payload.label, event_id=payload.event_id,
+        event_team_id=payload.event_team_id, holder_id=payload.holder_id, notes=payload.notes,
+    )
     db.commit()
     for item in items:
         db.refresh(item)
@@ -376,19 +545,13 @@ def add_bulk_allocations(
 def add_allocation(
     item_id: int, payload: AllocationCreate, db: DB, user: CurrentUser
 ) -> ItemOut:
-    item = get_item_or_404(db, user, item_id)
+    get_item_or_404(db, user, item_id)
     require_manage(db, user)
-    assert_fits(item, payload.quantity)
-    allocation = InventoryAllocation(
-        item_id=item.id,
-        quantity=payload.quantity,
-        purpose=payload.purpose,
-        label=payload.label,
-        event_id=_resolve_event(db, payload.event_id),
-        holder_id=_resolve_user(db, payload.holder_id, "Holder"),
-        notes=payload.notes,
+    [item] = do_allocate(
+        db, user, [(item_id, payload.quantity)],
+        purpose=payload.purpose, label=payload.label, event_id=payload.event_id,
+        event_team_id=payload.event_team_id, holder_id=payload.holder_id, notes=payload.notes,
     )
-    db.add(allocation)
     db.commit()
     db.refresh(item)
     return ItemOut.model_validate(item)
@@ -412,8 +575,14 @@ def edit_allocation(
         allocation.notes = payload.notes
     if payload.clear_event:
         allocation.event_id = None
+        allocation.event_team_id = None
     elif payload.event_id is not None:
         allocation.event_id = _resolve_event(db, payload.event_id)
+    if payload.clear_team:
+        allocation.event_team_id = None
+    elif payload.event_team_id is not None:
+        allocation.event_team_id, allocation.event_id = _resolve_team(
+            db, payload.event_team_id, allocation.event_id)
     if payload.clear_holder:
         allocation.holder_id = None
     elif payload.holder_id is not None:

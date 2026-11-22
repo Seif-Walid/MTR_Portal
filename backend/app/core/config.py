@@ -72,6 +72,22 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_ssl: bool = False  # True = implicit TLS (port 465); False = STARTTLS
 
+    # AI assistant. `ai_provider`: "disabled" | "claude_code" (spawns the local
+    # `claude` CLI on the developer's own logged-in subscription — local only,
+    # refused when cookie_secure is on, i.e. behind real HTTPS in prod).
+    ai_provider: str = "disabled"
+    claude_cli_path: str = "claude"
+    ai_model_assistant: str = "sonnet"
+    ai_model_bulk: str = "haiku"  # one-off batch jobs (inventory aliases)
+    ai_model_planner: str = "opus"
+    ai_run_timeout_s: int = 600
+    # Where the spawned MCP server reaches this backend.
+    ai_portal_url: str = "http://127.0.0.1:8000"
+    ai_token_ttl_hours: int = 12
+    # Semantic search: "fastembed" (local ONNX model) or "hash" (no semantics).
+    ai_embedder: str = "fastembed"
+    ai_embed_model: str = "BAAI/bge-small-en-v1.5"
+
     @property
     def google_allowed_domains_list(self) -> list[str]:
         return [d.strip().lower() for d in self.google_allowed_domains.split(",") if d.strip()]

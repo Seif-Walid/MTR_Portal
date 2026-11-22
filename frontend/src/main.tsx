@@ -1,27 +1,38 @@
-import { App as AntApp, ConfigProvider } from 'antd';
+import { App as AntApp, ConfigProvider, message } from 'antd';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
-// Self-hosted type — the CIRCUIT system: Space Grotesk (display), Geist (body),
-// Geist Mono (data/labels). Bundled by Vite, so no network/CSP dependency.
-import '@fontsource-variable/space-grotesk/wght.css';
-import '@fontsource-variable/geist/wght.css';
+// Self-hosted type: Archivo (one family; its width axis gives the wide display
+// cut), Geist Mono only for codes and IDs. Bundled by Vite, so no network/CSP dependency.
+import '@fontsource-variable/archivo/wdth.css';
 import '@fontsource-variable/geist-mono/wght.css';
+// Arabic glyphs for member names; Latin stays on Geist (unicode-range scoped)
+import '@fontsource-variable/noto-sans-arabic/wght.css';
 
 import App from './App';
 import { AuthProvider } from './auth/AuthContext';
-import { circuitTheme } from './theme/circuitTheme';
-import { ThemeModeProvider } from './theme/ThemeContext';
-import './index.css';
-import './circuit.css';
-import './circuit-overrides.css';
+import { antdTheme } from './theme/circuitTheme';
+import { ThemeModeProvider, useThemeMode } from './theme/ThemeContext';
+import { installTokens } from './theme/tokens';
+import './tables.css';
+import './theme/base.css';
 
-// The CIRCUIT world is authored dark-only, so the app commits to this theme
-// regardless of OS/toggle preference.
+installTokens();
+
+// Toasts ("Saved", "Task created", errors) render inside a polite live region
+// so screen readers announce them; antd's message has no role of its own.
+const toastRegion = document.createElement('div');
+toastRegion.setAttribute('aria-live', 'polite');
+toastRegion.setAttribute('role', 'status');
+document.body.appendChild(toastRegion);
+message.config({ getContainer: () => toastRegion });
+
+// antd re-themes with the active brightness; CSS reads the same roles as vars.
 function ThemedApp() {
+  const { mode } = useThemeMode();
   return (
-    <ConfigProvider theme={circuitTheme}>
+    <ConfigProvider theme={antdTheme(mode)}>
       <AntApp>
         <BrowserRouter>
           <AuthProvider>

@@ -8,14 +8,13 @@ import type { AccessLevel as AccessLevelT, EventKind as EventKindT, PositionNode
 import { can, useAuth } from '../auth/AuthContext';
 import { personOptions } from '../lib/people';
 
-const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
-const DISPLAY = "'Space Grotesk Variable', 'Space Grotesk', sans-serif";
+const DISPLAY = 'var(--font-display)';
 
 // CIRCUIT hairline chip — replaces AntD preset <Tag> so tree chips match palette.
 function Chip({ text, tone = 'muted' }: { text: string; tone?: 'accent' | 'violet' | 'gold' | 'muted' }) {
-  const c = tone === 'accent' ? '#5cc6ff' : tone === 'violet' ? '#b892ff' : tone === 'gold' ? '#f5c451' : 'rgba(224,236,252,.5)';
+  const c = tone === 'accent' ? 'var(--brand-fg)' : tone === 'violet' ? 'var(--cat-violet)' : tone === 'gold' ? 'var(--cat-amber)' : 'var(--text-tertiary)';
   return (
-    <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.06em', textTransform: 'uppercase', color: c, border: `1px solid ${c}55`, background: `${c}14`, padding: '2px 8px', borderRadius: 5, whiteSpace: 'nowrap' }}>{text}</span>
+    <span style={{ fontSize: 11.5, fontWeight: 500, color: c, background: c.startsWith('#') || c.startsWith('var(') ? `color-mix(in srgb, ${c} 12%, transparent)` : 'color-mix(in srgb, var(--text-primary) 6%, transparent)', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>{text}</span>
   );
 }
 
@@ -237,10 +236,10 @@ export default function OrganizationPage() {
 
   const templateActions = useCallback((t: RoleTemplate) =>
     canManage ? [
-      <Button key="add" type="text" size="small" icon={<PlusOutlined />} title="Add role under" onClick={(e: React.MouseEvent) => { e.stopPropagation(); openModal({ mode: 'create-template-child', template: t }); }} />,
-      <Button key="edit" type="text" size="small" icon={<EditOutlined />} title="Edit" onClick={(e: React.MouseEvent) => { e.stopPropagation(); openModal({ mode: 'edit-template', template: t }); }} />,
+      <Button aria-label="Add role under" key="add" type="text" size="small" icon={<PlusOutlined />} title="Add role under" onClick={(e: React.MouseEvent) => { e.stopPropagation(); openModal({ mode: 'create-template-child', template: t }); }} />,
+      <Button aria-label="Edit role" key="edit" type="text" size="small" icon={<EditOutlined />} title="Edit" onClick={(e: React.MouseEvent) => { e.stopPropagation(); openModal({ mode: 'edit-template', template: t }); }} />,
       <Popconfirm key="del" title="Remove this role?" description="Stops seating future events. People already in this role keep their seats." onConfirm={() => removeTemplate(t)} onPopupClick={(e) => e.stopPropagation()}>
-        <Button type="text" size="small" danger icon={<DeleteOutlined />} title="Remove" onClick={(e) => e.stopPropagation()} />
+        <Button aria-label="Remove role" type="text" size="small" danger icon={<DeleteOutlined />} title="Remove" onClick={(e) => e.stopPropagation()} />
       </Popconfirm>,
     ] : [], [canManage]);
 
@@ -249,12 +248,12 @@ export default function OrganizationPage() {
       key: `tpl-${t.id}`,
       title: (
         <Space size={6} wrap>
-          <Typography.Text strong italic style={{ color: '#eaf2ff' }}>{t.title_template}</Typography.Text>
+          <Typography.Text strong italic style={{ color: 'var(--text-primary)' }}>{t.title_template}</Typography.Text>
           <Chip text="automatic" tone="violet" />
           <Chip text={EVENT_LABELS[t.event]} />
           <Chip text={t.event_kind_id != null ? kindName(t.event_kind_id) : 'all kinds'} tone={t.event_kind_id != null ? 'accent' : 'muted'} />
           {t.access_level_id != null && <Chip text={levelName(t.access_level_id)} tone="gold" />}
-          {templateActions(t)}
+          {canManage && <span className="mtr-node-actions" style={{ display: 'inline-flex', gap: 2 }}>{templateActions(t)}</span>}
         </Space>
       ),
       children: toTemplateTreeData(t.id),
@@ -265,7 +264,7 @@ export default function OrganizationPage() {
       key: String(n.id),
       title: (
         <Space size={6} wrap>
-          <Typography.Text strong style={{ color: '#eaf2ff' }}>{n.title}</Typography.Text>
+          <Typography.Text strong style={{ color: 'var(--text-primary)' }}>{n.title}</Typography.Text>
           {n.occupants.length > 0 ? (
             <Typography.Text type="secondary">{n.occupants.map((u) => u.full_name).join(', ')}</Typography.Text>
           ) : (
@@ -275,13 +274,13 @@ export default function OrganizationPage() {
           {n.role_template_id != null && <Chip text="automatic" tone="violet" />}
           {n.role_template_id == null && n.on_website === false && <Chip text="off website" />}
           {canManage && (
-            <>
-              <Button type="text" size="small" icon={<PlusOutlined />} title="Add under" onClick={(e) => { e.stopPropagation(); openModal({ mode: 'create-child', node: n }); }} />
-              <Button type="text" size="small" icon={<EditOutlined />} title="Edit" onClick={(e) => { e.stopPropagation(); openModal({ mode: 'edit', node: n }); }} />
+            <span className="mtr-node-actions" style={{ display: 'inline-flex', gap: 2 }}>
+              <Button aria-label="Add position under" type="text" size="small" icon={<PlusOutlined />} title="Add under" onClick={(e) => { e.stopPropagation(); openModal({ mode: 'create-child', node: n }); }} />
+              <Button aria-label="Edit position" type="text" size="small" icon={<EditOutlined />} title="Edit" onClick={(e) => { e.stopPropagation(); openModal({ mode: 'edit', node: n }); }} />
               <Popconfirm title="Remove this position?" onConfirm={() => del(n)} onPopupClick={(e) => e.stopPropagation()}>
-                <Button type="text" size="small" danger icon={<DeleteOutlined />} title="Remove" onClick={(e) => e.stopPropagation()} />
+                <Button aria-label="Remove position" type="text" size="small" danger icon={<DeleteOutlined />} title="Remove" style={{ marginInlineStart: 8 }} onClick={(e) => e.stopPropagation()} />
               </Popconfirm>
-            </>
+            </span>
           )}
         </Space>
       ),
@@ -331,8 +330,8 @@ export default function OrganizationPage() {
     <>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
         <div style={{ maxWidth: 620 }}>
-          <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: '#eaf2ff' }}>Organization</h2>
-          <div style={{ fontSize: 13, color: 'rgba(224,236,252,.5)', marginTop: 6, lineHeight: 1.5 }}>
+          <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: 'var(--text-primary)' }}>Organization</h2>
+          <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 6, lineHeight: 1.5 }}>
             The chart of positions (jobs). A seat can be vacant, or shared by more than one person.{' '}
             {canManage ? 'Add positions, assign occupants, or drag to re-parent.' : 'View only.'}
           </div>
@@ -351,7 +350,7 @@ export default function OrganizationPage() {
       {!loading && treeData.length === 0 ? (
         <Empty description="No positions yet" />
       ) : (
-        <div style={{ border: '1px solid rgba(120,170,230,.12)', borderRadius: 12, background: 'rgba(15,20,29,.5)', padding: '16px 18px' }}>
+        <div className="mtr-org-tree" style={{ padding: '8px 4px' }}>
           <Tree treeData={treeData} expandedKeys={expandedKeys} onExpand={setExpandedKeys} blockNode selectable={false} draggable={canManage ? { icon: false } : false} onDrop={onDrop} />
         </div>
       )}

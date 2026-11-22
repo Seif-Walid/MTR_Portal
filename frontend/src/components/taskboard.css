@@ -1,0 +1,86 @@
+/* Task board — role tokens only. Each column carries its status colour in --col. */
+.tb {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px;
+  padding-bottom: 12px; align-items: start;
+}
+/* narrow screens scroll sideways (a dragged card is clipped there, but the
+   columns stay readable) */
+@media (max-width: 1100px) {
+  .tb { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(240px, 1fr); overflow-x: auto; }
+}
+.tb-col {
+  display: flex; flex-direction: column;
+  background: color-mix(in srgb, var(--surface-alt) 55%, transparent);
+  border: 1px solid var(--border-light); border-radius: var(--radius-xl);
+  transition: background 200ms var(--ease-out), border-color 200ms var(--ease-out), opacity 200ms var(--ease-out), box-shadow 200ms var(--ease-out);
+}
+.tb-col__head {
+  position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin: 8px; padding: 12px 14px; border-radius: var(--radius-lg);
+  background: var(--surface); border: 1px solid var(--border-light); overflow: hidden;
+}
+/* status colour bar on top of each column head */
+.tb-col__head::before {
+  content: ''; position: absolute; inset: 0 0 auto; height: 3px;
+  background: linear-gradient(90deg, var(--col), color-mix(in srgb, var(--col) 30%, transparent));
+}
+.tb-col__name { font: 700 14px var(--font-display); font-stretch: 112%; color: var(--text-primary); }
+.tb-col__count {
+  min-width: 24px; padding: 1px 8px; border-radius: var(--radius-full); text-align: center;
+  background: color-mix(in srgb, var(--col) 16%, transparent); color: var(--text-secondary);
+  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.tb-col__body { display: flex; flex-direction: column; gap: 10px; padding: 2px 8px 10px; flex: 1; }
+/* an empty column is just its header; it opens a drop zone only while a card can land there */
+.tb-col__body:empty { padding: 0; }
+.tb-col.is-target .tb-col__body:empty { min-height: 72px; margin: 0 8px 8px; border-radius: var(--radius-lg); border: 1px dashed color-mix(in srgb, var(--col) 60%, transparent); }
+.tb-col__empty {
+  display: grid; place-items: center; min-height: 80px; border-radius: var(--radius-lg);
+  border: 1px dashed var(--border); color: var(--text-tertiary); font-size: 13px;
+}
+
+/* drag feedback: allowed columns glow, the rest fade */
+.tb-col.is-target { border-color: color-mix(in srgb, var(--col) 45%, var(--border)); }
+.tb-col.is-target .tb-col__empty { border-color: color-mix(in srgb, var(--col) 60%, transparent); color: var(--text-secondary); }
+.tb-col.is-over {
+  background: color-mix(in srgb, var(--col) 12%, var(--surface-alt));
+  border-color: var(--col);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--col) 22%, transparent), 0 12px 32px -14px var(--col);
+}
+.tb-col.is-muted { opacity: 0.45; }
+
+.tb-card {
+  position: relative; display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px; border-radius: var(--radius-lg);
+  background: var(--surface); border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm); cursor: grab; touch-action: none; user-select: none;
+  transition: border-color 160ms var(--ease-out), box-shadow 200ms var(--ease-out);
+}
+.tb-card:hover { border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); box-shadow: var(--shadow-md); }
+.tb-card.is-dragging { border-color: var(--primary); }
+.tb-card__top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tb-card__ctx { flex: 1; min-width: 0; font-size: 12px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-card__grip { color: var(--text-disabled); opacity: 0; transition: opacity 150ms; }
+.tb-card:hover .tb-card__grip { opacity: 1; }
+.tb-card__title {
+  font-size: 14.5px; font-weight: 600; line-height: 1.35; color: var(--text-primary);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.tb-card__foot { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-secondary); }
+.tb-card__due { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
+.tb-card__due.is-late { color: var(--signal-text); font-weight: 600; }
+.tb-card__blocked { display: inline-flex; align-items: center; gap: 4px; color: var(--signal-text); font-weight: 600; }
+.tb-card__avatar {
+  margin-inline-start: auto; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--gradient-primary); color: #fff; font-size: 10px; font-weight: 700;
+}
+
+/* list / board switch */
+.tk-layout { display: inline-flex; padding: 3px; gap: 2px; border-radius: var(--radius-full); background: var(--surface-alt); }
+.tk-layout button {
+  position: relative; z-index: 0; display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 12px; border: 0; background: none; border-radius: var(--radius-full);
+  font: 500 13px var(--font-sans); color: var(--text-secondary); cursor: pointer;
+}
+.tk-layout button[aria-pressed='true'] { color: var(--text-primary); }
+.tk-layout__thumb { position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--surface); box-shadow: var(--shadow-sm); }

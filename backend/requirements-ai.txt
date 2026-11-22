@@ -1,0 +1,4 @@
+# Optional: local AI assistant (MCP server + local embedding model).
+# pip install -r requirements-ai.txt
+mcp>=2.3
+fastembed>=0.9

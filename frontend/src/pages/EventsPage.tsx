@@ -1,6 +1,6 @@
 import { DeleteOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import {
-  Button, DatePicker, Empty, Form, Input, List, Modal, Popconfirm, Space, Switch, Tag, Typography, message,
+  Button, DatePicker, Empty, Form, Input, List, Modal, Popconfirm, Skeleton, Space, Switch, Tag, Typography, message,
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useCallback, useEffect, useState } from 'react';
@@ -12,8 +12,8 @@ import { can, useAuth } from '../auth/AuthContext';
 import EventDetailPanel from '../components/EventDetailPanel';
 import PositionPicker from '../components/PositionPicker';
 
-const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
-const DISPLAY = "'Space Grotesk Variable', 'Space Grotesk', sans-serif";
+const MONO = 'var(--font-mono)';
+const DISPLAY = 'var(--font-display)';
 
 interface FormValues {
   name: string;
@@ -144,23 +144,22 @@ function EventCard({ kind, c, onEdit, onStatus, onRemove, expanded, onToggle, on
     ? `${dayjs(c.start_date).format('DD MMM')}–${dayjs(c.end_date).format('DD MMM YY')}`.toUpperCase()
     : '—';
   const lead = c.roles.flatMap((r) => r.occupants.map((u) => u.full_name)).join(', ') || 'Unassigned';
-  const trace = active ? '#5cc6ff' : 'rgba(120,170,230,.4)';
+  const trace = active ? 'var(--brand-fg)' : 'var(--border)';
   const stat = (value: number, label: string, accent?: boolean) => (
-    <div style={{ flex: 1, background: '#0f141d', padding: '10px 12px' }}>
-      <div style={{ fontFamily: MONO, fontWeight: 600, fontSize: 18, color: accent ? '#5cc6ff' : '#eaf2ff' }}>{value || '—'}</div>
-      <div style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(224,236,252,.4)', marginTop: 3 }}>{label}</div>
+    <div style={{ flex: 1, background: 'color-mix(in srgb, var(--text-primary) 3.5%, transparent)', borderRadius: 12, padding: '10px 12px' }}>
+      <div style={{ fontFamily: MONO, fontWeight: 600, fontSize: 18, color: accent ? 'var(--brand-fg)' : 'var(--text-primary)' }}>{value || '—'}</div>
+      <div className="mtr-label" style={{ marginTop: 3 }}>{label}</div>
     </div>
   );
   return (
     <div
       style={{
         position: 'relative',
-        border: `1px solid ${active ? 'rgba(92,198,255,.22)' : 'rgba(120,170,230,.1)'}`,
-        borderRadius: 14,
+        borderRadius: 20,
         overflow: 'hidden',
-        background: 'rgba(15,20,29,.6)',
+        background: active ? 'linear-gradient(160deg, color-mix(in srgb, var(--brand-fg) 7%, transparent), color-mix(in srgb, var(--text-primary) 2%, transparent) 55%)' : 'color-mix(in srgb, var(--text-primary) 2.5%, transparent)',
         padding: 20,
-        boxShadow: active ? '0 20px 50px -30px rgba(92,198,255,.4)' : 'none',
+        boxShadow: active ? '0 20px 50px -30px color-mix(in srgb, var(--brand-fg) 35%, transparent)' : 'none',
         gridColumn: expanded ? '1 / -1' : 'auto',
       }}
     >
@@ -170,10 +169,10 @@ function EventCard({ kind, c, onEdit, onStatus, onRemove, expanded, onToggle, on
       </svg>
       <div style={{ position: 'relative' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: active ? '#5cc6ff' : 'rgba(224,236,252,.45)', border: `1px solid ${active ? 'rgba(92,198,255,.35)' : 'rgba(120,170,230,.18)'}`, background: active ? 'rgba(92,198,255,.08)' : 'transparent', padding: '3px 8px', borderRadius: 5 }}>{c.status.toUpperCase()}</span>
+          <span style={{ fontSize: 11.5, fontWeight: 500, textTransform: 'capitalize', color: active ? 'var(--brand-fg)' : 'var(--text-tertiary)', background: active ? 'color-mix(in srgb, var(--brand-fg) 12%, transparent)' : 'color-mix(in srgb, var(--text-primary) 5%, transparent)', padding: '3px 10px', borderRadius: 999 }}>{c.status}</span>
           <Space size={8}>
             {c.applications_open && <Tag color="green" style={{ marginInlineEnd: 0 }}>Recruiting</Tag>}
-            <span style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(224,236,252,.45)' }}>{dates}</span>
+            <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--text-tertiary)' }}>{dates}</span>
           </Space>
         </div>
         <div
@@ -181,12 +180,13 @@ function EventCard({ kind, c, onEdit, onStatus, onRemove, expanded, onToggle, on
           tabIndex={0}
           onClick={onToggle}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
-          style={{ cursor: 'pointer', outline: 'none' }}
+          aria-expanded={expanded}
+          style={{ cursor: 'pointer', borderRadius: 8 }}
         >
-          <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 18, color: '#eaf2ff', marginTop: 14 }}>{c.name}</div>
-          <div style={{ fontSize: 12, color: 'rgba(224,236,252,.5)', marginTop: 4 }}>Lead: {lead}</div>
+          <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 18, color: 'var(--text-primary)', marginTop: 14 }}>{c.name}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>Lead: {lead}</div>
         </div>
-        <div style={{ display: 'flex', gap: 1, marginTop: 18, background: 'rgba(120,170,230,.1)', borderRadius: 9, overflow: 'hidden', border: '1px solid rgba(120,170,230,.1)' }}>
+        <div style={{ display: 'flex', gap: 6, marginTop: 18 }}>
           {stat(c.category_count, kind.category_label, true)}
           {stat(c.team_count, `${kind.team_label}s`)}
           {stat(c.member_count, kind.member_label ? `${kind.member_label}s` : 'Members')}
@@ -201,11 +201,11 @@ function EventCard({ kind, c, onEdit, onStatus, onRemove, expanded, onToggle, on
               <Button size="small" danger disabled={!!c.allocation_count}>Delete</Button>
             </Popconfirm>
             <span style={{ flex: 1 }} />
-            <Button size="small" type="text" onClick={onToggle} style={{ color: '#5cc6ff' }}>{expanded ? 'Close' : 'Open'}</Button>
+            <Button size="small" type="text" onClick={onToggle} style={{ color: 'var(--brand-fg)' }}>{expanded ? 'Close' : 'Open'}</Button>
           </div>
         )}
         {expanded && (
-          <div style={{ marginTop: 18, borderTop: '1px solid rgba(120,170,230,.12)', paddingTop: 16 }}>
+          <div style={{ marginTop: 18, borderTop: '1px solid var(--border-light)', paddingTop: 16 }}>
             <EventDetailPanel eventId={c.id} onChanged={onChanged} />
           </div>
         )}
@@ -250,7 +250,11 @@ function EventsList({ kind, canCreate }: { kind: EventKind; canCreate: boolean }
         </div>
       )}
       {loading && !events.length ? (
-        <div style={{ fontFamily: MONO, fontSize: 12, color: 'rgba(224,236,252,.4)', padding: 24 }}>LOADING…</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: 16 }}>
+          {[0, 1, 2].map((i) => (
+            <div key={i} style={{ borderRadius: 20, background: 'color-mix(in srgb, var(--text-primary) 2.5%, transparent)', padding: 20 }}><Skeleton active paragraph={{ rows: 3 }} /></div>
+          ))}
+        </div>
       ) : events.length === 0 ? (
         <Empty description={`No ${kind.event_label.toLowerCase()}s yet.`} />
       ) : (
@@ -322,7 +326,7 @@ function KindsManagerModal({ kinds, open, onClose, onChanged }: {
           <List.Item
             actions={[
               <Popconfirm key="d" title={`Delete "${k.name}"?`} description="Only if it has no events or roles." onConfirm={() => remove(k)}>
-                <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                <Button aria-label="Delete event kind" type="text" size="small" danger icon={<DeleteOutlined />} />
               </Popconfirm>,
             ]}
           >
@@ -381,7 +385,7 @@ export default function EventsPage() {
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
-        <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: '#eaf2ff' }}>{kind ? kind.name : 'Events'}</h2>
+        <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: 'var(--text-primary)' }}>{kind ? kind.name : 'Events'}</h2>
         {canManageKinds && (
           <Button icon={<SettingOutlined />} onClick={() => setManaging(true)}>Event types</Button>
         )}
@@ -389,22 +393,20 @@ export default function EventsPage() {
 
       {/* segmented kind switch (mirrors the nav sub-items) */}
       {kinds.length > 1 && (
-        <div style={{ display: 'inline-flex', gap: 4, background: 'rgba(8,11,17,.6)', border: '1px solid rgba(120,170,230,.12)', borderRadius: 10, padding: 4, marginBottom: 20 }}>
+        <div className="mtr-pills" role="tablist">
           {kinds.map((k) => {
             const on = k.slug === slug;
             return (
-              <div
+              <button
+                type="button"
+                role="tab"
+                aria-selected={on}
                 key={k.id}
                 onClick={() => navigate(`/events/${k.slug}`)}
-                style={{
-                  padding: '7px 16px', borderRadius: 7, fontSize: 13, cursor: 'pointer',
-                  color: on ? '#eaf2ff' : 'rgba(224,236,252,.5)',
-                  background: on ? 'linear-gradient(90deg,rgba(92,198,255,.2),rgba(92,198,255,.05))' : 'transparent',
-                  border: `1px solid ${on ? 'rgba(92,198,255,.3)' : 'transparent'}`,
-                }}
+                className={`mtr-pill${on ? ' on' : ''}`}
               >
                 {k.name}
-              </div>
+              </button>
             );
           })}
         </div>

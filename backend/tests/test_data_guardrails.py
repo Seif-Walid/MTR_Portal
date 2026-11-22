@@ -228,9 +228,9 @@ def test_export_is_scoped_typed_and_has_dropdowns(login, org, season, db_session
     _add_spending(admin, other.id, item="Out of scope")
     wb = _book(admin.get(f"/api/bulk/spendings/export.xlsx?season_id={season.id}").content)
     ws = wb["spendings"]
-    items = [r[4] for r in ws.iter_rows(min_row=2, values_only=True)]
-    assert items == ["In scope"]
     header = [c.value for c in ws[1]]
+    items = [r[header.index("Item")] for r in ws.iter_rows(min_row=2, values_only=True)]
+    assert items == ["In scope"]
     assert header[0] == "ID" and header[-1] == "Status"
     row = next(ws.iter_rows(min_row=2, values_only=True))
     assert row[header.index("Season")] == "S5"  # a label, not an id

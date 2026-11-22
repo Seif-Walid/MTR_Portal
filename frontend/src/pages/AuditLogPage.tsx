@@ -77,7 +77,7 @@ export default function AuditLogPage() {
               ...domains.map((d) => ({ label: d.charAt(0).toUpperCase() + d.slice(1), value: d })),
             ]}
           />
-          <Button icon={<ReloadOutlined />} onClick={load} />
+          <Button aria-label="Reload audit log" icon={<ReloadOutlined />} onClick={load} />
         </Space>
       </Space>
 

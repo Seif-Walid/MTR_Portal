@@ -55,7 +55,7 @@ export default function LocationsModal({ open, onClose }: { open: boolean; onClo
           <List.Item
             actions={[
               <Popconfirm key="d" title="Delete this location?" onConfirm={() => remove(l.id)}>
-                <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                <Button aria-label="Delete location" size="small" type="text" danger icon={<DeleteOutlined />} />
               </Popconfirm>,
             ]}
           >

@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from enum import StrEnum
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -58,6 +58,9 @@ class InventoryItem(Base):
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     condition: Mapped[str] = mapped_column(String(20), default=Condition.GOOD)
     notes: Mapped[str] = mapped_column(Text, default="")
+    # Other names people use for the part ("H-bridge, DC motor controller"),
+    # comma-separated. Searched, both exactly and semantically.
+    aliases: Mapped[str] = mapped_column(Text, default="", server_default="")
     # Designation: the team lead this equipment is dedicated to. NULL = general
     # storage, visible only to staff. Non-staff members see an item only when
     # its team_lead sits on their manager chain.
@@ -77,6 +80,21 @@ class InventoryItem(Base):
     # history. "Deleting" an item marks it here instead; a genuine hard
     # delete is a separate admin-only escape hatch.
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Market value of ONE unit. `value_source` says where it came from:
+    # "makers" / "future" = a shop listing a person confirmed, pinned by its
+    # shop id/handle (`value_ref`) so a refresh re-prices that exact listing;
+    # "manual" = our own estimate, uncited and never refreshed. NULL = unpriced.
+    unit_value: Mapped[float | None] = mapped_column(Numeric(12, 2, asdecimal=False), nullable=True)
+    value_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    value_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    value_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    value_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    value_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    value_note: Mapped[str] = mapped_column(Text, default="")
+    value_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Last refresh failure for a pinned listing (shop down, listing removed);
+    # the previous price is kept, flagged, until someone re-pins.
+    value_error: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     team_lead = relationship("User", foreign_keys=[team_lead_id], lazy="joined")
     allocations: Mapped[list["InventoryAllocation"]] = relationship(
@@ -91,6 +109,10 @@ class InventoryItem(Base):
     @property
     def free(self) -> int:
         return self.quantity - self.in_use
+
+    @property
+    def total_value(self) -> float | None:
+        return None if self.unit_value is None else round(self.unit_value * self.quantity, 2)
 
     @property
     def by_purpose(self) -> dict[str, int]:
@@ -116,6 +138,10 @@ class InventoryAllocation(Base):
     event_id: Mapped[int | None] = mapped_column(
         ForeignKey("events.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Optional: the specific event team the units went to (implies event_id).
+    event_team_id: Mapped[int | None] = mapped_column(
+        ForeignKey("event_teams.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     # Who physically holds these units (optional — a chunk can be assigned to a
     # purpose without a named holder, e.g. a general training pool).
     holder_id: Mapped[int | None] = mapped_column(
@@ -134,11 +160,18 @@ class InventoryAllocation(Base):
     item: Mapped[InventoryItem] = relationship(back_populates="allocations")
     holder = relationship("User", foreign_keys=[holder_id], lazy="joined")
     event = relationship("Event", lazy="joined")
+    event_team = relationship("EventTeam", lazy="joined")
+
+    @property
+    def team_name(self) -> str | None:
+        return self.event_team.name if self.event_team is not None else None
 
     @property
     def display_label(self) -> str:
-        """Event name takes precedence over the free-text label."""
+        """Event name (plus team) takes precedence over the free-text label."""
         if self.event is not None:
+            if self.event_team is not None:
+                return f"{self.event.name} · {self.event_team.name}"
             return self.event.name
         return self.label
 

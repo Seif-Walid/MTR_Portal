@@ -42,6 +42,8 @@ PRIVILEGES: list[tuple[str, str]] = [
     ("courses.manage", "Manage courses"),
     ("users.manage", "Manage users"),
     ("audit.view", "View audit log"),
+    ("ai.use", "Use the AI assistant"),
+    ("ai.admin", "Administer the AI assistant"),
 ]
 
 ALL_PRIVILEGE_KEYS: set[str] = {key for key, _ in PRIVILEGES}
@@ -58,7 +60,7 @@ PRESET_LEVELS: list[tuple[int, str, list[str]]] = [
     (3, "Lead", [
         "inventory.view", "inventory.request", "inventory.approve", "inventory.edit",
         "events.view", "events.manage_seated", "events.create",
-        "tasks.use", "tasks.assign", "org.view", "people.view", "courses.view",
+        "tasks.use", "tasks.assign", "org.view", "people.view", "courses.view", "ai.use",
     ]),
     (4, "Member", [
         "inventory.view", "inventory.request",

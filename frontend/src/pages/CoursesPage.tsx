@@ -43,6 +43,7 @@ import { api, ApiError } from '../api/client';
 import type { Course, CourseDetail, CourseMaterial, MaterialKind, TaskStatus } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
 import { C, hexA } from '../theme/circuitTokens';
+import { asButton } from '../components/a11y';
 
 type Kind = { key: MaterialKind; label: string };
 
@@ -77,7 +78,7 @@ function CourseCover({ course, height = 190 }: { course: Course; height?: number
         overflow: 'hidden',
         background: `radial-gradient(120% 90% at 85% 10%, ${hexA(a, 0.55)}, transparent 55%),
           radial-gradient(90% 80% at 0% 100%, ${hexA(a, 0.3)}, transparent 60%),
-          linear-gradient(160deg, #0d1420, #070a10)`,
+          linear-gradient(160deg, var(--surface), #070a10)`,
         display: 'grid',
         placeItems: 'center',
       }}
@@ -94,7 +95,7 @@ function CourseCover({ course, height = 190 }: { course: Course; height?: number
         style={{
           position: 'relative', fontFamily: C.display, fontWeight: 700, letterSpacing: '-.02em',
           fontSize: Math.min(typeof height === 'number' ? height * 0.42 : 88, 340 / Math.max(label.length, 2)), lineHeight: 1,
-          color: '#f4f9ff', textShadow: `0 0 28px ${hexA(a, 0.75)}, 0 0 2px ${hexA(a, 0.9)}`,
+          color: 'var(--text-primary)', textShadow: `0 0 28px ${hexA(a, 0.75)}, 0 0 2px ${hexA(a, 0.9)}`,
           padding: '0 18px', textAlign: 'center',
         }}
       >
@@ -106,7 +107,7 @@ function CourseCover({ course, height = 190 }: { course: Course; height?: number
 
 function Progress({ percent, accent }: { percent: number; accent: string }) {
   return (
-    <div style={{ height: 6, borderRadius: 6, background: 'rgba(120,170,230,.12)', overflow: 'hidden' }}>
+    <div style={{ height: 6, borderRadius: 6, background: 'var(--border)', overflow: 'hidden' }}>
       <div style={{ width: `${percent}%`, height: '100%', borderRadius: 6, background: accent, transition: 'width .3s' }} />
     </div>
   );
@@ -116,7 +117,7 @@ function PercentLabel({ percent, accent }: { percent: number; accent: string }) 
   return (
     <div style={{ textAlign: 'right' }}>
       <div style={{ fontFamily: C.display, fontWeight: 600, fontSize: 18, color: accent, lineHeight: 1 }}>{percent}%</div>
-      <div style={{ fontFamily: C.mono, fontSize: 9.5, letterSpacing: '.12em', color: accent, marginTop: 3 }}>COMPLETE</div>
+      <div style={{ fontSize: 11.5, fontWeight: 500, color: accent, marginTop: 3 }}>Complete</div>
     </div>
   );
 }
@@ -183,7 +184,7 @@ function Catalogue() {
       </div>
 
       {courses === null ? (
-        <div style={{ display: 'grid', placeItems: 'center', padding: 80 }}><Spin /></div>
+        <div role="status" aria-label="Loading" style={{ display: 'grid', placeItems: 'center', padding: 80 }}><Spin /></div>
       ) : shown.length === 0 ? (
         <Empty description={courses.length ? 'No course matches' : 'No courses yet'} style={{ padding: 60 }} />
       ) : (
@@ -245,7 +246,7 @@ function CoursePage({ courseId }: { courseId: number }) {
   useEffect(load, [load]);
 
   const active = tab ?? kinds.find((k) => course?.counts[k.key])?.key ?? kinds[0]?.key ?? null;
-  if (!course || !active) return <div style={{ display: 'grid', placeItems: 'center', padding: 80 }}><Spin /></div>;
+  if (!course || !active) return <div role="status" aria-label="Loading" style={{ display: 'grid', placeItems: 'center', padding: 80 }}><Spin /></div>;
 
   const items = course.materials.filter((m) => m.kind === active);
 
@@ -265,10 +266,10 @@ function CoursePage({ courseId }: { courseId: number }) {
         <div style={{ minHeight: 210 }}><CourseCover course={course} height="100%" /></div>
         <div style={{ padding: '24px 26px 24px 0', alignSelf: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 600, color: C.text, lineHeight: 1.15, flex: 1 }}>
+            <h2 style={{ margin: 0, fontSize: 28, fontWeight: 600, color: C.text, lineHeight: 1.15, flex: 1 }}>
               {course.title}
               {!course.is_published && <Tag style={{ marginLeft: 10, verticalAlign: 5 }}>Draft</Tag>}
-            </h1>
+            </h2>
             {course.can_manage && (
               <Button icon={<SettingOutlined />} onClick={() => setSettings(true)}>Course settings</Button>
             )}
@@ -401,7 +402,7 @@ function MaterialCard({
   return (
     <div
       className={locked ? undefined : 'mtr-course-card'}
-      onClick={locked ? undefined : onOpen}
+      {...(locked ? { 'aria-disabled': true } : asButton(onOpen))}
       style={{
         cursor: locked ? 'not-allowed' : 'pointer', position: 'relative',
         background: C.bgPanel, borderRadius: 12, padding: '14px 16px',
@@ -411,7 +412,7 @@ function MaterialCard({
     >
       <div style={{ flex: 1, minWidth: 0 }}>
         {m.unit_label && (
-          <div style={{ fontFamily: C.mono, fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: accent, marginBottom: 5 }}>
+          <div style={{ fontSize: 11.5, color: accent, marginBottom: 5 }}>
             {m.unit_label}
           </div>
         )}
@@ -444,7 +445,7 @@ function MaterialCard({
             aria-label="Open in Tasks"
             title={m.completed ? 'Submitted — open in Tasks' : 'Open in Tasks to submit'}
             icon={<CheckOutlined />}
-            style={m.completed ? { background: accent, borderColor: accent, color: '#06080c' } : { color: C.textFaint }}
+            style={m.completed ? { background: accent, borderColor: accent, color: 'var(--on-primary)' } : { color: C.textFaint }}
           />
         )}
       </div>
@@ -564,7 +565,7 @@ function MaterialViewer({ courseId, materialId }: { courseId: number; materialId
   useEffect(load, [load]);
 
   const m = course?.materials.find((x) => x.id === materialId);
-  if (!course) return <div style={{ display: 'grid', placeItems: 'center', padding: 80 }}><Spin /></div>;
+  if (!course) return <div role="status" aria-label="Loading" style={{ display: 'grid', placeItems: 'center', padding: 80 }}><Spin /></div>;
   if (!m || !m.url) {
     return <Empty description="This material isn't available" style={{ padding: 60 }} />;
   }
@@ -581,7 +582,7 @@ function MaterialViewer({ courseId, materialId }: { courseId: number; materialId
           {course.title}
         </Button>
         <div style={{ flex: 1, minWidth: 200 }}>
-          <div style={{ fontFamily: C.mono, fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: course.accent }}>
+          <div style={{ fontSize: 11.5, color: course.accent }}>
             {kinds.find((k) => k.key === m.kind)?.label ?? m.kind}{m.unit_label ? ` · ${m.unit_label}` : ''}
           </div>
           <div style={{ fontFamily: C.display, fontWeight: 600, fontSize: 17, color: C.text }}>{m.title}</div>
@@ -829,7 +830,7 @@ function CourseFormModal({
 
   const submit = async () => {
     const v = await form.validateFields();
-    const accent = typeof v.accent === 'string' ? v.accent : v.accent?.toHexString?.() ?? '#5cc6ff';
+    const accent = typeof v.accent === 'string' ? v.accent : v.accent?.toHexString?.() ?? 'var(--brand-fg)';
     setSaving(true);
     try {
       let id = course?.id;
@@ -915,7 +916,7 @@ function CourseFormModal({
         layout="vertical"
         initialValues={{
           title: course?.title, description: course?.description, cover_label: course?.cover_label,
-          accent: course?.accent ?? '#5cc6ff', is_published: course?.is_published ?? true, sort_order: course?.sort_order ?? 0,
+          accent: course?.accent ?? 'var(--brand-fg)', is_published: course?.is_published ?? true, sort_order: course?.sort_order ?? 0,
         }}
       >
         <Form.Item name="title" label="Title" rules={[{ required: true, whitespace: true }]}>

@@ -29,8 +29,8 @@ function flatten(nodes: OrgNode[], depth = 0, acc: Row[] = []): Row[] {
 
 const miniTag = (text: string, color: string) => (
   <span style={{
-    fontFamily: C.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase',
-    color, border: `1px solid ${color}55`, background: `${color}14`, padding: '2px 8px', borderRadius: 5,
+    fontSize: 11, fontWeight: 500,
+    color, background: `color-mix(in srgb, ${color} 12%, transparent)`, padding: '2px 9px', borderRadius: 999,
   }}>{text}</span>
 );
 
@@ -50,7 +50,7 @@ export default function OrgTree({ roots, renderActions }: {
           <span style={{ width: 5, height: 5, borderRadius: '50%', background: C.accent, boxShadow: `0 0 8px ${C.accent}`, flexShrink: 0 }} />
           <span style={{ fontFamily: C.display, fontWeight: 600, fontSize: 14, color: C.text }}>{node.title}</span>
           {node.occupants.length === 0 ? (
-            <span style={{ fontFamily: C.mono, fontSize: 9.5, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(224,236,252,.42)', border: '1px dashed rgba(120,170,230,.25)', padding: '2px 8px', borderRadius: 5 }}>vacant</span>
+            <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)', padding: '2px 8px', borderRadius: 999 }}>vacant</span>
           ) : (
             <Typography.Text style={{ fontSize: 12.5, color: C.textMuted }}>{node.occupants.join(', ')}</Typography.Text>
           )}

@@ -28,6 +28,7 @@ import type {
 } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
 import HoldingsMatrix from './HoldingsMatrix';
+import { MANUAL_WARNING, PriceItemPanel, ValueSourceTag, egp } from './ItemValue';
 import RequestUnitsModal from './RequestUnitsModal';
 import { ConditionTag, PURPOSE_META, PurposeTag } from './tags';
 import UsageBreakdown from './UsageBreakdown';
@@ -53,6 +54,7 @@ export default function InventoryItemDrawer({
   const allocPurpose = Form.useWatch('purpose', allocForm) as AllocationPurpose | undefined;
   const [busy, setBusy] = useState(false);
   const [requesting, setRequesting] = useState(false);
+  const [pricing, setPricing] = useState(false);
 
   const canManage = can(me, 'inventory.edit');
 
@@ -160,6 +162,38 @@ export default function InventoryItemDrawer({
             </Col>
           </Row>
 
+          <Divider plain>Market value</Divider>
+          <Space direction="vertical" size={6} style={{ width: '100%' }}>
+            <Space size={12} wrap>
+              <Statistic title="Per unit" value={egp(item.unit_value, item.value_currency ?? 'EGP')} valueStyle={{ fontSize: 18 }} />
+              <Statistic title={`All ${item.quantity}`} value={egp(item.total_value, item.value_currency ?? 'EGP')} valueStyle={{ fontSize: 18 }} />
+              <ValueSourceTag item={item} />
+              {canManage && <Button size="small" onClick={() => setPricing(!pricing)}>{pricing ? 'Close' : item.unit_value === null ? 'Find price' : 'Change'}</Button>}
+              {canManage && item.value_source && (
+                <Popconfirm title="Remove this item's value?" onConfirm={async () => {
+                  try { setItem(await api.delete<InventoryItem>(`/api/inventory/${item.id}/value`)); onChanged(); } catch (e) { message.error((e as Error).message); }
+                }}>
+                  <Button size="small" danger type="text">Clear</Button>
+                </Popconfirm>
+              )}
+            </Space>
+            {item.value_source && item.value_source !== 'manual' && item.value_title && (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                Listing: <a href={item.value_url ?? undefined} target="_blank" rel="noreferrer">{item.value_title}</a>
+                {item.value_checked_at && ` · checked ${new Date(item.value_checked_at).toLocaleString()}`}
+              </Typography.Text>
+            )}
+            {item.value_source === 'manual' && (
+              <Typography.Text type="warning" style={{ fontSize: 12 }}>
+                {MANUAL_WARNING}{item.value_note ? ` Note: ${item.value_note}` : ''}
+              </Typography.Text>
+            )}
+            {item.value_error && <Typography.Text type="danger" style={{ fontSize: 12 }}>Last refresh failed: {item.value_error}. Showing the previous price.</Typography.Text>}
+            {pricing && canManage && (
+              <PriceItemPanel item={item} onSaved={(saved) => { setItem(saved); setPricing(false); onChanged(); }} />
+            )}
+          </Space>
+
           <Divider plain>Usage breakdown</Divider>
           <UsageBreakdown item={item} unit />
 
@@ -202,7 +236,7 @@ export default function InventoryItemDrawer({
                       {a.holder && <Tag color="geekblue">{a.holder.full_name}</Tag>}
                     </Space>
                     <Popconfirm title="Remove this allocation?" onConfirm={() => removeAllocation(a.id)}>
-                      <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                      <Button aria-label="Remove allocation" size="small" type="text" danger icon={<DeleteOutlined />} />
                     </Popconfirm>
                   </div>
                 ))}

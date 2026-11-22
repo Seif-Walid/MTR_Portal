@@ -368,8 +368,9 @@ def edit_category(category_id: int, payload: CategoryEdit, db: DB, user: Current
     )
 
 
-@router.post("/categories/{category_id}/teams", status_code=status.HTTP_201_CREATED)
-def add_team(category_id: int, payload: TeamCreate, db: DB, user: CurrentUser) -> TeamOut:
+def do_add_team(db: DB, user: User, category_id: int, payload: TeamCreate) -> EventTeam:
+    """Create a team (or sub-team) without committing — shared by the HTTP
+    route and the AI assistant's confirmed actions."""
     cat = db.get(EventCategory, category_id)
     if cat is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
@@ -393,8 +394,15 @@ def add_team(category_id: int, payload: TeamCreate, db: DB, user: CurrentUser) -
         audit_log(db, user.id, "events", "sub_team_added", "event_team", team.id,
                   {"team": team.name, "parent_team_id": parent.id})
     resync_managers(db)
+    return team
+
+
+@router.post("/categories/{category_id}/teams", status_code=status.HTTP_201_CREATED)
+def add_team(category_id: int, payload: TeamCreate, db: DB, user: CurrentUser) -> TeamOut:
+    team = do_add_team(db, user, category_id, payload)
     db.commit()
     db.refresh(team)
+    comp = _team_event(team)
     return _team_out(db, comp, team, can_manage_event(db, user, comp.id), user)
 
 
@@ -482,8 +490,9 @@ def delete_team(team_id: int, db: DB, user: CurrentUser, permanent: bool = False
     db.commit()
 
 
-@router.post("/teams/{team_id}/members", status_code=status.HTTP_201_CREATED)
-def add_member(team_id: int, payload: MemberAdd, db: DB, user: CurrentUser) -> TeamOut:
+def do_add_member(db: DB, user: User, team_id: int, payload: MemberAdd) -> tuple[EventTeam, bool]:
+    """Add a person to a team without committing. Returns (team, added) —
+    added is False when they were already on it."""
     team = _get_team(db, team_id)
     comp = _team_event(team)
     require_manage_team(db, user, team)  # a scoped team manager qualifies here
@@ -509,9 +518,17 @@ def add_member(team_id: int, payload: MemberAdd, db: DB, user: CurrentUser) -> T
         resync_managers(db)
         audit_log(db, user.id, "events", "member_added", "event_team", team.id,
                   {"team": team.name, "user_id": payload.user_id})
+        return team, True
+    return team, False
+
+
+@router.post("/teams/{team_id}/members", status_code=status.HTTP_201_CREATED)
+def add_member(team_id: int, payload: MemberAdd, db: DB, user: CurrentUser) -> TeamOut:
+    team, added = do_add_member(db, user, team_id, payload)
+    if added:
         db.commit()
         db.refresh(team)
-    return _team_out(db, comp, team, can_manage_team(db, user, team), user)
+    return _team_out(db, _team_event(team), team, can_manage_team(db, user, team), user)
 
 
 @router.delete("/teams/{team_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -575,8 +592,8 @@ def list_events(
     return [_list_out(db, user, c) for c in comps]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
-def create_event(payload: EventCreate, db: DB, user: CurrentUser) -> EventDetailOut:
+def do_create_event(db: DB, user: User, payload: EventCreate) -> Event:
+    """Create an event (and its automatic role seats) without committing."""
     require_can_create(db, user)
     if db.scalar(select(Event).where(Event.name == payload.name)):
         raise HTTPException(status.HTTP_409_CONFLICT, "An event with that name already exists")
@@ -599,6 +616,13 @@ def create_event(payload: EventCreate, db: DB, user: CurrentUser) -> EventDetail
         root_position_id=payload.role_root_position_id,
     )
     resync_managers(db)
+    audit_log(db, user.id, "events", "created", "event", comp.id, {"name": comp.name})
+    return comp
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+def create_event(payload: EventCreate, db: DB, user: CurrentUser) -> EventDetailOut:
+    comp = do_create_event(db, user, payload)
     db.commit()
     db.refresh(comp)
     return _detail_out(db, user, comp)

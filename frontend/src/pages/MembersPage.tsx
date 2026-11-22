@@ -30,6 +30,7 @@ import { api, ApiError } from '../api/client';
 import type { DuplicateHit, RosterMember, RosterMemberDetail, RosterStats } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
 import { StatRow, StatTile } from '../components/charts';
+import { openableRow } from '../components/a11y';
 
 const dash = (v: unknown) => (v === null || v === undefined || v === '' ? '—' : String(v));
 
@@ -206,7 +207,7 @@ export default function MembersPage() {
           </Checkbox>
         )}
         <span style={{ flex: 1 }} />
-        <Typography.Text type="secondary">{filtered.length} shown</Typography.Text>
+        <Typography.Text type="secondary">{rows === null ? "—" : `${filtered.length} shown`}</Typography.Text>
         {canEdit && (
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setAdding(true)}>
             Add member
@@ -220,7 +221,7 @@ export default function MembersPage() {
         loading={rows === null}
         dataSource={filtered}
         className="circuit-table"
-        onRow={(r) => ({ onClick: () => setParams({ member: String(r.id) }) })}
+        onRow={(r) => openableRow(() => setParams({ member: String(r.id) }))}
         pagination={{ defaultPageSize: 50, pageSizeOptions: [25, 50, 100, 400], showSizeChanger: true, size: 'small' }}
         scroll={{ x: 'max-content' }}
         columns={[
@@ -252,7 +253,7 @@ export default function MembersPage() {
           {
             title: 'Events', key: 'events', width: 90, align: 'right',
             sorter: (a, b) => a.events.length - b.events.length,
-            render: (_, r) => (r.events.length ? r.events.length : <span style={{ opacity: 0.35 }}>0</span>),
+            render: (_, r) => (r.events.length ? r.events.length : <span style={{ color: 'var(--text-tertiary)' }}>0</span>),
           },
           {
             title: 'Account', key: 'acct', width: 120,

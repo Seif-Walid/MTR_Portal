@@ -178,6 +178,9 @@ class Spending(Base):
     event_id: Mapped[int | None] = mapped_column(
         ForeignKey("events.id", ondelete="SET NULL"), index=True, nullable=True
     )
+    event_team_id: Mapped[int | None] = mapped_column(
+        ForeignKey("event_teams.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     spent_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     item: Mapped[str] = mapped_column(String(255))
     category_id: Mapped[int | None] = mapped_column(ForeignKey("finance_options.id"), nullable=True)
@@ -236,6 +239,9 @@ class DuesEnrollment(Base):
     season_id: Mapped[int] = mapped_column(ForeignKey("finance_seasons.id", ondelete="CASCADE"), index=True)
     member_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     tier_id: Mapped[int] = mapped_column(ForeignKey("dues_tiers.id"))
+    event_team_id: Mapped[int | None] = mapped_column(
+        ForeignKey("event_teams.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     status: Mapped[str] = mapped_column(String(20), default=EnrollmentStatus.ACTIVE)
     maturity_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)

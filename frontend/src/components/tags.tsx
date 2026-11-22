@@ -14,7 +14,7 @@ import type {
 
 // tint a colour (hex or rgb/rgba) to the given alpha — for chip border/fill.
 const tint = (color: string, a: number): string => {
-  if (color.startsWith('#')) return hexA(color, a);
+  if (color.startsWith('#') || color.startsWith('var(')) return hexA(color, a);
   const m = color.match(/rgba?\(([^)]+)\)/);
   if (m) {
     const [r, g, b] = m[1].split(',').map((v) => v.trim());
@@ -26,15 +26,12 @@ const tint = (color: string, a: number): string => {
 const chip = (text: string, color: string) => (
   <span
     style={{
-      fontFamily: C.mono,
-      fontSize: 10,
-      letterSpacing: '.06em',
-      textTransform: 'uppercase',
+      fontSize: 11.5,
+      fontWeight: 500,
       color,
-      border: `1px solid ${tint(color, 0.35)}`,
-      background: tint(color, 0.08),
-      padding: '3px 9px',
-      borderRadius: 5,
+      background: tint(color, 0.13),
+      padding: '3px 10px',
+      borderRadius: 999,
       whiteSpace: 'nowrap',
     }}
   >
@@ -110,18 +107,15 @@ export function BlockedTag() {
   return (
     <span
       style={{
-        fontFamily: C.mono,
-        fontSize: 9,
+        fontSize: 11.5,
         fontWeight: 600,
-        letterSpacing: '.08em',
         color: C.danger,
-        border: `1px solid ${hexA(C.danger, 0.4)}`,
-        background: hexA(C.danger, 0.1),
-        padding: '3px 7px',
-        borderRadius: 4,
+        background: hexA(C.danger, 0.14),
+        padding: '3px 10px',
+        borderRadius: 999,
       }}
     >
-      BLOCKED
+      Blocked
     </span>
   );
 }

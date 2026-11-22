@@ -4,6 +4,9 @@ import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-route
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { LogoImage } from '../components/Logo';
+import '@fontsource-variable/space-grotesk/wght.css';
+import '@fontsource-variable/geist/wght.css';
+import './login.css';
 
 /* ==========================================================================
    CIRCUIT login — bespoke prototype layout. Auth flow is unchanged:
@@ -177,6 +180,7 @@ export default function LoginPage() {
 
   return (
     <div
+      className="mtr-login"
       style={{
         minHeight: '100vh',
         display: 'flex',

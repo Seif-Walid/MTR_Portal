@@ -1,5 +1,5 @@
 import { SwapOutlined } from '@ant-design/icons';
-import { Button, Col, Divider, Empty, Form, Input, InputNumber, List, Row, Select, Space, Statistic, Tag, Typography, message } from 'antd';
+import { Button, Col, Divider, Skeleton, Form, Input, InputNumber, List, Row, Select, Space, Statistic, Tag, Typography, message } from 'antd';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -71,7 +71,7 @@ export default function WhereaboutsPanel({ item, canManage }: { item: InventoryI
     }
   };
 
-  if (!w) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Loading…" />;
+  if (!w) return <Skeleton active paragraph={{ rows: 4 }} />;
 
   return (
     <>

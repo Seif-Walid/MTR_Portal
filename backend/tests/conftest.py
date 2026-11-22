@@ -11,6 +11,7 @@ from app.core.database import Base, get_db
 
 # import all model modules so create_all sees every table
 from app.domains.access import models as _access  # noqa: F401
+from app.domains.ai import models as _ai  # noqa: F401
 from app.domains.applications import models as _applications  # noqa: F401
 from app.domains.audit import models as _audit  # noqa: F401
 from app.domains.auth import models as _auth  # noqa: F401
@@ -170,12 +171,20 @@ class As:
 
     def __init__(self, client: TestClient, email: str):
         self.client = client
+        client.cookies.clear()
         r = client.post("/api/auth/login", json={"email": email, "password": PASSWORD})
         assert r.status_code == 200, r.text
         self.cookies = dict(r.cookies)
+        client.cookies.clear()
 
     def _go(self, method: str, url: str, **kw):
-        return self.client.request(method, url, cookies=self.cookies, **kw)
+        # Send this user's session as an explicit header and keep the shared
+        # client jar empty: per-request cookies= merge differently under
+        # httpx vs httpx2 (which starlette's TestClient prefers when present),
+        # and a leftover jar cookie would otherwise act as another user.
+        self.client.cookies.clear()
+        headers = {**kw.pop("headers", {}), "Cookie": "; ".join(f"{k}={v}" for k, v in self.cookies.items())}
+        return self.client.request(method, url, headers=headers, **kw)
 
     def get(self, url: str, **kw):
         return self._go("GET", url, **kw)

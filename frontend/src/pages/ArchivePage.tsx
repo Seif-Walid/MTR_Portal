@@ -15,9 +15,11 @@ import type {
 } from '../api/types';
 import { AwardTag, StatusTag } from '../components/tags';
 import TaskDrawer from '../components/TaskDrawer';
+import { openableRow } from '../components/a11y';
+import { CloseOutlined } from '@ant-design/icons';
 
-const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
-const DISPLAY = "'Space Grotesk Variable', 'Space Grotesk', sans-serif";
+const MONO = 'var(--font-mono)';
+const DISPLAY = 'var(--font-display)';
 
 function fmtRange(start: string | null, end: string | null): string {
   if (!start && !end) return '—';
@@ -50,15 +52,15 @@ function Overview({ summary }: { summary: ArchiveSummary }) {
   return (
     <div
       style={{
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 1,
-        background: 'rgba(120,170,230,.14)', border: '1px solid rgba(120,170,230,.14)',
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+        gap: 8,
         borderRadius: 14, overflow: 'hidden', marginBottom: 22,
       }}
     >
       {stats.map(([label, value]) => (
-        <div key={label} style={{ background: 'rgba(15,20,29,.55)', padding: '14px 16px' }}>
-          <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 24, lineHeight: 1, color: '#eaf2ff' }}>{value}</div>
-          <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(224,236,252,.45)', marginTop: 8 }}>{label}</div>
+        <div key={label} style={{ background: 'color-mix(in srgb, var(--text-primary) 2.5%, transparent)', borderRadius: 14, padding: '14px 16px' }}>
+          <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 24, lineHeight: 1, color: 'var(--text-primary)' }}>{value}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', marginTop: 8 }}>{label}</div>
         </div>
       ))}
     </div>
@@ -77,7 +79,7 @@ const plural = (label: string, n: number) => `${n} ${label.toLowerCase()}${n ===
 function KindSwitch({ kinds, slug, onPick }: { kinds: ArchiveKind[]; slug: string | undefined; onPick: (slug: string) => void }) {
   if (kinds.length < 2) return null;
   return (
-    <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4, background: 'rgba(8,11,17,.6)', border: '1px solid rgba(120,170,230,.12)', borderRadius: 10, padding: 4, marginBottom: 20 }}>
+    <div className="mtr-pills" role="tablist">
       {kinds.map((k) => {
         const on = k.slug === slug;
         return (
@@ -88,15 +90,10 @@ function KindSwitch({ kinds, slug, onPick }: { kinds: ArchiveKind[]; slug: strin
             aria-selected={on}
             onClick={() => onPick(k.slug)}
             onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onPick(k.slug); } }}
-            style={{
-              padding: '7px 16px', borderRadius: 7, fontSize: 13, cursor: 'pointer',
-              color: on ? '#eaf2ff' : 'rgba(224,236,252,.5)',
-              background: on ? 'linear-gradient(90deg,rgba(92,198,255,.2),rgba(92,198,255,.05))' : 'transparent',
-              border: `1px solid ${on ? 'rgba(92,198,255,.3)' : 'transparent'}`,
-            }}
+            className={`mtr-pill${on ? ' on' : ''}`}
           >
             {k.name}
-            <span style={{ fontFamily: MONO, fontSize: 11, marginLeft: 8, color: on ? '#5cc6ff' : 'rgba(224,236,252,.35)' }}>{k.count}</span>
+            <span style={{ fontFamily: MONO, fontSize: 11, marginLeft: 8, color: on ? 'var(--brand-fg)' : 'var(--text-tertiary)' }}>{k.count}</span>
           </div>
         );
       })}
@@ -112,15 +109,15 @@ function EventCard({ e, onOpen, onReactivate }: { e: ArchivedEvent; onOpen: () =
       onClick={onOpen}
       onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onOpen(); } }}
       style={{
-        textAlign: 'left', cursor: 'pointer', border: '1px solid rgba(120,170,230,.14)', borderRadius: 14,
-        background: 'rgba(15,20,29,.55)', padding: '18px 18px 16px', color: 'inherit',
+        textAlign: 'left', cursor: 'pointer', border: 'none', borderRadius: 18,
+        background: 'color-mix(in srgb, var(--text-primary) 2.5%, transparent)', padding: '18px 18px 16px', color: 'inherit',
       }}
     >
-      <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 16, color: '#eaf2ff', marginBottom: e.full_name ? 2 : 10 }}>{e.name}</div>
+      <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 16, color: 'var(--text-primary)', marginBottom: e.full_name ? 2 : 10 }}>{e.name}</div>
       {e.full_name && (
-        <div style={{ fontSize: 12, color: 'rgba(224,236,252,.45)', marginBottom: 10 }}>{e.full_name}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 10 }}>{e.full_name}</div>
       )}
-      <div style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(224,236,252,.45)' }}>{fmtRange(e.start_date, e.end_date)}</div>
+      <div style={{ fontFamily: MONO, fontSize: 11, color: 'var(--text-tertiary)' }}>{fmtRange(e.start_date, e.end_date)}</div>
       {e.awards && e.awards.length > 0 && (
         <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
           {e.awards.map((a) => <AwardTag key={a} award={a} />)}
@@ -194,8 +191,8 @@ function EventList() {
 
   return (
     <>
-      <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: '0 0 6px', color: '#eaf2ff' }}>Archive</h2>
-      <p style={{ color: 'rgba(224,236,252,.5)', margin: '0 0 22px', fontSize: 13 }}>
+      <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: '0 0 6px', color: 'var(--text-primary)' }}>Archive</h2>
+      <p style={{ color: 'var(--text-tertiary)', margin: '0 0 22px', fontSize: 13 }}>
         The record of past events, and the source the public site publishes from. Open one for its
         full roster, who ran it, and the tasks you took on.
       </p>
@@ -210,15 +207,15 @@ function EventList() {
             <Empty description={`No archived ${kind.event_label.toLowerCase()}s yet`} style={{ marginTop: 30 }} />
           )}
           {kind && kind.count > 0 && (
-            <div style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(224,236,252,.45)', margin: '0 0 14px' }}>
+            <div style={{ fontFamily: MONO, fontSize: 11, color: 'var(--text-tertiary)', margin: '0 0 14px' }}>
               {plural(kind.event_label, kind.count)} archived
             </div>
           )}
           {byYear.map(([year, list]) => (
             <section key={year} style={{ marginBottom: 26 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10 }}>
-                <span style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 17, color: '#eaf2ff' }}>{year}</span>
-                <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: 'rgba(224,236,252,.35)' }}>
+                <span style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 17, color: 'var(--text-primary)' }}>{year}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>
                   {kind ? plural(kind.event_label, list.length) : list.length}
                 </span>
               </div>
@@ -252,7 +249,7 @@ function AwardsEditor({ awards, canEdit, onSave }: {
   }
   return (
     <div style={{ marginBottom: 16, maxWidth: 620 }}>
-      <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: 'rgba(224,236,252,.4)', marginBottom: 4 }}>
+      <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', marginBottom: 4 }}>
         Awards — published in the Hall of Fame
       </div>
       <Select
@@ -268,7 +265,7 @@ function AwardsEditor({ awards, canEdit, onSave }: {
   );
 }
 
-const EYEBROW = { fontFamily: MONO, fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase' as const, color: 'rgba(224,236,252,.4)' };
+const EYEBROW = { fontSize: 11.5, color: 'var(--text-tertiary)' };
 
 /** Who held a role seat — the PMs, coaches, leads … recorded when the event was
  * archived. Managers can strike a wrong entry. */
@@ -277,13 +274,13 @@ function StaffLines({ staff, canEdit, onChanged }: { staff: ArchivedStaff[]; can
   return (
     <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 5 }}>
       {staff.map((s) => (
-        <li key={s.id} style={{ fontSize: 13, color: 'rgba(224,236,252,.8)', lineHeight: 1.3, display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase', color: '#c58bff', minWidth: 0 }}>{s.role}</span>
+        <li key={s.id} style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.3, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontSize: 11.5, color: 'var(--cat-violet)', minWidth: 0 }}>{s.role}</span>
           <span>{s.name}</span>
-          {s.team && <span style={{ fontSize: 12, color: 'rgba(224,236,252,.4)' }}>· {s.team}</span>}
+          {s.team && <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>· {s.team}</span>}
           {canEdit && (
             <Popconfirm title={`Remove ${s.name} as ${s.role}?`} onConfirm={() => run(api.delete(`/api/archive/staff/${s.id}`), 'Removed', onChanged)}>
-              <a style={{ fontSize: 11, color: 'rgba(224,236,252,.35)', marginLeft: 'auto' }} aria-label={`Remove ${s.name}`}>✕</a>
+              <button type="button" className="mtr-link-btn" style={{ fontSize: 11, color: 'var(--text-tertiary)', marginInlineStart: 'auto' }} aria-label={`Remove ${s.name}`}><CloseOutlined /></button>
             </Popconfirm>
           )}
         </li>
@@ -376,13 +373,13 @@ function EventStaff({ staff, mentors, captains, canEdit, onAdd, onChanged }: {
     <div style={{ marginBottom: 22, maxWidth: 620 }}>
       <div style={{ ...EYEBROW, display: 'flex', alignItems: 'center', gap: 12, margin: '4px 0 10px' }}>
         Staff
-        {canEdit && <a onClick={onAdd} style={{ fontSize: 10, color: '#5cc6ff' }}>+ Record staff</a>}
+        {canEdit && <button type="button" className="mtr-link-btn" onClick={onAdd} style={{ fontSize: 10, color: 'var(--brand-fg)' }}>+ Record staff</button>}
       </div>
       <StaffLines staff={staff} canEdit={canEdit} onChanged={onChanged} />
-      {mentors && <div style={{ fontSize: 13, color: 'rgba(224,236,252,.7)', marginTop: 6 }}><span style={{ color: 'rgba(224,236,252,.4)' }}>Mentors · </span>{mentors}</div>}
-      {captains && <div style={{ fontSize: 13, color: 'rgba(224,236,252,.7)', marginTop: 4 }}><span style={{ color: 'rgba(224,236,252,.4)' }}>Captains · </span>{captains}</div>}
+      {mentors && <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6 }}><span style={{ color: 'var(--text-tertiary)' }}>Mentors · </span>{mentors}</div>}
+      {captains && <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}><span style={{ color: 'var(--text-tertiary)' }}>Captains · </span>{captains}</div>}
       {staff.length === 0 && !mentors && !captains && (
-        <div style={{ fontSize: 12, color: 'rgba(224,236,252,.35)' }}>No event-wide staff recorded</div>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>No event-wide staff recorded</div>
       )}
     </div>
   );
@@ -406,9 +403,9 @@ function Roster({ groups, teamLabel, canEdit, onChanged, onAddStaff }: {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12, marginBottom: 26 }}>
         {groups.map((g) => (
-          <div key={g.id} style={{ border: '1px solid rgba(120,170,230,.14)', borderRadius: 12, background: 'rgba(15,20,29,.55)', padding: '14px 16px' }}>
-            <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 15, color: '#eaf2ff' }}>{g.label}</div>
-            {g.sublabel && <div style={{ fontSize: 12, color: '#5cc6ff', marginTop: 1 }}>{g.sublabel}</div>}
+          <div key={g.id} style={{ borderRadius: 16, background: 'color-mix(in srgb, var(--text-primary) 2.5%, transparent)', padding: '14px 16px' }}>
+            <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 15, color: 'var(--text-primary)' }}>{g.label}</div>
+            {g.sublabel && <div style={{ fontSize: 12, color: 'var(--brand-fg)', marginTop: 1 }}>{g.sublabel}</div>}
             <div style={{ marginTop: 6 }}>
               {canEdit ? (
                 <Typography.Text
@@ -435,16 +432,16 @@ function Roster({ groups, teamLabel, canEdit, onChanged, onAddStaff }: {
               )}
             </div>
             {(g.staff.length > 0 || canEdit) && (
-              <div style={{ marginTop: 10, paddingBottom: 8, borderBottom: '1px solid rgba(120,170,230,.1)' }}>
+              <div style={{ marginTop: 10, paddingBottom: 8, borderBottom: '1px solid var(--border-light)' }}>
                 <StaffLines staff={g.staff} canEdit={canEdit} onChanged={onChanged} />
                 {canEdit && (
-                  <a onClick={() => onAddStaff(g.id)} style={{ display: 'inline-block', fontSize: 11, color: '#5cc6ff', marginTop: g.staff.length ? 6 : 0 }}>+ Record staff</a>
+                  <button type="button" className="mtr-link-btn" onClick={() => onAddStaff(g.id)} style={{ display: 'inline-block', fontSize: 11, color: 'var(--brand-fg)', marginTop: g.staff.length ? 6 : 0 }}>+ Record staff</button>
                 )}
               </div>
             )}
             <ul style={{ listStyle: 'none', padding: 0, margin: '10px 0 0', display: 'grid', gap: 5 }}>
               {g.members.map((m) => (
-                <li key={m.id} style={{ fontSize: 13, color: 'rgba(224,236,252,.7)', lineHeight: 1.3 }}>
+                <li key={m.id} style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.3 }}>
                   {m.name}
                   {canEdit ? (
                     <>
@@ -470,12 +467,12 @@ function Roster({ groups, teamLabel, canEdit, onChanged, onAddStaff }: {
                       </Typography.Text>
                     </>
                   ) : (
-                    m.role && <span style={{ color: 'rgba(224,236,252,.4)' }}> · {m.role}</span>
+                    m.role && <span style={{ color: 'var(--text-tertiary)' }}> · {m.role}</span>
                   )}
                 </li>
               ))}
               {g.members.length === 0 && g.staff.length === 0 && (
-                <li style={{ fontSize: 12, color: 'rgba(224,236,252,.35)' }}>No members recorded</li>
+                <li style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>No members recorded</li>
               )}
             </ul>
           </div>
@@ -510,7 +507,7 @@ function EventDetail({ eventId }: { eventId: number }) {
     <>
       <button
         onClick={() => navigate(back)}
-        style={{ cursor: 'pointer', background: 'transparent', border: 'none', color: '#5cc6ff', fontFamily: MONO, fontSize: 11, letterSpacing: '.08em', padding: 0, marginBottom: 16 }}
+        style={{ cursor: 'pointer', background: 'transparent', border: 'none', color: 'var(--brand-fg)', fontFamily: MONO, fontSize: 11, letterSpacing: '.08em', padding: 0, marginBottom: 16 }}
       >
         ← Back to archive
       </button>
@@ -518,9 +515,9 @@ function EventDetail({ eventId }: { eventId: number }) {
       {detail && (
         <>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
-            <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: '#eaf2ff' }}>{detail.event.name}</h2>
+            <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: 'var(--text-primary)' }}>{detail.event.name}</h2>
             {detail.event.kind_name && (
-              <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: '#c58bff', border: '1px solid rgba(197,139,255,.3)', background: 'rgba(197,139,255,.08)', padding: '2px 8px', borderRadius: 5 }}>{detail.event.kind_name}</span>
+              <span style={{ fontSize: 11.5, color: 'var(--cat-violet)', background: 'color-mix(in srgb, var(--cat-violet) 8%, transparent)', padding: '2px 8px', borderRadius: 999 }}>{detail.event.kind_name}</span>
             )}
           </div>
 
@@ -548,12 +545,12 @@ function EventDetail({ eventId }: { eventId: number }) {
               </Typography.Text>
             ) : (
               detail.event.full_name && (
-                <span style={{ fontSize: 13, color: 'rgba(224,236,252,.5)' }}>{detail.event.full_name}</span>
+                <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>{detail.event.full_name}</span>
               )
             )}
           </div>
 
-          <div style={{ fontFamily: MONO, fontSize: 12, color: 'rgba(224,236,252,.5)', marginBottom: 14 }}>
+          <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 14 }}>
             {fmtRange(detail.event.start_date, detail.event.end_date)}
             {detail.teams.length > 0 && <> · your team{detail.teams.length > 1 ? 's' : ''}: {detail.teams.join(', ')}</>}
           </div>
@@ -598,12 +595,12 @@ function EventDetail({ eventId }: { eventId: number }) {
             <Empty description="You held no tasks in this event" style={{ marginTop: 20 }} />
           ) : (
             <>
-              <p style={{ fontFamily: MONO, fontSize: 12, color: 'rgba(224,236,252,.6)', margin: '0 0 14px' }}>
-                You accomplished <span style={{ color: '#5cc6ff', fontWeight: 600 }}>{done}</span> of {total} task{total > 1 ? 's' : ''}.
+              <p style={{ fontFamily: MONO, fontSize: 12, color: 'var(--text-tertiary)', margin: '0 0 14px' }}>
+                You accomplished <span style={{ color: 'var(--brand-fg)', fontWeight: 600 }}>{done}</span> of {total} task{total > 1 ? 's' : ''}.
               </p>
               <Table<ArchivedTask> className="circuit-table" rowKey={(r) => r.task.id} loading={loading} dataSource={detail.tasks}
                 pagination={{ defaultPageSize: 15, hideOnSinglePage: true }} scroll={{ x: 'max-content' }}
-                onRow={(r) => ({ onClick: () => setOpenTask(r.task.id), style: { cursor: 'pointer' } })}
+                onRow={(r) => openableRow(() => setOpenTask(r.task.id))}
                 columns={[
                   { title: 'Title', render: (_, r) => r.task.title, ellipsis: true },
                   { title: 'Team', width: 180, render: (_, r) => r.team_name },

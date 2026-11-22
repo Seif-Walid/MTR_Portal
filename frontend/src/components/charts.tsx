@@ -7,7 +7,7 @@ import { hexA } from '../theme/circuitTokens';
 // surface: OKLCH L inside the 0.48–0.67 band, ≥3:1 contrast); a second figure
 // for the same item is drawn as a track of the same hue behind the bar, never
 // as a second color. Labels and values always wear text tokens.
-export const MARK = '#2b9ad9';
+export const MARK = 'var(--cat-blue)';
 const TRACK = hexA(MARK, 0.18);
 
 export const egp = (n: number) =>

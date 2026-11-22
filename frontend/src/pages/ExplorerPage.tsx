@@ -20,6 +20,7 @@ import type {
 } from '../components/explorer/types';
 import { formatCell } from '../components/explorer/types';
 import InsightsPage from './InsightsPage';
+import { openableRow } from '../components/a11y';
 
 const PAGE = 50;
 
@@ -145,7 +146,7 @@ function SideItem({ active, onClick, label, count }: { active: boolean; onClick:
         fontSize: 13,
         color: active ? token.colorText : token.colorTextSecondary,
         fontWeight: active ? 600 : 400,
-        background: active ? 'rgba(92,198,255,0.12)' : undefined,
+        background: active ? 'color-mix(in srgb, var(--brand-fg) 12%, transparent)' : undefined,
       }}
     >
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
@@ -278,7 +279,7 @@ function EntityBrowse({ table, label, toggle, onOpen }: { table: string; label: 
         className="circuit-table"
         loading={data === null}
         dataSource={data?.rows ?? []}
-        onRow={(r) => ({ onClick: () => onOpen(r.id) })}
+        onRow={(r) => openableRow(() => onOpen(r.id))}
         scroll={{ x: 'max-content' }}
         pagination={{
           current: page,
@@ -359,14 +360,14 @@ function RecordView({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <a onClick={() => onGo(rec.table)} style={{ fontSize: 13 }}>
+        <button type="button" className="mtr-link-btn" onClick={() => onGo(rec.table)} style={{ fontSize: 13 }}>
           <ArrowLeftOutlined /> Back to the list
-        </a>
+        </button>
         {past.length > 0 && (
           <Breadcrumb
             items={[
               { title: <span style={{ color: token.colorTextQuaternary }}>Recently</span> },
-              ...past.map((t) => ({ title: <a onClick={() => onGo(t.table, t.id)}>{t.title}</a> })),
+              ...past.map((t) => ({ title: <button type="button" className="mtr-link-btn" onClick={() => onGo(t.table, t.id)}>{t.title}</button> })),
             ]}
           />
         )}
@@ -393,9 +394,9 @@ function RecordView({
         extra={
           <Space size={12}>
             {!editFields && emptyCount > 0 && (
-              <a onClick={() => setShowEmpty((v) => !v)}>
+              <button type="button" className="mtr-link-btn" onClick={() => setShowEmpty((v) => !v)}>
                 {showEmpty ? 'Hide empty fields' : `Show ${emptyCount} empty field${emptyCount === 1 ? '' : 's'}`}
-              </a>
+              </button>
             )}
             {rec.edit && (
               <Button size="small" type={editFields ? 'primary' : 'default'} icon={<EditOutlined />} onClick={() => setEditFields((v) => !v)}>
@@ -410,9 +411,9 @@ function RecordView({
         ) : (
         <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 3 }} bordered>
           {fields.map((f) => (
-            <Descriptions.Item key={f.name} label={f.computed ? <span>{f.label} <span style={{ opacity: 0.6 }}>(computed)</span></span> : f.label}>
+            <Descriptions.Item key={f.name} label={f.computed ? <span>{f.label} <span style={{ color: 'var(--text-tertiary)' }}>(computed)</span></span> : f.label}>
               {f.link ? (
-                <a onClick={() => openRef(f.link!)}>{f.link.title}</a>
+                <button type="button" className="mtr-link-btn" onClick={() => openRef(f.link!)}>{f.link.title}</button>
               ) : (
                 <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{formatCell(f.value, f.name)}</span>
               )}
@@ -426,7 +427,7 @@ function RecordView({
             {rec.outgoing.filter((o) => o.via).map((o, i) => (
               <span key={`${o.table}-${o.id}`}>
                 {i > 0 && ' · '}
-                {o.relation}: <a onClick={() => openRef(o)}>{o.title}</a>
+                {o.relation}: <button type="button" className="mtr-link-btn" onClick={() => openRef(o)}>{o.title}</button>
               </span>
             ))}
           </div>
@@ -464,7 +465,7 @@ function RecordView({
               rowKey={(r) => `${r.id}`}
               className="circuit-table"
               dataSource={g.rows}
-              onRow={(r) => ({ onClick: () => onGo(g.table, r.id) })}
+              onRow={(r) => openableRow(() => onGo(g.table, r.id))}
               pagination={{ pageSize: 10, size: 'small', hideOnSinglePage: true }}
               scroll={{ x: 'max-content' }}
               columns={[

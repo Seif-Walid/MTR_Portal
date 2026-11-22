@@ -1,34 +1,41 @@
-// CIRCUIT design tokens — import where you build custom styling in TS/TSX.
+// Role-token shorthands for inline styles. Every value is a CSS custom property
+// (theme/tokens.ts), so the same code renders correctly in light and dark.
 export const C = {
-  bgVoid: '#06080c',
-  bgPanel: 'rgba(15,20,29,.55)',
-  bgInset: 'rgba(8,11,17,.6)',
-  text: '#eaf2ff',
-  textBody: 'rgba(224,236,252,.72)',
-  textMuted: 'rgba(224,236,252,.55)',
-  textFaint: 'rgba(224,236,252,.4)',
-  accent: '#5cc6ff',
-  accentGrad: 'linear-gradient(180deg,#7cd2ff,#4eb4f5)',
-  hairline: 'rgba(120,170,230,.12)',
-  hairlineRow: 'rgba(120,170,230,.07)',
-  violet: '#8b9dff',
-  teal: '#4fd6c4',
-  steel: '#aab6c6',
-  amber: '#ffb26b',
-  danger: '#ff5a6e',
-  mono: "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace",
-  display: "'Space Grotesk Variable', 'Space Grotesk', sans-serif",
+  bgVoid: 'var(--background)',
+  bgPanel: 'var(--surface)',
+  bgInset: 'var(--surface-alt)',
+  text: 'var(--text-primary)',
+  textBody: 'var(--text-secondary)',
+  textMuted: 'var(--text-tertiary)',
+  // faint is the lowest tier allowed for readable text: ≈4.8:1 on void, panel and elevated surfaces
+  textFaint: 'var(--text-tertiary)',
+  // below this only for disabled controls and decorative icons (≥3:1 for icons)
+  iconFaint: 'var(--text-tertiary)',
+  textDisabled: 'var(--text-disabled)',
+  accent: 'var(--brand-fg)',
+  accentGrad: 'var(--primary)',
+  hairline: 'var(--border)',
+  hairlineRow: 'var(--border-light)',
+  violet: 'var(--cat-violet)',
+  teal: 'var(--cat-teal)',
+  steel: 'var(--cat-steel)',
+  amber: 'var(--cat-amber)',
+  danger: 'var(--error)',
+  mono: 'var(--font-mono)',
+  display: 'var(--font-display)',
 } as const;
 
-// hex (#rrggbb) → rgba string. Used for translucent bar fills/borders.
+// colour at an alpha. Hex → rgba; anything else (var(), named) → color-mix,
+// so theme variables tint correctly in both brightnesses.
 export const hexA = (h: string, a: number): string => {
+  if (!/^#[0-9a-f]{6}$/i.test(h)) return `color-mix(in srgb, ${h} ${Math.round(a * 1000) / 10}%, transparent)`;
   const n = parseInt(h.slice(1), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 };
 
 export type CalSource = 'tasks' | 'events' | 'inventory' | 'requests' | 'teams';
 export const SOURCE_COLOR: Record<CalSource, string> = {
-  tasks: C.accent, events: C.violet, inventory: C.steel, requests: C.teal, teams: C.amber,
+  tasks: 'var(--cat-blue)', events: C.violet, inventory: C.steel, requests: C.teal, teams: C.amber,
 };
 export const SOURCE_LABEL: Record<CalSource, string> = {
   tasks: 'Tasks', events: 'Events', inventory: 'Inventory', requests: 'Requests', teams: 'Teams',

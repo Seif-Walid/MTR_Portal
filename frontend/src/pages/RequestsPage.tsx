@@ -12,8 +12,8 @@ import { useAuth } from '../auth/AuthContext';
 import { PriorityTag, RequestStatusTag, StatusTag } from '../components/tags';
 import { personOptions } from '../lib/people';
 
-const MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace";
-const DISPLAY = "'Space Grotesk Variable', 'Space Grotesk', sans-serif";
+const MONO = 'var(--font-mono)';
+const DISPLAY = 'var(--font-display)';
 
 function NewRequestModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
   const [form] = Form.useForm();
@@ -190,28 +190,26 @@ export default function RequestsPage() {
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
-        <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: '#eaf2ff' }}>Work Requests</h2>
+        <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: 'var(--text-primary)' }}>Work Requests</h2>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>New request</Button>
       </div>
 
       {/* segmented box switch */}
-      <div style={{ display: 'inline-flex', gap: 4, background: 'rgba(8,11,17,.6)', border: '1px solid rgba(120,170,230,.12)', borderRadius: 10, padding: 4, marginBottom: 20 }}>
+      <div className="mtr-pills" role="tablist">
         {(['received', 'sent'] as const).map((b) => {
           const on = box === b;
           return (
-            <div key={b} onClick={() => setBox(b)}
+            <button type="button" role="tab" aria-selected={on} key={b} onClick={() => setBox(b)}
+              className={`mtr-pill${on ? ' on' : ''}`}
               style={{
-                display: 'flex', alignItems: 'center', gap: 8, padding: '7px 18px', borderRadius: 7, fontSize: 13, cursor: 'pointer',
-                color: on ? '#eaf2ff' : 'rgba(224,236,252,.5)',
-                background: on ? 'linear-gradient(90deg,rgba(92,198,255,.2),rgba(92,198,255,.05))' : 'transparent',
-                border: `1px solid ${on ? 'rgba(92,198,255,.3)' : 'transparent'}`,
+                display: 'flex', alignItems: 'center', gap: 8,
                 textTransform: 'capitalize',
               }}>
               {b}
               {b === 'received' && pendingCount > 0 && (
-                <span style={{ fontFamily: MONO, fontSize: 10, color: '#5cc6ff', background: 'rgba(92,198,255,.12)', border: '1px solid rgba(92,198,255,.3)', borderRadius: 20, padding: '1px 7px' }}>{pendingCount}</span>
+                <span style={{ fontFamily: MONO, fontSize: 10, color: 'var(--brand-fg)', background: 'color-mix(in srgb, var(--brand-fg) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--brand-fg) 30%, transparent)', borderRadius: 20, padding: '1px 7px' }}>{pendingCount}</span>
               )}
-            </div>
+            </button>
           );
         })}
       </div>

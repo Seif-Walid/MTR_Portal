@@ -85,7 +85,7 @@ export default function NotificationsBell() {
   return (
     <Popover content={content} trigger="click" open={open} onOpenChange={onOpenChange} placement="bottomRight">
       <Badge count={count} size="small">
-        <Button type="text" icon={<BellOutlined style={{ fontSize: 18 }} />} />
+        <Button aria-label={count ? `Notifications, ${count} unread` : "Notifications"} aria-haspopup="dialog" aria-expanded={open} type="text" icon={<BellOutlined style={{ fontSize: 18 }} />} />
       </Badge>
     </Popover>
   );
