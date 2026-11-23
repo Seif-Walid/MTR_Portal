@@ -128,6 +128,7 @@ def call_tool(db: Session, user: User, name: str, raw: dict, conversation_id: in
     chain = [(a.id, a.tool, json.loads(a.input)) for a in _pending_chain(db, user, conversation_id)]
     chain.append((0, name, inp.model_dump(mode="json")))
     try:
+        db.info["ai_dry_run"] = True
         _execute(db, user, chain)
     except Exception as exc:  # noqa: BLE001
         db.rollback()
@@ -171,6 +172,7 @@ def confirm(db: Session, user: User, ids: list[int]) -> dict:
     user = _fresh(db, user)
     rows = _owned(db, user, ids)
     try:
+        db.info["ai_dry_run"] = False
         results = _execute(db, user, [(a.id, a.tool, json.loads(a.input)) for a in rows])
     except Exception as exc:  # noqa: BLE001
         db.rollback()

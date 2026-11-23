@@ -99,6 +99,11 @@ def send_email(
     recipients = [to] if isinstance(to, str) else list(to)
     if not recipients:
         return False
+    from app.core.borrowed import in_dry_run
+
+    if in_dry_run():  # the AI assistant is only checking an action; nothing leaves the portal
+        log.info("dry run; not sending %r to %s", subject, recipients)
+        return False
     backend = settings.mail_backend.lower()
     sender = _sender(from_address, from_name)
     try:

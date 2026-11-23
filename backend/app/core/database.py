@@ -20,6 +20,12 @@ class Base(DeclarativeBase):
 
 
 def get_db() -> Generator[Session, None, None]:
+    from app.core import borrowed
+
+    run = borrowed.current()
+    if run is not None:  # an in-process call on the caller's session (see core/borrowed.py)
+        yield run.session
+        return
     db = SessionLocal()
     try:
         yield db

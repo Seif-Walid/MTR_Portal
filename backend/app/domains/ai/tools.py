@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domains.access import service as access
+from app.domains.ai import actions
 from app.domains.ai import search as semantic
 from app.domains.events import router as events_router
 from app.domains.events.models import Event, EventCategory, EventKind, EventStatus, EventTeam
@@ -537,6 +538,9 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
     Tool("data_schema", "Every portal table this user may read, with its columns. Use before query_data / make_document.", NoIn, "read", _schema),
     Tool("query_data", "Run one read-only SQLite SELECT over the portal's data (joins, counts, filters) with the user's own visibility. Use it to answer questions and to check queries before building a document.", QueryIn, "read", _query),
     Tool("make_document", "Make a PDF or Excel file for the user. Describe it as blocks: `text` (markdown), `table` (a SQL query rendered as a table / sheet), `for_each` (a SQL query whose `blocks` repeat per row, e.g. one page per event; inside, {{col}} in text and :col in SQL refer to that row) and `page_break`. All data comes from SQL, so never type records in yourself. Returns a download link.", DocumentIn, "read", _document, needs_conversation=True),
+    Tool("find_actions", "Look up ANY action a person can take on the portal's pages (record a payment, edit a task, delete an item, change a member, approve a request, ...) and what it needs. Use it whenever no other tool fits the request.", actions.FindActionsIn, "read", actions.find_actions),
+    Tool("portal_read", "Run a GET action from find_actions and return its data, as this user sees it on the page.", actions.ReadIn, "read", actions.portal_read),
+    Tool("portal_change", "PROPOSE any POST / PUT / PATCH / DELETE action from find_actions. It is checked against the real page (permissions, validation) but only runs after the user confirms.", actions.ChangeIn, "write", actions.portal_change, actions.summarize_change),
     Tool("create_event", "PROPOSE creating an event, optionally appointing its manager. Not executed until the user confirms.", CreateEventIn, "write", _create_event, _sum_create_event),
     Tool("create_team", "PROPOSE creating a team inside an event (and adding members).", CreateTeamIn, "write", _create_team, _sum_create_team),
     Tool("add_team_members", "PROPOSE adding people to an event team.", AddMembersIn, "write", _add_members, _sum_add_members),

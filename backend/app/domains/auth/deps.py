@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import Cookie, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core import borrowed
 from app.core.config import settings
 from app.core.database import get_db
 from app.domains.auth.models import AuthSession
@@ -14,6 +15,12 @@ def get_current_user(
     db: Annotated[Session, Depends(get_db)],
     portal_session: Annotated[str | None, Cookie(alias=settings.session_cookie_name)] = None,
 ) -> User:
+    run = borrowed.current()
+    if run is not None:  # the AI assistant acting in-process as this person
+        user = db.get(User, run.user_id)
+        if user is None or not user.is_active:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Account disabled")
+        return user
     if not portal_session:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
     session = db.get(AuthSession, portal_session)

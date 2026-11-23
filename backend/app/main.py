@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.borrowed import BorrowMiddleware
 from app.core.config import settings
 from app.domains.access.router import router as access_router
 from app.domains.ai.router import router as ai_router
@@ -29,6 +30,7 @@ from app.domains.timeblocks.router import router as timeblocks_router
 from app.domains.users.router import router as users_router
 
 app = FastAPI(title="Organization Operations Portal", version="1.0.0")
+app.add_middleware(BorrowMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
