@@ -996,6 +996,7 @@ export interface AiConnectInfo {
   expires_in_hours: number;
   mcp_json: unknown;
   command: string;
+  server: { command: string; args: string[]; env: Record<string, string> };
 }
 
 export interface SearchHit {

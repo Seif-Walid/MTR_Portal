@@ -187,31 +187,106 @@ function ActionsPanel({ actions, onDecided, sticky = false }: { actions: AiActio
   );
 }
 
+type AgentId = 'claude' | 'codex' | 'antigravity' | 'other';
+
+interface AgentSetup {
+  label: string;
+  step: string;
+  snippet: string;
+  copyLabel: string;
+  alt?: { label: string; snippet: string };
+  after: React.ReactNode;
+}
+
+const tomlString = (v: string) => JSON.stringify(v);
+
+function agentSetups(info: AiConnectInfo): Record<AgentId, AgentSetup> {
+  const { command, args, env } = info.server;
+  const envPairs = Object.entries(env);
+  const plainJson = JSON.stringify({ mcpServers: { portal: { command, args, env } } }, null, 2);
+  const example = <>&quot;give 4 motor drivers to team A in competition C&quot;</>;
+  return {
+    claude: {
+      label: 'Claude Code',
+      step: 'RUN ONCE IN A TERMINAL',
+      snippet: info.command,
+      copyLabel: 'Copy command',
+      alt: { label: 'Copy .mcp.json instead', snippet: JSON.stringify(info.mcp_json, null, 2) },
+      after: <>Then start <code>claude</code> and ask, for example: {example}.</>,
+    },
+    codex: {
+      label: 'Codex',
+      step: 'RUN ONCE IN A TERMINAL',
+      snippet: ['codex mcp add portal', ...envPairs.map(([k, v]) => `--env ${k}=${v}`), '--', command, ...args].join(' '),
+      copyLabel: 'Copy command',
+      alt: {
+        label: 'Copy config.toml block instead',
+        snippet: [
+          '[mcp_servers.portal]',
+          `command = ${tomlString(command)}`,
+          `args = [${args.map(tomlString).join(', ')}]`,
+          '',
+          '[mcp_servers.portal.env]',
+          ...envPairs.map(([k, v]) => `${k} = ${tomlString(v)}`),
+        ].join('\n'),
+      },
+      after: <>The TOML block goes in <code>~/.codex/config.toml</code>. Then start <code>codex</code> and ask, for example: {example}.</>,
+    },
+    antigravity: {
+      label: 'Antigravity',
+      step: 'ADD TO mcp_config.json',
+      snippet: plainJson,
+      copyLabel: 'Copy config',
+      after: (
+        <>
+          In Antigravity open the agent panel&apos;s <b>⋯</b> menu, then <b>MCP Servers → Manage MCP Servers → View raw
+          config</b>, and merge this into <code>mcp_config.json</code> (it lives at{' '}
+          <code>~/.gemini/config/mcp_config.json</code>). Refresh the servers, then ask the agent, for
+          example: {example}.
+        </>
+      ),
+    },
+    other: {
+      label: 'Other',
+      step: 'STANDARD MCP SERVER CONFIG',
+      snippet: plainJson,
+      copyLabel: 'Copy config',
+      after: <>Any agent that speaks MCP over stdio (Cursor, Windsurf, Gemini CLI, VS Code…) takes this shape in its MCP settings.</>,
+    },
+  };
+}
+
 function ConnectModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [info, setInfo] = useState<AiConnectInfo | null>(null);
+  const [agent, setAgent] = useState<AgentId>('claude');
   useEffect(() => {
     if (open) api.post<AiConnectInfo>('/api/ai/connect').then(setInfo).catch((e) => message.error(e.message));
     else setInfo(null);
   }, [open]);
+  const setups = useMemo(() => (info ? agentSetups(info) : null), [info]);
   const copy = (text: string) => navigator.clipboard.writeText(text).then(() => message.success('Copied'));
+  const setup = setups?.[agent];
   return (
-    <Modal open={open} onCancel={onClose} footer={null} title="Use the portal from your terminal Claude Code" width={720} destroyOnHidden>
+    <Modal open={open} onCancel={onClose} footer={null} title="Connect your AI agent" width={720} destroyOnHidden>
       <p style={{ color: MUTED }}>
-        This connects your own Claude Code to the portal&apos;s tools as <b>you</b>, with your permissions. Changes it
+        This connects your own coding agent to the portal&apos;s tools as <b>you</b>, with your permissions. Changes it
         proposes show up here for you to confirm. The token is valid for {info?.expires_in_hours ?? 12} hours. Keep it
         private, because it acts as you.
       </p>
-      {!info ? <Spin /> : (
+      {!setups || !setup ? <Spin /> : (
         <>
-          <div style={{ fontFamily: MONO, fontSize: 11, color: MUTED, margin: '10px 0 4px' }}>RUN ONCE IN A TERMINAL</div>
-          <pre style={{ ...PANEL, padding: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 11.5, color: TEXT }}>{info.command}</pre>
+          <Segmented<AgentId>
+            value={agent}
+            onChange={setAgent}
+            options={(Object.keys(setups) as AgentId[]).map((id) => ({ value: id, label: setups[id].label }))}
+          />
+          <div style={{ fontFamily: MONO, fontSize: 11, color: MUTED, margin: '12px 0 4px' }}>{setup.step}</div>
+          <pre style={{ ...PANEL, padding: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 11.5, color: TEXT }}>{setup.snippet}</pre>
           <Space>
-            <Button size="small" onClick={() => copy(info.command)}>Copy command</Button>
-            <Button size="small" onClick={() => copy(JSON.stringify(info.mcp_json, null, 2))}>Copy .mcp.json instead</Button>
+            <Button size="small" onClick={() => copy(setup.snippet)}>{setup.copyLabel}</Button>
+            {setup.alt && <Button size="small" onClick={() => copy(setup.alt!.snippet)}>{setup.alt.label}</Button>}
           </Space>
-          <p style={{ color: MUTED, marginTop: 12, marginBottom: 0 }}>
-            Then start <code>claude</code> and ask, for example: &quot;give 4 motor drivers to team A in competition C&quot;.
-          </p>
+          <p style={{ color: MUTED, marginTop: 12, marginBottom: 0 }}>{setup.after}</p>
         </>
       )}
     </Modal>
@@ -245,7 +320,7 @@ export default function AssistantPage() {
   }, [loadConvs, loadOrphans]);
 
   useEffect(() => {
-    // actions proposed from a terminal Claude Code arrive while this tab is open
+    // actions proposed from a connected AI agent arrive while this tab is open
     const onFocus = () => { loadOrphans(); if (current) open(current.id); };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
@@ -379,13 +454,13 @@ export default function AssistantPage() {
             </span>
           )}
         </Space>
-        <Button icon={<ApiOutlined />} onClick={() => setConnectOpen(true)}>Connect Claude Code</Button>
+        <Button icon={<ApiOutlined />} onClick={() => setConnectOpen(true)}>Connect your AI agent</Button>
       </div>
       {status && !status.available && (
         <Alert
           type="info" showIcon style={{ marginBottom: 12 }}
           message="In-portal chat is off on this server."
-          description="It runs on a local Claude Code login, so it only works on a developer machine (AI_PROVIDER=claude_code). You can still connect your own terminal Claude Code with the button above."
+          description="It runs on a local Claude Code login, so it only works on a developer machine (AI_PROVIDER=claude_code). You can still connect your own AI agent (Claude Code, Codex, Antigravity…) with the button above."
         />
       )}
       <ActionsPanel actions={orphanActions} onDecided={loadOrphans} />

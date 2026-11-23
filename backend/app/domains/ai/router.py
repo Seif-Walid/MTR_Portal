@@ -324,16 +324,19 @@ def reject_actions(payload: ActionIds, db: DB, user: CurrentUser) -> None:
     service.reject(db, user, payload.ids)
 
 
-# ----------------------------------------------- connect a terminal Claude
+# ------------------------------------------------- connect your AI agent
 @router.post("/connect")
 def connect_terminal(db: DB, user: CurrentUser) -> dict:
-    """Mint a token for the user's own terminal Claude Code. Shown once."""
+    """Mint a token for the user's own AI agent (Claude Code, Codex, Antigravity,
+    any MCP client). Shown once; `server` is the raw stdio launch spec each
+    client's config is built from."""
     service.require_ai(db, user)
     token = service.mint_token(db, user, None, label="terminal")
     python = str(BASE_DIR / ".venv" / "bin" / "python3")
     env = {"PORTAL_URL": settings.ai_portal_url, "PORTAL_AI_TOKEN": token, "PYTHONPATH": str(BASE_DIR)}
     return {
         "token": token, "expires_in_hours": settings.ai_token_ttl_hours,
+        "server": {"command": python, "args": ["-m", "app.domains.ai.mcp_server"], "env": env},
         "mcp_json": {"mcpServers": {"portal": {"type": "stdio", "command": python,
                                                 "args": ["-m", "app.domains.ai.mcp_server"], "env": env}}},
         "command": " ".join(["claude", "mcp", "add", "portal", "--scope", "user",
