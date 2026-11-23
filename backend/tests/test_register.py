@@ -1,79 +1,98 @@
-"""Open registration: personal emails welcome; new accounts start at the
-ladder's bottom rung (guest) with no seat until someone grants more."""
+"""Request entry: nobody makes an account for themselves. Asking files an
+application for a reviewer; only an accepted request becomes an account (with
+the password chosen when asking). A member an admin already added activates
+their account instead and is signed in at once."""
+
+from sqlalchemy import select
+
+from app.domains.applications.models import Application
+from app.domains.users.models import User
 
 
-def test_register_creates_account_and_logs_in(client, org):
-    r = client.post(
-        "/api/auth/register",
-        json={"email": "New.Person@gmail.com", "full_name": "New Person", "password": "secret123"},
-    )
-    assert r.status_code == 201, r.text
-    body = r.json()
-    assert body["email"] == "new.person@gmail.com"  # normalized
-    assert body["level"]["name"] == "Guest"  # the ladder's bottom rung
-    assert body["privileges"] == [] and body["has_team"] is False
-
-    # the register response set a session cookie
-    me = client.get("/api/auth/me", cookies=dict(r.cookies))
-    assert me.status_code == 200
-    assert me.json()["email"] == "new.person@gmail.com"
+def _ask(client, email="new.person@gmail.com", password="secret123", **extra):
+    return client.post("/api/auth/request-entry", json={
+        "email": email, "full_name": "New Person", "password": password, "phone": "01012345678", **extra,
+    })
 
 
-def test_register_duplicate_email_rejected(client, org):
-    payload = {"email": "dup@gmail.com", "full_name": "Dup", "password": "secret123"}
-    assert client.post("/api/auth/register", json=payload).status_code == 201
-    assert client.post("/api/auth/register", json=payload).status_code == 409
-    # also collides with pre-existing seeded users
-    r = client.post(
-        "/api/auth/register",
-        json={"email": org["cto"].email, "full_name": "X", "password": "secret123"},
-    )
-    assert r.status_code == 409
+def _let_in(client, db_session, org, email, password) -> dict:
+    """Ask, get accepted by the admin, sign in — the cookies of that session."""
+    from tests.conftest import As
+
+    assert _ask(client, email, password).status_code == 202
+    app = db_session.scalar(select(Application).where(Application.email == email))
+    admin = As(client, org["admin"].email)
+    assert admin.post(f"/api/applications/{app.id}/add-to-roster").status_code == 200
+    client.cookies.clear()
+    r = client.post("/api/auth/login", json={"email": email, "password": password})
+    assert r.status_code == 200, r.text
+    return dict(r.cookies)
 
 
-def test_register_validation(client, org):
-    r = client.post(
-        "/api/auth/register",
-        json={"email": "weak@gmail.com", "full_name": "W", "password": "short"},
-    )
-    assert r.status_code == 422  # password min length
-    r = client.post(
-        "/api/auth/register",
-        json={"email": "not-an-email", "full_name": "W", "password": "secret123"},
-    )
-    assert r.status_code == 422
+def test_request_entry_creates_no_account(client, db_session, org):
+    r = _ask(client, "New.Person@gmail.com", school="Cairo University", why="I build robots")
+    assert r.status_code == 202, r.text
+    assert r.json() == {"status": "pending"}
+    assert "portal_session" not in r.cookies
+    assert db_session.scalar(select(User).where(User.email == "new.person@gmail.com")) is None
+    app = db_session.scalar(select(Application).where(Application.email == "new.person@gmail.com"))
+    assert app.source == "portal" and app.status == "new" and app.school == "Cairo University"
+    assert app.password_hash and app.password_hash != "secret123"
+
+    # can't sign in yet — and is told why (only with the right password)
+    r = client.post("/api/auth/login", json={"email": "new.person@gmail.com", "password": "secret123"})
+    assert r.status_code == 403 and "waiting for review" in r.json()["detail"]
+    r = client.post("/api/auth/login", json={"email": "new.person@gmail.com", "password": "wrongpass1"})
+    assert r.status_code == 401
 
 
-def test_registered_user_can_send_requests_but_not_tasks(client, org):
-    r = client.post(
-        "/api/auth/register",
-        json={"email": "fresh@gmail.com", "full_name": "Fresh Joiner", "password": "secret123"},
-    )
-    cookies = dict(r.cookies)
-
-    # no subtree -> cannot assign tasks to anyone
-    t = client.post(
-        "/api/tasks",
-        json={"title": "x", "assignee_ids": [org["student"].id]},
-        cookies=cookies,
-    )
-    assert t.status_code == 403
-
-    # but can request work from any staff member
-    req = client.post(
-        "/api/requests",
-        json={"recipient_id": org["cto"].id, "title": "please help"},
-        cookies=cookies,
-    )
-    assert req.status_code == 201
+def test_request_shows_in_applications_and_asking_again_updates_it(client, db_session, login, org):
+    assert _ask(client).status_code == 202
+    assert _ask(client, password="another123", year="Year 2").status_code == 202
+    rows = [a for a in login("admin").get("/api/applications").json() if a["email"] == "new.person@gmail.com"]
+    assert len(rows) == 1 and rows[0]["source"] == "portal" and rows[0]["year"] == "Year 2"
+    assert "password_hash" not in rows[0]
 
 
-def test_change_password_flow(client, org):
-    reg = client.post(
-        "/api/auth/register",
-        json={"email": "pw@gmail.com", "full_name": "Pw User", "password": "secret123"},
-    )
-    cookies = dict(reg.cookies)
+def test_accepted_request_signs_in_with_chosen_password(client, db_session, org):
+    cookies = _let_in(client, db_session, org, "joiner@gmail.com", "secret123")
+    me = client.get("/api/auth/me", cookies=cookies).json()
+    assert me["email"] == "joiner@gmail.com"
+    assert me["profile"]["mtr_id"].startswith("MTR-")  # numbered on the way in
+    app = db_session.scalar(select(Application).where(Application.email == "joiner@gmail.com"))
+    db_session.refresh(app)
+    assert app.status == "accepted" and app.password_hash is None
+
+
+def test_declined_request_never_signs_in(client, db_session, login, org):
+    assert _ask(client, "nope@gmail.com").status_code == 202
+    app = db_session.scalar(select(Application).where(Application.email == "nope@gmail.com"))
+    r = login("admin").patch(f"/api/applications/{app.id}", json={"status": "declined"})
+    assert r.status_code == 200
+    db_session.refresh(app)
+    assert app.password_hash is None
+    client.cookies.clear()
+    assert client.post("/api/auth/login", json={"email": "nope@gmail.com", "password": "secret123"}).status_code == 401
+
+
+def test_request_entry_for_existing_account_rejected(client, org):
+    assert _ask(client, org["cto"].email).status_code == 409
+
+
+def test_request_entry_validation(client, org):
+    assert _ask(client, "weak@gmail.com", password="short").status_code == 422
+    assert _ask(client, "not-an-email").status_code == 422
+    assert _ask(client, "nophone@gmail.com", phone="12").status_code == 422
+
+
+def test_register_endpoint_is_gone(client, org):
+    r = client.post("/api/auth/register",
+                    json={"email": "x@gmail.com", "full_name": "X", "password": "secret123"})
+    assert r.status_code in (404, 405)
+
+
+def test_change_password_flow(client, db_session, org):
+    cookies = _let_in(client, db_session, org, "pw@gmail.com", "secret123")
 
     # wrong current password rejected
     bad = client.post(

@@ -1199,7 +1199,7 @@ export default function DataGrid({
   // selection tints mixed from the primary colour (the theme's own *Bg tokens are light in dark mode)
   const tint = (pct: number) => `color-mix(in srgb, ${token.colorPrimary} ${pct}%, transparent)`;
   const css = `
-    .sg-wrap { border-radius: 14px; background: color-mix(in srgb, var(--text-primary) 1.5%, transparent); }
+    .sg-wrap { border-radius: 14px; }
     .sg-wrap:focus { outline: none; }
     .sg-wrap:focus-visible { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-fg) 45%, transparent); }
     .sg-table { border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: 13px; }
@@ -1214,8 +1214,8 @@ export default function DataGrid({
     .sg-sort.on { color: ${token.colorPrimary}; }
     .sg-resize { position: absolute; right: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 4; }
     .sg-resize:hover { background: ${token.colorPrimary}; opacity: .5; }
-    .sg-rh { position: sticky; left: 0; z-index: 2; background: ${token.colorBgContainer}; color: ${token.colorTextTertiary}; text-align: center; font-size: 11px; user-select: none; cursor: default; font-variant-numeric: tabular-nums; }
-    .sg-rh.sel { color: ${token.colorPrimary}; font-weight: 600; background: linear-gradient(${tint(16)}, ${tint(16)}), ${token.colorBgContainer}; }
+    .sg-rh { position: sticky; left: 0; z-index: 2; background: var(--surface-solid); color: ${token.colorTextTertiary}; text-align: center; font-size: 11px; user-select: none; cursor: default; font-variant-numeric: tabular-nums; }
+    .sg-rh.sel { color: ${token.colorPrimary}; font-weight: 600; background: linear-gradient(${tint(16)}, ${tint(16)}), var(--surface-solid); }
     .sg-corner { left: 0; z-index: 5; }
     .sg-td { position: relative; height: ${ROW_H}px; padding: 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: cell; user-select: none; }
     .sg-td.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -1467,14 +1467,7 @@ export default function DataGrid({
         />
       )}
 
-      <div
-        style={{
-          border: `1px solid ${token.colorBorderSecondary}`,
-          borderRadius: token.borderRadiusLG,
-          overflow: 'hidden',
-          background: token.colorBgContainer,
-        }}
-      >
+      <div className="mtr-inset" style={{ borderRadius: token.borderRadiusLG, overflow: 'hidden' }}>
         <div
           ref={scrollRef}
           className="sg-wrap"
@@ -1520,7 +1513,7 @@ export default function DataGrid({
                       <th
                         key={c.name}
                         className="sg-th"
-                        style={{ background: i >= c1 && i <= c2 ? `linear-gradient(${tint(18)}, ${tint(18)}), ${token.colorBgContainer}` : token.colorBgContainer }}
+                        style={{ background: i >= c1 && i <= c2 ? `linear-gradient(${tint(18)}, ${tint(18)}), var(--surface-solid)` : 'var(--surface-solid)' }}
                         onMouseDown={(e) => colHeadDown(e, i)}
                       >
                         <div className="sg-th-inner" title={c.editable ? c.label : `${c.label} — computed, not editable`}>

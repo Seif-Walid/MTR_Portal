@@ -99,6 +99,11 @@ class Event(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     prep_date: Mapped[str | None] = mapped_column(String(100), nullable=True)
     competition_days: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # The dues tier everyone on this event's teams owes (finance derives the
+    # season's dues roster from it). NULL: being on this event owes nothing.
+    dues_tier_id: Mapped[int | None] = mapped_column(
+        ForeignKey("dues_tiers.id", ondelete="SET NULL"), index=True, nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

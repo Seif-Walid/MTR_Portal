@@ -1,5 +1,5 @@
 import { BellOutlined } from '@ant-design/icons';
-import { Badge, Button, Empty, List, Popover, Typography, theme } from 'antd';
+import { Badge, Button, List, Popover, Typography, theme } from 'antd';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { useCallback, useEffect, useState } from 'react';
@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { api } from '../api/client';
 import type { AppNotification } from '../api/types';
+import EmptyState from './EmptyState';
 
 dayjs.extend(relativeTime);
 
@@ -54,7 +55,7 @@ export default function NotificationsBell() {
   const content = (
     <div style={{ width: 360, maxHeight: 420, overflow: 'auto' }}>
       {items.length === 0 ? (
-        <Empty description="No notifications" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        <EmptyState compact phrase="You're all caught up." />
       ) : (
         <>
           <div style={{ textAlign: 'right', marginBottom: 4 }}>

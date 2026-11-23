@@ -102,8 +102,10 @@ class FinanceSeason(Base):
 
 
 class FinanceParty(Base):
-    """Someone money moves to or from: cash holders and the CFO, suppliers,
-    sponsors, organizers. Optionally the portal account behind them."""
+    """An outside contact money moves to or from: suppliers, sponsors,
+    organizers. Cash holders are portal accounts (see `holder_id` on the money
+    rows); parties that used to stand for a holder keep `user_id` so old rows
+    still resolve, and are shown as "legacy holder" when they have none."""
 
     __tablename__ = "finance_parties"
 
@@ -188,7 +190,16 @@ class Spending(Base):
     count: Mapped[float] = mapped_column(Qty, default=1)
     unit_cost: Mapped[float] = mapped_column(Money, default=0)
     method_id: Mapped[int | None] = mapped_column(ForeignKey("finance_options.id"), nullable=True)
+    # legacy: the party that paid, from the spreadsheet era — read-only now
     paid_by_id: Mapped[int | None] = mapped_column(ForeignKey("finance_parties.id"), nullable=True)
+    # the account that paid it — always whoever logged it
+    holder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    # optional supplier paid
+    payee_party_id: Mapped[int | None] = mapped_column(
+        ForeignKey("finance_parties.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     receipt: Mapped[str | None] = mapped_column(Text, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -228,9 +239,11 @@ class DuesDiscount(Base):
 
 
 class DuesEnrollment(Base):
-    """A member owing dues in a season, on a tier. Maturity (years with the
-    team) is counted from the member's join date to the season start unless
-    overridden; withdrawn members stay on record but owe nothing more."""
+    """An *exception* to the derived dues roster. Who owes dues comes from the
+    season's event teams (each event carries its `dues_tier_id`); a row here
+    adds someone who isn't on a team, overrides their tier (`tier_id`, NULL =
+    keep the derived one) or maturity, or marks them withdrawn (owes nothing
+    more)."""
 
     __tablename__ = "dues_enrollments"
     __table_args__ = (UniqueConstraint("season_id", "member_id"),)
@@ -238,7 +251,7 @@ class DuesEnrollment(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     season_id: Mapped[int] = mapped_column(ForeignKey("finance_seasons.id", ondelete="CASCADE"), index=True)
     member_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    tier_id: Mapped[int] = mapped_column(ForeignKey("dues_tiers.id"))
+    tier_id: Mapped[int | None] = mapped_column(ForeignKey("dues_tiers.id"), nullable=True)
     event_team_id: Mapped[int | None] = mapped_column(
         ForeignKey("event_teams.id", ondelete="SET NULL"), index=True, nullable=True
     )
@@ -261,17 +274,25 @@ class DuesPayment(Base):
     paid_on: Mapped[date] = mapped_column(Date)
     amount: Mapped[float] = mapped_column(Money)
     method_id: Mapped[int | None] = mapped_column(ForeignKey("finance_options.id"), nullable=True)
+    # legacy: the party that received it, from the spreadsheet era
     received_by_id: Mapped[int | None] = mapped_column(ForeignKey("finance_parties.id"), nullable=True)
+    # the account that took the money — always whoever logged it
+    holder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
     member = relationship("User", foreign_keys=[member_id], lazy="joined")
+    holder = relationship("User", foreign_keys=[holder_id], lazy="joined")
 
 
 class FundingLine(Base):
-    """Money coming in besides dues: grants, sponsors, in-kind, carry-overs."""
+    """Money coming in besides dues: grants, sponsors, in-kind, carry-overs.
+    A line is a plan until it is *received* (`received_on` + `holder_id`): then
+    the money sits with that holder and counts in the cash balances."""
 
     __tablename__ = "funding_lines"
 
@@ -282,6 +303,16 @@ class FundingLine(Base):
     amount: Mapped[float] = mapped_column(Money, default=0)
     status: Mapped[str] = mapped_column(String(20), default=FundingStatus.EXPECTED)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    party_id: Mapped[int | None] = mapped_column(
+        ForeignKey("finance_parties.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    received_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    method_id: Mapped[int | None] = mapped_column(
+        ForeignKey("finance_options.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    holder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+    )
 
 
 class Payable(Base):
@@ -300,8 +331,9 @@ class Payable(Base):
 
 
 class CashTransfer(Base):
-    """Money moved between holders / accounts. A transfer with no `from` party
-    is an opening balance."""
+    """Money handed from one holder to another (`from_user_id` → `to_user_id`).
+    A transfer with no sender is an opening balance. The `*_party_id` columns
+    are the spreadsheet era's holders, kept read-only for old rows."""
 
     __tablename__ = "cash_transfers"
 
@@ -313,4 +345,10 @@ class CashTransfer(Base):
     fees: Mapped[float] = mapped_column(Money, default=0)
     to_party_id: Mapped[int | None] = mapped_column(ForeignKey("finance_parties.id"), nullable=True)
     to_method_id: Mapped[int | None] = mapped_column(ForeignKey("finance_options.id"), nullable=True)
+    from_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    to_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)

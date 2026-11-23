@@ -1,27 +1,5 @@
 import { PlusOutlined, SearchOutlined, WarningOutlined } from '@ant-design/icons';
-import {
-  Alert,
-  Button,
-  Checkbox,
-  Col,
-  DatePicker,
-  Descriptions,
-  Drawer,
-  Empty,
-  Form,
-  Input,
-  InputNumber,
-  Modal,
-  Popconfirm,
-  Row,
-  Select,
-  Space,
-  Table,
-  Tag,
-  Typography,
-  message,
-  theme,
-} from 'antd';
+import { Alert, Button, Checkbox, Col, DatePicker, Descriptions, Drawer, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography, message, theme } from 'antd';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -31,6 +9,7 @@ import type { DuplicateHit, RosterMember, RosterMemberDetail, RosterStats } from
 import { can, useAuth } from '../auth/AuthContext';
 import { StatRow, StatTile } from '../components/charts';
 import { openableRow } from '../components/a11y';
+import EmptyState from '../components/EmptyState';
 
 const dash = (v: unknown) => (v === null || v === undefined || v === '' ? '—' : String(v));
 
@@ -415,7 +394,7 @@ function MemberDrawer({
             {m.participations.length ? (
               <Table
                 size="small"
-                rowKey="id"
+                rowKey="event_id"
                 pagination={false}
                 dataSource={m.participations}
                 columns={[
@@ -437,7 +416,7 @@ function MemberDrawer({
                 ]}
               />
             ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No participations recorded" />
+              <EmptyState compact phrase="No participations recorded yet." action={{ label: 'See events', to: '/events' }} />
             )}
           </div>
         </div>

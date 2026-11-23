@@ -1,6 +1,4 @@
-import {
-  Alert, Button, Descriptions, Drawer, Empty, Input, Popconfirm, Select, Space, Table, Typography, message, theme,
-} from 'antd';
+import { Alert, Button, Descriptions, Drawer, Input, Popconfirm, Select, Space, Table, Typography, message, theme } from 'antd';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -10,6 +8,7 @@ import type { Application, ApplicationStatus } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
 import { APPLICATION_STATUS, ApplicationStatusTag } from '../components/tags';
 import { openableRow } from '../components/a11y';
+import EmptyState from '../components/EmptyState';
 
 const MONO = 'var(--font-mono)';
 const DISPLAY = 'var(--font-display)';
@@ -123,9 +122,9 @@ function ApplicationDrawer({
                 <a href={whatsappUrl(app.phone)} target="_blank" rel="noreferrer">WhatsApp</a>
               </Space>
             </Descriptions.Item>
-            <Descriptions.Item label="School">{app.school}</Descriptions.Item>
-            <Descriptions.Item label="Year">{app.year}</Descriptions.Item>
-            <Descriptions.Item label="Applied to">{app.event_name ?? 'The team'}</Descriptions.Item>
+            <Descriptions.Item label="School">{app.school || '—'}</Descriptions.Item>
+            <Descriptions.Item label="Year">{app.year || '—'}</Descriptions.Item>
+            <Descriptions.Item label="Applied to">{appliedTo(app)}</Descriptions.Item>
             <Descriptions.Item label="Subteam">{subteamLabel(app.subteam)}</Descriptions.Item>
             {app.reviewed_by && (
               <Descriptions.Item label="Last status change">
@@ -136,7 +135,7 @@ function ApplicationDrawer({
 
           <div>
             <Typography.Title level={5} style={{ marginTop: 0 }}>Why they want to join</Typography.Title>
-            <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>{app.motivation}</Typography.Paragraph>
+            <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>{app.motivation || '—'}</Typography.Paragraph>
           </div>
 
           <div>
@@ -187,7 +186,9 @@ function ApplicationDrawer({
               disabled={app.roster_matches.length > 1}
             >
               <Button type="primary" loading={busy} disabled={app.roster_matches.length > 1}>
-                {match ? 'Accept & link to roster member' : 'Accept & add to roster'}
+                {app.source === 'portal'
+                  ? (match ? 'Accept & let in (link to member)' : 'Accept & let in')
+                  : match ? 'Accept & link to roster member' : 'Accept & add to roster'}
               </Button>
             </Popconfirm>
           )}
@@ -195,6 +196,13 @@ function ApplicationDrawer({
       )}
     </Drawer>
   );
+}
+
+/** Where the application came from: a website join form (the team, or one
+ * event) or a "Request entry" on the portal's sign-in page. */
+function appliedTo(a: Application): string {
+  if (a.source === 'portal') return 'Portal entry request';
+  return a.event_name ?? 'The team';
 }
 
 export default function ApplicationsPage() {
@@ -226,11 +234,11 @@ export default function ApplicationsPage() {
     const q = search.trim().toLowerCase();
     return rows.filter((r) =>
       (filter === 'all' || r.status === filter)
-      && (!q || [r.full_name, r.email, r.phone, r.school, r.event_name ?? ''].some((v) => v.toLowerCase().includes(q))));
+      && (!q || [r.full_name, r.email, r.phone, r.school, r.event_name ?? '', r.source === 'portal' ? 'portal entry request' : ''].some((v) => v.toLowerCase().includes(q))));
   }, [rows, filter, search]);
 
   if (!can(me, 'members.view')) {
-    return <Empty description="Your access level does not include the member roster" />;
+    return <EmptyState phrase="Your access level doesn't include the member roster." action={{ label: 'Back to Home', to: '/home' }} />;
   }
 
   const open = (id: number | null) => setParams((p) => {
@@ -266,7 +274,9 @@ export default function ApplicationsPage() {
       <Table className="circuit-table" rowKey="id" loading={loading} dataSource={shown}
         pagination={{ defaultPageSize: 20, hideOnSinglePage: true }} scroll={{ x: 'max-content' }}
         onRow={(r) => openableRow(() => open(r.id))}
-        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={rows.length ? 'Nothing here' : 'No applications yet'} /> }}
+        locale={{ emptyText: rows.length
+          ? <EmptyState phrase="No applications in this view." action={{ label: 'Show all applications', onClick: () => setFilter('all') }} />
+          : <EmptyState phrase="No applications yet. They arrive from the website's join form." action={{ label: 'See members', to: '/members' }} /> }}
         columns={[
           {
             title: 'Applicant',
@@ -277,7 +287,7 @@ export default function ApplicationsPage() {
               </div>
             ),
           },
-          { title: 'Applied to', dataIndex: 'event_name', width: 170, ellipsis: true, render: (e: string | null) => e ?? 'The team' },
+          { title: 'Applied to', width: 170, ellipsis: true, render: (_, r) => appliedTo(r) },
           { title: 'Year', dataIndex: 'year', width: 190 },
           { title: 'School', dataIndex: 'school', ellipsis: true },
           { title: 'Subteam', dataIndex: 'subteam', width: 130, render: subteamLabel },

@@ -1,5 +1,5 @@
 import { GoogleOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons';
-import { Dropdown, message } from 'antd';
+import { ConfigProvider, Dropdown, message } from 'antd';
 import { AnimatePresence, LayoutGroup, motion, MotionConfig } from 'motion/react';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { useLocation, useNavigate, useOutlet, useSearchParams } from 'react-router-dom';
@@ -7,6 +7,7 @@ import { useLocation, useNavigate, useOutlet, useSearchParams } from 'react-rout
 import { api } from '../api/client';
 import { can, useAuth } from '../auth/AuthContext';
 import { useThemeMode } from '../theme/ThemeContext';
+import { RouteEmpty } from './EmptyState';
 import { LogoImage } from './Logo';
 import NotificationsBell from './NotificationsBell';
 
@@ -20,6 +21,15 @@ import NotificationsBell from './NotificationsBell';
    ========================================================================== */
 
 const EASE = [0.33, 1, 0.68, 1] as const;
+
+// Every empty table / list in the shell gets the mascot, a phrase for the
+// page and a button somewhere useful. Pickers keep a one-line "no matches".
+const PICKERS = new Set(['Select', 'TreeSelect', 'Cascader', 'Transfer', 'AutoComplete', 'Mentions', 'Table.filter']);
+const renderEmpty = (name?: string) =>
+  name && PICKERS.has(name)
+    ? <div style={{ padding: '10px 4px', color: 'var(--text-tertiary)', fontSize: 13, textAlign: 'center' }}>No matches</div>
+    : <RouteEmpty />;
+const GLASS_SELECTOR = '.mtr-glass, .home-panel, .home-stat, .circuit-panel, .ant-card, .circuit-table .ant-table:not(:has(.ant-table-placeholder)), .mtr-course-card';
 const GLIDE = { type: 'spring', stiffness: 520, damping: 42, mass: 0.7 } as const;
 
 // --- icon set: prototype's thin-stroke SVGs, keyed by route -----------------
@@ -229,7 +239,7 @@ export default function AppLayout() {
   type NavItem = { key: string; label: string; children?: { key: string; label: string }[] };
   type NavSection = { id: string; title: string; items: NavItem[] };
   const canDataTables = can(me, 'inventory.edit') || can(me, 'users.manage') || can(me, 'org.edit') ||
-    can(me, 'events.manage_any') || can(me, 'members.edit') || can(me, 'finance.edit');
+    can(me, 'events.manage_any') || can(me, 'members.edit');
   const sections: NavSection[] = ([
     { id: 'work', title: 'Workspace', items: [
       { key: '/home', label: 'Home' },
@@ -246,6 +256,7 @@ export default function AppLayout() {
         ? [{ key: '/events', label: 'Events', ...(eventKinds.length ? { children: eventKinds.map((k) => ({ key: `/events/${k.slug}`, label: k.name })) } : {}) }]
         : []),
       ...(can(me, 'inventory.view') ? [{ key: '/inventory', label: 'Inventory' }] : []),
+      ...(can(me, 'finance.view') ? [{ key: '/finance', label: 'Finance' }] : []),
       // Archive is public — a browsable record of past events, no gate.
       { key: '/archive', label: 'Archive' },
     ] },
@@ -255,7 +266,6 @@ export default function AppLayout() {
       ...(can(me, 'members.view') ? [{ key: '/members', label: 'Members' }, { key: '/applications', label: 'Applications' }] : []),
     ] },
     { id: 'admin', title: 'Administration', items: [
-      ...(can(me, 'finance.view') ? [{ key: '/finance', label: 'Finance' }] : []),
       ...(can(me, 'users.manage') ? [{ key: '/admin/users', label: 'User management' }] : []),
       ...(canDataTables ? [{ key: '/admin/data', label: 'Data tables' }] : []),
       ...(can(me, 'audit.view') ? [{ key: '/admin/audit', label: 'Audit log' }] : []),
@@ -290,6 +300,25 @@ export default function AppLayout() {
       { type: 'divider' as const },
       { key: 'logout', icon: <LogoutOutlined />, label: 'Log out', onClick: () => logout().then(() => navigate('/login')) },
     ],
+  };
+
+  // One delegated tracker feeds every glass panel's cursor sheen (--mx/--my),
+  // instead of a listener per card.
+  const sheenEl = useRef<HTMLElement | null>(null);
+  const trackSheen = (e: React.PointerEvent) => {
+    if (e.pointerType !== 'mouse') return;
+    // the outermost panel: inner boxes are flattened, so the shine lives on the outer one
+    let el = (e.target as HTMLElement).closest<HTMLElement>(GLASS_SELECTOR);
+    for (let up = el?.parentElement?.closest<HTMLElement>(GLASS_SELECTOR); up; up = up.parentElement?.closest<HTMLElement>(GLASS_SELECTOR)) el = up;
+    if (sheenEl.current && sheenEl.current !== el) {
+      sheenEl.current.style.removeProperty('--mx');
+      sheenEl.current.style.removeProperty('--my');
+    }
+    sheenEl.current = el;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    el.style.setProperty('--mx', `${e.clientX - r.left}px`);
+    el.style.setProperty('--my', `${e.clientY - r.top}px`);
   };
 
   const RAIL_OPEN = 240;
@@ -337,8 +366,10 @@ export default function AppLayout() {
 
   return (
     <MotionConfig reducedMotion="user">
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
+    <ConfigProvider renderEmpty={renderEmpty}>
+    <div style={{ display: 'flex', minHeight: '100vh' }} onPointerMove={trackSheen}>
       <a href="#main" className="mtr-skip-link">Skip to content</a>
+      <div className="mtr-aurora" aria-hidden="true"><span /><span /><span /><span /><span /></div>
       <AnimatePresence>
         {isMobile && !collapsed && (
           <motion.button
@@ -455,7 +486,7 @@ export default function AppLayout() {
       </aside>
 
       {/* CONTENT COLUMN */}
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', marginInlineStart: contentInset, transition: 'margin .16s cubic-bezier(0.33, 1, 0.68, 1)' }}>
+      <div className="mtr-shell-content" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', marginInlineStart: contentInset, transition: 'margin .16s cubic-bezier(0.33, 1, 0.68, 1)' }}>
         <div ref={sentinel} style={{ height: 1, marginBottom: -1 }} aria-hidden="true" />
         {/* HEADER */}
         <header
@@ -520,6 +551,7 @@ export default function AppLayout() {
         </main>
       </div>
     </div>
+    </ConfigProvider>
     </MotionConfig>
   );
 }

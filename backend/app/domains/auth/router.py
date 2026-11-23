@@ -6,7 +6,7 @@ from typing import Annotated
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Cookie, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Cookie, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.core.mail import send_email
 from app.core.security import hash_password, new_session_token, verify_password
 from app.domains.access import service as access
+from app.domains.applications import service as applications
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.auth.models import AuthSession, PasswordResetToken
 from app.domains.drive import service as drive
@@ -22,7 +23,7 @@ from app.domains.auth.schemas import (
     ChangePasswordIn,
     ForgotPasswordIn,
     LoginIn,
-    RegisterIn,
+    RequestEntryIn,
     ResetPasswordIn,
 )
 from app.domains.hierarchy.service import taskable_user_ids
@@ -101,6 +102,11 @@ def auth_config() -> dict[str, bool]:
 @router.post("/login")
 def login(payload: LoginIn, response: Response, db: DB) -> MeOut:
     user = db.scalar(select(User).where(User.email == payload.email.lower()))
+    if user is None and applications.pending_entry(db, payload.email, payload.password):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Your request for entry is still waiting for review — you can sign in once it's accepted",
+        )
     if user is None or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
     if not user.is_active:
@@ -109,24 +115,26 @@ def login(payload: LoginIn, response: Response, db: DB) -> MeOut:
     return _me_payload(db, user)
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterIn, response: Response, db: DB) -> MeOut:
-    """Open self-signup: the account starts with no access level and no seat
-    — a guest, until someone grants more. A member the roster already holds
-    under this email (never signed in yet) claims that account instead."""
+@router.post("/request-entry", status_code=status.HTTP_201_CREATED, response_model=None)
+def request_entry(payload: RequestEntryIn, request: Request, response: Response, db: DB) -> MeOut | dict:
+    """Nobody can make an account for themselves. A member an admin already
+    added (never signed in yet) activates their account here by choosing a
+    password, and is signed in. Anyone else files an entry request: it shows
+    up in Applications, and only when someone with members.edit accepts it
+    does the account exist (with the password chosen here)."""
     email = payload.email.lower()
     user = unclaimed_account(db, email)
     if user is not None:
         user.hashed_password = hash_password(payload.password)
-    elif db.scalar(select(User).where(User.email == email)):
-        raise HTTPException(status.HTTP_409_CONFLICT, "An account with this email already exists")
-    else:
-        user = User(email=email, full_name=payload.full_name, hashed_password=hash_password(payload.password))
-        db.add(user)
-    db.commit()
-    db.refresh(user)
-    _issue_session(db, response, user.id)
-    return _me_payload(db, user)
+        db.commit()
+        db.refresh(user)
+        _issue_session(db, response, user.id)
+        return _me_payload(db, user)
+    if db.scalar(select(User).where(User.email == email)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "An account with this email already exists — sign in instead")
+    applications.request_entry(db, payload, applications.client_hash(request))
+    response.status_code = status.HTTP_202_ACCEPTED
+    return {"status": "pending"}
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -294,9 +302,9 @@ def _peek_session_user(db: Session, session_token: str | None) -> User | None:
 
 @router.get("/google/login")
 def google_login() -> RedirectResponse:
-    """Kick off the Google OAuth flow. An unrecognized-but-verified Google
-    email auto-provisions a new account (same as open self-registration) —
-    it starts as a guest: no access level, no seat, until someone grants more. Narrow who can sign in at all via GOOGLE_ALLOWED_DOMAINS."""
+    """Kick off the Google OAuth flow. Only emails already in the database
+    sign in — an unknown Google account is turned away (to "Request entry"),
+    never created. GOOGLE_ALLOWED_DOMAINS can narrow it further."""
     if not _google_enabled():
         return _login_error("google_not_configured")
     state = secrets.token_urlsafe(24)
@@ -412,27 +420,9 @@ def google_callback(
 
     user = db.scalar(select(User).where(User.email == email))
     if user is None:
-        # Any verified Google identity may sign in — this is an alternate
-        # entry point into the same open-signup model as POST /auth/register:
-        # a brand-new guest account with no access level and no seat. The domain allowlist above is the
-        # only gate on who gets this far.
-        user = User(
-            email=email,
-            full_name=info.get("name") or email.split("@")[0],
-            hashed_password=hash_password(secrets.token_urlsafe(32)),
-            google_linked_at=datetime.now(timezone.utc),
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        response = RedirectResponse(f"{settings.frontend_url}/tasks")
-        response.delete_cookie(
-            STATE_COOKIE,
-            samesite="lax",
-            secure=settings.cookie_secure,
-        )
-        _issue_session(db, response, user.id)
-        return response
+        # Google proves who you are, not that you belong: only people already
+        # in the database sign in. Anyone else asks with "Request entry".
+        return _login_error("not_a_member")
     if not user.is_active:
         return _login_error("account_disabled")
     if user.google_linked_at is None and not user.claimed:

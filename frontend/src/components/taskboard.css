@@ -36,7 +36,7 @@
 .tb-col.is-target .tb-col__body:empty { min-height: 72px; margin: 0 8px 8px; border-radius: var(--radius-lg); border: 1px dashed color-mix(in srgb, var(--col) 60%, transparent); }
 .tb-col__empty {
   display: grid; place-items: center; min-height: 80px; border-radius: var(--radius-lg);
-  border: 1px dashed var(--border); color: var(--text-tertiary); font-size: 13px;
+  border: 1px dashed transparent; color: var(--text-tertiary); font-size: 13px;
 }
 
 /* drag feedback: allowed columns glow, the rest fade */

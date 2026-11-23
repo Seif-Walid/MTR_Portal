@@ -36,6 +36,7 @@ def _out(a: Application, index) -> ApplicationOut:
         motivation=a.motivation,
         event_id=a.event_id,
         event_name=a.event.name if a.event else None,
+        source=a.source,
         status=a.status,
         notes=a.notes,
         member_id=a.member_id,
@@ -77,6 +78,8 @@ def update_application(application_id: int, payload: ApplicationPatch, db: DB, u
         audit_log(db, user.id, "applications", "status", "application", a.id,
                   {"name": a.full_name, "from": a.status, "to": data["status"]})
         a.status = data["status"]
+        if a.status == ApplicationStatus.DECLINED:
+            a.password_hash = None  # a declined request never becomes an account
         a.reviewed_by_id = user.id
         a.reviewed_at = datetime.now(timezone.utc)
     db.commit()
@@ -86,7 +89,8 @@ def update_application(application_id: int, payload: ApplicationPatch, db: DB, u
 
 @router.post("/{application_id}/add-to-roster")
 def add_to_roster(application_id: int, db: DB, user: CurrentUser) -> ApplicationOut:
-    """Accept the applicant onto the roster. Someone already there by email or
+    """Accept the applicant onto the roster (for an entry request: let them
+    in — their account takes the password they chose when asking). Someone already there by email or
     phone (a member, or anyone who has signed in) is linked rather than added
     twice; otherwise a new member — an unclaimed account — is created with the
     next MTR ID and the application's contact details."""
@@ -103,6 +107,8 @@ def add_to_roster(application_id: int, db: DB, user: CurrentUser) -> Application
     if matches:
         m = matches[0][0]
         action = "linked"
+        if a.password_hash and not m.claimed:
+            m.hashed_password = a.password_hash  # an entry request: their chosen password
     else:
         m = new_member(
             db,
@@ -110,17 +116,20 @@ def add_to_roster(application_id: int, db: DB, user: CurrentUser) -> Application
             full_name=a.full_name,
             email=a.email.lower(),
             phone=a.phone,
-            university=a.school,
+            university=a.school or None,
             joined_at=datetime.now(timezone.utc),
             data_confidence="manual",
             source_records=1,
         )
+        if a.password_hash:
+            m.hashed_password = a.password_hash  # an entry request: they can sign in now
         db.add(m)
         db.flush()
         audit_log(db, user.id, "members", "created", "member", m.id,
                   {"name": m.full_name, "mtr_id": m.mtr_id, "from_application": a.id})
         action = "added"
     a.member_id = m.id
+    a.password_hash = None
     if a.status != ApplicationStatus.ACCEPTED:
         a.status = ApplicationStatus.ACCEPTED
         a.reviewed_by_id = user.id

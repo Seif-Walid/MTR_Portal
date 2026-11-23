@@ -88,7 +88,7 @@ export default function EventRecord({ detail }: { detail: EventDetail }) {
             <Table
               size="small"
               style={{ marginTop: 8 }}
-              rowKey="id"
+              rowKey="member_id"
               loading={people === null}
               dataSource={people ?? []}
               pagination={{ defaultPageSize: 20, hideOnSinglePage: true, size: 'small' }}

@@ -44,11 +44,12 @@ def _writable_or_400(spec: TableSpec) -> TableSpec:
 @router.get("/tables")
 def list_tables(db: DB, user: CurrentUser) -> list[TableSummary]:
     """Only the tables this user may edit — each table is gated by its own
-    per-domain privilege (inventory.edit, users.manage, ...)."""
+    per-domain privilege (inventory.edit, users.manage, ...). Tables with a
+    home screen (the finance books) are edited there, not listed here."""
     ensure_all_tables_registered()
     out: list[TableSummary] = []
     for spec in TABLES.values():
-        if not access.has_privilege(db, user, spec.privilege):
+        if spec.home is not None or not access.has_privilege(db, user, spec.privilege):
             continue
         count = db.scalar(select(func.count()).select_from(spec.model).where(*spec.filters())) or 0
         out.append(TableSummary(key=spec.key, label=spec.label, row_count=count,

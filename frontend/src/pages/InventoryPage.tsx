@@ -14,6 +14,7 @@ import InventoryRequestsDrawer from '../components/InventoryRequestsDrawer';
 import { PricingReviewModal, SOURCE_LABEL, ValueSourceTag, egp } from '../components/ItemValue';
 import LocationsModal from '../components/LocationsModal';
 import NewInventoryItemModal from '../components/NewInventoryItemModal';
+import EmptyState from '../components/EmptyState';
 import { ConditionTag } from '../components/tags';
 import UsageBreakdown from '../components/UsageBreakdown';
 import { openableRow } from '../components/a11y';
@@ -170,6 +171,14 @@ export default function InventoryPage() {
     return [[...exact, ...extra], new Set(extra.map((i) => i.id))];
   }, [items, query, similar]);
 
+  const empty = query.trim() ? (
+    <EmptyState phrase={<>No components match “{query.trim()}”.</>} action={{ label: 'Clear the search', onClick: () => setQuery('') }} />
+  ) : canManage ? (
+    <EmptyState phrase="The shelves are empty." action={{ label: 'Add a component', onClick: () => setCreating(true) }} />
+  ) : (
+    <EmptyState phrase="The shelves are empty." action={{ label: 'See requests', to: '/requests' }} />
+  );
+
   const selectedItems = useMemo(
     () => items.filter((i) => selectedIds.includes(i.id)),
     [items, selectedIds],
@@ -234,14 +243,14 @@ export default function InventoryPage() {
       {isMobile ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: 10 }}>
           {filtered.length === 0 && !loading && (
-            <Typography.Text type="secondary" style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '32px 0' }}>No components</Typography.Text>
+            <div style={{ gridColumn: '1 / -1' }}>{empty}</div>
           )}
           {filtered.map((i) => (
             <ItemCard key={i.id} item={i} onOpen={() => setSearchParams({ item: String(i.id) })} />
           ))}
         </div>
       ) : (
-      <Table className="circuit-table" rowKey="id" loading={loading} dataSource={filtered}
+      <Table className="circuit-table" rowKey="id" loading={loading} dataSource={filtered} locale={{ emptyText: empty }}
         scroll={{ x: 'max-content' }}
         rowSelection={canManage ? { selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as number[]) } : undefined}
         onRow={(i) => openableRow(() => setSearchParams({ item: String(i.id) }))}

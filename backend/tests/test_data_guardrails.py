@@ -181,7 +181,7 @@ def test_narrowed_spec_drops_columns_and_values():
     spec = TABLES["members"].for_privileges(set())
     assert "phone" not in {c.name for c in spec.columns}
     assert spec.full is TABLES["members"]
-    assert TABLES["members"].for_privileges({"members.edit"}) is TABLES["members"]
+    assert TABLES["members"].for_privileges({"members.edit", "users.manage"}) is TABLES["members"]
 
 
 def test_members_directory_redacts_contact_details(login, org, db_session):

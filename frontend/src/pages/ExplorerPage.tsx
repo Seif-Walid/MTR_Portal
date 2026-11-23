@@ -1,5 +1,5 @@
 import { ArrowLeftOutlined, EditOutlined, PlusOutlined, SearchOutlined, TableOutlined, UnorderedListOutlined } from '@ant-design/icons';
-import { AutoComplete, Breadcrumb, Button, Descriptions, Empty, Grid, Input, Segmented, Select, Skeleton, Space, Table, Tabs, Tag, Typography, theme } from 'antd';
+import { AutoComplete, Breadcrumb, Button, Descriptions, Grid, Input, Segmented, Select, Skeleton, Space, Table, Tabs, Tag, Typography, theme } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -21,6 +21,7 @@ import type {
 import { formatCell } from '../components/explorer/types';
 import InsightsPage from './InsightsPage';
 import { openableRow } from '../components/a11y';
+import EmptyState from '../components/EmptyState';
 
 const PAGE = 50;
 
@@ -120,7 +121,7 @@ export default function ExplorerPage() {
               onLoaded={onRecordLoaded}
             />
           )}
-          {table && schema && !entity && <Empty description="Nothing to show here" />}
+          {table && schema && !entity && <EmptyState phrase="Nothing recorded here yet." action={{ label: 'Open data tables', to: '/admin/data' }} />}
         </div>
       </div>
     </div>
@@ -344,7 +345,7 @@ function RecordView({
       .catch(() => setMissing(true));
   }, [table, id, onLoaded, tick]);
 
-  if (missing) return <Empty description="This record doesn't exist or isn't visible to you" />;
+  if (missing) return <EmptyState phrase="This record doesn't exist, or isn't visible to you." action={{ label: 'Back to the dashboard', to: '/explore' }} />;
   if (!rec) return <Skeleton active paragraph={{ rows: 10 }} />;
 
   const openRef = (r: RecordRef) => onGo(r.table, r.id);

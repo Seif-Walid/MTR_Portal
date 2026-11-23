@@ -9,6 +9,7 @@ import { api } from '../api/client';
 import type { Task, TaskStatus } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
 import NewTaskModal from '../components/NewTaskModal';
+import EmptyState from '../components/EmptyState';
 import TaskBoard from '../components/TaskBoard';
 import TaskDrawer from '../components/TaskDrawer';
 import { BlockedTag, PriorityTag, STATUS_META, StatusTag } from '../components/tags';
@@ -56,6 +57,16 @@ export default function TasksPage() {
     ...(canCreate ? [{ label: 'Everything I can see', value: 'all' }] : []),
   ];
 
+  const empty = statusFilter ? (
+    <EmptyState phrase="No tasks with that status." action={{ label: 'Show every status', onClick: () => setStatusFilter(undefined) }} />
+  ) : view === 'assigned' ? (
+    <EmptyState phrase="Nothing on your plate right now." action={{ label: 'Open the calendar', to: '/calendar' }} />
+  ) : canCreate ? (
+    <EmptyState phrase="You haven't handed out any tasks yet." action={{ label: 'Assign a task', onClick: () => setCreating(true) }} />
+  ) : (
+    <EmptyState phrase="No tasks to show." action={{ label: 'See my teams', to: '/team' }} />
+  );
+
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
@@ -80,11 +91,13 @@ export default function TasksPage() {
       <AnimatePresence mode="wait" initial={false}>
       {layout === 'board' ? (
         <motion.div key="board" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }}>
-          <TaskBoard tasks={tasks} onOpen={(id) => setSearchParams({ task: String(id) })} onChanged={load} />
+          {!loading && tasks.length === 0
+            ? empty
+            : <TaskBoard tasks={tasks} onOpen={(id) => setSearchParams({ task: String(id) })} onChanged={load} />}
         </motion.div>
       ) : (
       <motion.div key="list" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }}>
-      <Table className="circuit-table" rowKey="id" loading={loading} dataSource={tasks}
+      <Table className="circuit-table" rowKey="id" loading={loading} dataSource={tasks} locale={{ emptyText: empty }}
         onRow={(t) => openableRow(() => setSearchParams({ task: String(t.id) }))}
         pagination={{ defaultPageSize: 15, hideOnSinglePage: true }} scroll={{ x: 'max-content' }}
         columns={[

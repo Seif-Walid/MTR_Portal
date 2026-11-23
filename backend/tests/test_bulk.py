@@ -11,14 +11,12 @@ from app.domains.users.models import User
 # --- listing / privilege gating --------------------------------------------
 def test_list_tables_filtered_by_privilege(login):
     exec_tables = {t["key"] for t in login("ceo").get("/api/bulk/tables").json()}
-    # Exec holds inventory.edit, org.edit, events.manage_any, users.manage? No —
-    # users.manage is admin-only in the ladder, so 'people' is hidden for Exec.
     assert "inventory_items" in exec_tables
     assert "events" in exec_tables
-    assert "people" not in exec_tables  # needs users.manage
+    assert "people" not in exec_tables  # folded into "members": one table per person
 
     admin_tables = {t["key"] for t in login("admin").get("/api/bulk/tables").json()}
-    assert "people" in admin_tables  # admin holds everything
+    assert "members" in admin_tables and "people" not in admin_tables
 
     member_tables = login("comp_member").get("/api/bulk/tables").json()
     assert member_tables == []  # no edit privileges -> nothing
@@ -119,15 +117,41 @@ def test_apply_rejects_wholesale_on_any_error(login, db_session):
     assert db_session.scalar(select(InventoryItem).where(InventoryItem.name == "Would Be Added")) is None
 
 
-# --- people: deactivate, never hard delete ----------------------------------
-def test_delete_people_deactivates(login, db_session, org):
+# --- members: one table for everyone; access columns are user-admin only -----
+def _members_row(client, uid):
+    t = client.get("/api/bulk/members").json()
+    return t, next(r for r in t["rows"] if r["id"] == str(uid))
+
+
+def test_members_grid_deactivates_signed_in_people(login, db_session, org):
     target = org["comp_member"].id
-    r = login("admin").post("/api/bulk/people", json={"rows": [], "deletes": [target]})
-    assert r.json()["ok"] is True and r.json()["summary"]["deletes"] == 1
+    admin = login("admin")
+    r = admin.post("/api/bulk/members", json={"rows": [], "deletes": [target]})
+    assert r.json()["ok"] is False  # they have signed in: retire, don't delete
+    _, row = _members_row(admin, target)
+    r = admin.post("/api/bulk/members", json={"rows": [{**row, "is_active": "false"}], "deletes": []})
+    assert r.json()["ok"] is True, r.json()
     db_session.expire_all()
     user = db_session.get(User, target)
-    assert user is not None  # still present
-    assert user.is_active is False  # just deactivated
+    assert user is not None and user.is_active is False
+
+
+def test_members_grid_access_columns_need_users_manage(login, db_session, org):
+    from tests.test_data_guardrails import _grant
+
+    _grant(db_session, "ceo", org, "members.edit")
+    ceo = login("ceo")
+    t, row = _members_row(ceo, org["comp_member"].id)
+    cols = {c["name"]: c for c in t["columns"]}
+    assert cols["access_level"]["editable"] is False and cols["is_active"]["editable"] is False
+    assert cols["full_name"]["editable"] is True
+    r = ceo.post("/api/bulk/members", json={"rows": [{**row, "access_level": "Admin", "full_name": "Renamed"}],
+                                            "deletes": []})
+    assert r.json()["ok"] is True, r.json()
+    db_session.expire_all()
+    u = db_session.get(User, org["comp_member"].id)
+    assert u.full_name == "Renamed"
+    assert u.access_level is None or u.access_level.name != "Admin"
 
 
 # --- movements: append-only ledger ------------------------------------------

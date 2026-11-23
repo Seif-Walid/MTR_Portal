@@ -11,7 +11,7 @@
 
 :root {
   --t-surface: var(--surface);
-  --t-solid: var(--surface);            /* opaque stand-in for the surface (fixed columns) */
+  --t-solid: var(--surface-solid);            /* opaque stand-in for the surface (fixed columns) */
   --t-rail: var(--surface-alt); /* recessed header band */
   --t-line: var(--border-light);
   --t-pill: var(--surface-alt);
@@ -172,6 +172,17 @@
 }
 
 /* empty state */
+/* an empty table is not a table: no panel, no column headers, no scrollbar —
+   only the empty message stays */
+.ant-table-wrapper .ant-table:has(.ant-table-placeholder) {
+  background: transparent !important; box-shadow: none !important; padding: 0;
+}
+.ant-table-wrapper .ant-table:has(.ant-table-placeholder) :is(.ant-table-thead, .ant-table-header, .ant-table-summary, .ant-table-sticky-scroll) { display: none !important; }
+.ant-table-wrapper .ant-table:has(.ant-table-placeholder) :is(.ant-table-content, .ant-table-body) { overflow: hidden !important; }
+.ant-table-wrapper .ant-table:has(.ant-table-placeholder) table { width: 100% !important; min-width: 0 !important; }
+.ant-table-wrapper .ant-table-placeholder,
+.ant-table-wrapper .ant-table-placeholder > td { border: 0 !important; }
+.ant-table-wrapper .ant-table-placeholder { background: transparent !important; }
 .ant-table-wrapper .ant-table-placeholder > td { background: transparent !important; padding-block: 36px !important; }
 .ant-table-wrapper .ant-table-placeholder .ant-empty-description { color: var(--text-tertiary); }
 .ant-table-wrapper .ant-table-placeholder:hover > td { background: transparent !important; }

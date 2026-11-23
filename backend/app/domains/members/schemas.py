@@ -26,7 +26,7 @@ class MemberRow(BaseModel):
 class ParticipationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: int | None  # the imported record's id; None for parts known only from teams
     event_id: int
     event_name: str
     event_code: str | None
@@ -37,6 +37,8 @@ class ParticipationOut(BaseModel):
     mentor: str | None
     rating: str | None
     registered_at: datetime | None
+    team_id: int | None = None
+    source: str = "record"  # team | seat | record
 
 
 class MemberDetail(MemberRow):

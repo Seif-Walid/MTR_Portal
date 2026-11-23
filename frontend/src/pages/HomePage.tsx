@@ -112,9 +112,9 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => dayjs());
   const [creating, setCreating] = useState(false);
-  const spot = useSpotlight();
   const [hoverRow, setHoverRow] = useState<string | null>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const spot = useSpotlight();
   const [scope, animate] = useAnimate();
   // the entrance plays once per visit, not on every refetch
   const entered = useRef(false);

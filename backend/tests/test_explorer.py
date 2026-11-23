@@ -89,15 +89,16 @@ def test_record_says_what_can_be_edited(login, org, db_session):
     ev, team, m = _seed(db_session, org)
     admin = login("admin")
     schema = {e["table"]: e for e in admin.get("/api/explore/schema").json()["entities"]}
-    assert schema["users"]["edit"] == "people"
+    assert schema["users"]["edit"] == "members"
     assert schema["audit_log"]["edit"] is None
 
     rec = admin.get(f"/api/explore/users/{m.id}").json()
-    assert rec["edit"] == "people"
+    assert rec["edit"] == "members"
+    # participations are derived from teams, and money is logged from Finance
+    # only: neither is edited in place here
     parts = next(g for g in rec["incoming"] if g["table"] == "event_participations" and not g["via"])
-    assert parts["edit"] == "event_participations" and parts["fk"] == "member_id"
-    # lists it has nothing in yet are offered as "add"
-    assert any(a["edit"] == "dues_payments" and a["fk"] == "member_id" for a in rec["addable"])
+    assert "edit" not in parts
+    assert not any(a["table"] in ("dues_payments", "spendings") for a in rec["addable"])
 
     # Board with dashboard.view but no edit privileges sees no edit handles
     _grant(db_session, org, "comp_member", "dashboard.view")

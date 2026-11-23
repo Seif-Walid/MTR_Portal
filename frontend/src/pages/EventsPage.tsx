@@ -1,7 +1,5 @@
 import { DeleteOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons';
-import {
-  Button, DatePicker, Empty, Form, Input, List, Modal, Popconfirm, Skeleton, Space, Switch, Tag, Typography, message,
-} from 'antd';
+import { Button, DatePicker, Form, Input, List, Modal, Popconfirm, Skeleton, Space, Switch, Tag, Typography, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
@@ -11,6 +9,7 @@ import type { Event, EventKind, RoleRoot } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
 import EventDetailPanel from '../components/EventDetailPanel';
 import PositionPicker from '../components/PositionPicker';
+import EmptyState from '../components/EmptyState';
 
 const MONO = 'var(--font-mono)';
 const DISPLAY = 'var(--font-display)';
@@ -256,7 +255,12 @@ function EventsList({ kind, canCreate }: { kind: EventKind; canCreate: boolean }
           ))}
         </div>
       ) : events.length === 0 ? (
-        <Empty description={`No ${kind.event_label.toLowerCase()}s yet.`} />
+        <EmptyState
+          phrase={`No ${kind.event_label.toLowerCase()}s yet.`}
+          action={canCreate
+            ? { label: `Add a ${kind.event_label.toLowerCase()}`, onClick: () => { setEditing(null); setOpen(true); } }
+            : { label: 'See past ones in the archive', to: '/archive' }}
+        />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: 16 }}>
           {events.map((c) => (
@@ -415,15 +419,12 @@ export default function EventsPage() {
       {kind ? (
         <EventsList key={kind.id} kind={kind} canCreate={canCreate} />
       ) : loaded && kinds.length === 0 ? (
-        <Empty
-          description={
-            canManageKinds
-              ? 'No event types yet. Use "Event types" to add one (e.g. Event, Training, R&D).'
-              : 'No event types have been set up yet.'
-          }
+        <EmptyState
+          phrase={canManageKinds ? 'No event types yet, like Competition, Training or R&D.' : 'No event types have been set up yet.'}
+          action={canManageKinds ? { label: 'Set up event types', onClick: () => setManaging(true) } : { label: 'Open the calendar', to: '/calendar' }}
         />
       ) : loaded ? (
-        <Empty description="No such event type" />
+        <EmptyState phrase="That event type doesn't exist." action={{ label: 'See all events', to: '/events' }} />
       ) : null}
       <KindsManagerModal kinds={kinds} open={managing} onClose={() => setManaging(false)} onChanged={loadKinds} />
     </>

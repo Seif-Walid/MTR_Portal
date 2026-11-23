@@ -82,6 +82,14 @@ a:focus-visible, button:focus-visible, summary:focus-visible,
 .ant-card .ant-statistic-title { color: var(--text-tertiary); font-size: 12px; }
 .ant-card .ant-statistic-content { font-family: var(--font-display); font-stretch: 112%; font-variant-numeric: tabular-nums; }
 
+/* empty states sit on the page, never in a box: a card or panel holding only
+   an empty message drops its own background, border and shadow */
+.ant-card:has(> .ant-card-body > .ant-empty:only-child),
+.ant-card:has(> .ant-card-body > :only-child > .ant-empty:only-child),
+.ant-card:has(> .ant-card-body > .ant-typography-secondary:only-child) {
+  background: transparent !important; border-color: transparent !important; box-shadow: none !important;
+}
+
 .ant-modal .ant-modal-title, .ant-drawer-title { font-family: var(--font-display); font-stretch: 112%; }
 .ant-modal .ant-modal-content { border: 1px solid var(--border); box-shadow: var(--shadow-xl); }
 .ant-tag { border-radius: var(--radius-full); padding-inline: 9px; }
@@ -351,15 +359,7 @@ a:focus-visible, button:focus-visible, summary:focus-visible,
 .mtr-rail.is-mini .mtr-nav-pill:not(.is-active) { opacity: 0; }
 .mtr-nav { transition: color 200ms var(--ease-out), transform var(--duration-instant) var(--ease-out); }
 
-/* Dark: the Circuit night — faint PCB grid behind the shell, glassy rail */
-:root[data-theme='dark'] body::before {
-  content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-  background-image:
-    linear-gradient(rgb(92 198 255 / 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(92 198 255 / 0.035) 1px, transparent 1px);
-  background-size: 48px 48px;
-}
-:root[data-theme='dark'] #root { position: relative; z-index: 1; }
+/* Dark: glassy rail */
 :root[data-theme='dark'] .mtr-rail {
   background: rgb(10 14 20 / 0.82);
   backdrop-filter: blur(14px) saturate(1.2);

@@ -4,13 +4,14 @@ and the aggregate statistics behind the dashboard."""
 from __future__ import annotations
 
 import re
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domains.events.models import Event, EventParticipation
+from app.domains.events.models import Event
+from app.domains.events.participations import Participation, by_member, participations
 from app.domains.users.models import User
 
 
@@ -50,11 +51,8 @@ def find_duplicates(
     return hits
 
 
-def participations_by_member(db: Session) -> dict[int, list[EventParticipation]]:
-    out: dict[int, list[EventParticipation]] = defaultdict(list)
-    for p in db.scalars(select(EventParticipation)):
-        out[p.member_id].append(p)
-    return out
+def participations_by_member(db: Session) -> dict[int, list[Participation]]:
+    return by_member(db)
 
 
 def _top(counter: Counter, n: int = 12) -> list[dict]:
@@ -68,12 +66,12 @@ def stats(db: Session) -> dict:
     everyone = roster(db)
     members = [m for m in everyone if m.mtr_id]
     numbered = {m.id for m in members}
-    parts = [p for p in db.scalars(select(EventParticipation)) if p.member_id in numbered]
+    parts = [p for p in participations(db) if p.member.id in numbered]
     events = {e.id: e for e in db.scalars(select(Event))}
 
     joins = Counter(m.joined_at.strftime("%Y-%m") for m in members if m.joined_at)
-    by_event: dict[int, int] = Counter(p.event_id for p in parts)
-    per_member = Counter(p.member_id for p in parts)
+    by_event: dict[int, int] = Counter(p.event.id for p in parts)
+    per_member = Counter(p.member.id for p in parts)
     activity = Counter(per_member.get(m.id, 0) for m in members)
 
     def clean(v) -> str:

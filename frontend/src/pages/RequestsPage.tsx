@@ -4,6 +4,7 @@ import {
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useCallback, useEffect, useState } from 'react';
+import EmptyState from '../components/EmptyState';
 import { useNavigate } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
@@ -215,6 +216,9 @@ export default function RequestsPage() {
       </div>
 
       <Table className="circuit-table" rowKey="id" loading={loading} dataSource={rows}
+        locale={{ emptyText: box === 'received'
+          ? <EmptyState phrase="Nobody has asked you for anything yet." action={{ label: 'Make a request', onClick: () => setCreating(true) }} />
+          : <EmptyState phrase="You haven't sent any requests." action={{ label: 'Make a request', onClick: () => setCreating(true) }} /> }}
         pagination={{ defaultPageSize: 15, hideOnSinglePage: true }} scroll={{ x: 'max-content' }}
         columns={[
           {

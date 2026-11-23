@@ -1,9 +1,10 @@
 import { CheckOutlined, LinkOutlined, SearchOutlined, WarningOutlined } from '@ant-design/icons';
-import { Alert, Button, Empty, Input, InputNumber, Modal, Space, Spin, Tag, Tooltip, Typography, message } from 'antd';
+import { Alert, Button, Input, InputNumber, Modal, Space, Spin, Tag, Tooltip, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api } from '../api/client';
 import type { InventoryItem, PriceCandidate, PriceCandidates, ValueSource } from '../api/types';
+import EmptyState from './EmptyState';
 
 const MONO = 'var(--font-mono)';
 
@@ -209,7 +210,7 @@ export function PricingReviewModal({ open, items, onClose, onChanged }: {
           <PriceItemPanel item={current} onSaved={(i) => { onChanged(i); next(); }} />
         </>
       ) : (
-        <Empty description={queue.length ? 'All done. Every item in this list has been through review.' : 'Nothing to price.'} />
+        <EmptyState compact phrase={queue.length ? 'All done. Every item in this list has been through review.' : 'Nothing to price.'} />
       )}
     </Modal>
   );

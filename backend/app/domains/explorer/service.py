@@ -49,7 +49,7 @@ def _payment_title(p) -> str:
 
 
 def _enrollment_title(e) -> str:
-    return f"{e.member.full_name} — {e.tier.name} ({e.status})"
+    return f"{e.member.full_name} — {e.tier.name if e.tier else 'team tier'} ({e.status})"
 
 
 ENTITIES: list[Entity] = [
@@ -233,7 +233,8 @@ def edit_keys(privileges: set[str]) -> dict[str, tuple[str, set[str]]]:
 
     out: dict[str, tuple[str, set[str]]] = {}
     for spec in TABLES.values():
-        if spec.read_only or spec.where is not None or spec.privilege not in privileges:
+        if (spec.read_only or spec.where is not None or spec.home is not None
+                or spec.privilege not in privileges):
             continue
         # a column can pin a related list only if the grid stores the raw id under the SQL name
         cols = {c.name for c in spec.columns if c.editable and c.name == c.model_attr

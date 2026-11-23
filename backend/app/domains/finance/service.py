@@ -11,7 +11,10 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domains.events.models import Event
+from app.domains.access import service as access
+from app.domains.events.models import Event, EventCategory, EventTeam
+from app.domains.events.service import team_member_user_ids
+from app.domains.users.models import User
 from app.domains.finance.models import (
     BudgetLine,
     CashTransfer,
@@ -82,15 +85,56 @@ def _full_years(start: date, end: date) -> int:
     return max(years, 0)
 
 
-def maturity(enrollment: DuesEnrollment, season: FinanceSeason) -> int:
+def maturity_of(member: User | None, override: int | None, season: FinanceSeason) -> int:
     """Years with the team at the season start: the override if set, else
     counted from the member's first registration."""
-    if enrollment.maturity_override is not None:
-        return enrollment.maturity_override
-    joined = enrollment.member.joined_at if enrollment.member is not None else None
+    if override is not None:
+        return override
+    joined = member.joined_at if member is not None else None
     if joined is None:
         return 0
     return _full_years(joined.date(), season.start_date or date.today())
+
+
+def maturity(enrollment: DuesEnrollment, season: FinanceSeason) -> int:
+    return maturity_of(enrollment.member, enrollment.maturity_override, season)
+
+
+def _tier_total(tier: DuesTier) -> float:
+    return (tier.monthly_fee or 0) * (tier.months or 0) + (tier.one_time_fee or 0)
+
+
+def event_team_ids(db: Session, event_id: int) -> list[int]:
+    return list(db.scalars(
+        select(EventTeam.id)
+        .join(EventCategory, EventCategory.id == EventTeam.category_id)
+        .where(EventCategory.event_id == event_id, EventTeam.deleted_at.is_(None))
+    ))
+
+
+def derived_roster(db: Session, season: FinanceSeason) -> dict[int, dict]:
+    """Who owes dues this season because they are on an event's team, and on
+    which tier: every event whose dues tier belongs to this season contributes
+    everyone on its teams (membership rows and team role seats). Someone on
+    several events owes the dearest tier once. {user id: {tier, events}}."""
+    tiers = {t.id: t for t in db.scalars(select(DuesTier).where(DuesTier.season_id == season.id))}
+    if not tiers:
+        return {}
+    out: dict[int, dict] = {}
+    for event in db.scalars(select(Event).where(Event.dues_tier_id.in_(tiers)).order_by(Event.id)):
+        tier = tiers[event.dues_tier_id]
+        uids: set[int] = set()
+        for tid in event_team_ids(db, event.id):
+            uids |= team_member_user_ids(db, tid)
+        for uid in uids:
+            cur = out.get(uid)
+            if cur is None:
+                out[uid] = {"tier": tier, "events": [event.name]}
+                continue
+            cur["events"].append(event.name)
+            if _tier_total(tier) > _tier_total(cur["tier"]):
+                cur["tier"] = tier
+    return out
 
 
 def discount_for(years: int, discounts: list[DuesDiscount]) -> float:
@@ -107,7 +151,11 @@ def dues_ledger(db: Session, season: FinanceSeason) -> dict:
     projection by segment and the totals."""
     discounts = list(db.scalars(select(DuesDiscount).where(DuesDiscount.season_id == season.id)))
     tiers = list(db.scalars(select(DuesTier).where(DuesTier.season_id == season.id).order_by(DuesTier.sort_order, DuesTier.id)))
-    enrollments = list(db.scalars(select(DuesEnrollment).where(DuesEnrollment.season_id == season.id)))
+    enrollments = {e.member_id: e for e in db.scalars(
+        select(DuesEnrollment).where(DuesEnrollment.season_id == season.id)
+    )}
+    derived = derived_roster(db, season)
+    members = {u.id: u for u in db.scalars(select(User).where(User.id.in_(set(derived) | set(enrollments))))}
     payments = list(db.scalars(select(DuesPayment).where(DuesPayment.season_id == season.id)))
     months = season_months(season)
     month_keys = [m.strftime("%Y-%m") for m in months]
@@ -120,34 +168,42 @@ def dues_ledger(db: Session, season: FinanceSeason) -> dict:
 
     rows = []
     segments: dict[tuple[int, float], dict] = {}
-    for e in enrollments:
-        years = maturity(e, season)
+    for uid in set(derived) | set(enrollments):
+        e = enrollments.get(uid)
+        d = derived.get(uid)
+        tier = (e.tier if e is not None and e.tier is not None else None) or (d["tier"] if d else None)
+        override = e.maturity_override if e is not None else None
+        member = members.get(uid)
+        years = maturity_of(member, override, season)
         disc = discount_for(years, discounts)
-        tier = e.tier
-        fee = round((tier.monthly_fee or 0) * (1 - disc), 2)
-        active = e.status == EnrollmentStatus.ACTIVE
-        expected_full = fee * (tier.months or 0) + (tier.one_time_fee or 0)
-        paid = paid_total.get(e.member_id, 0.0)
+        fee = round(((tier.monthly_fee if tier else 0) or 0) * (1 - disc), 2)
+        status = e.status if e is not None else EnrollmentStatus.ACTIVE
+        active = status == EnrollmentStatus.ACTIVE and tier is not None
+        expected_full = (fee * (tier.months or 0) + (tier.one_time_fee or 0)) if tier else 0.0
+        paid = paid_total.get(uid, 0.0)
         expected = expected_full if active else paid
-        member = e.member
         rows.append({
-            "enrollment_id": e.id,
-            "member_id": e.member_id,
+            "enrollment_id": e.id if e is not None else None,
+            "member_id": uid,
             "name": member.full_name if member else "",
             "mtr_id": member.mtr_id if member else None,
-            "tier": tier.name,
+            "tier": tier.name if tier else None,
+            "tier_overridden": bool(e is not None and e.tier_id is not None and d is not None
+                                    and e.tier_id != d["tier"].id),
+            "source": "team" if d else "manual",
+            "events": d["events"] if d else [],
             "joined_at": member.joined_at.date().isoformat() if member and member.joined_at else None,
             "maturity": years,
-            "maturity_overridden": e.maturity_override is not None,
+            "maturity_overridden": override is not None,
             "discount": disc,
             "monthly_fee": fee,
-            "status": e.status,
-            "months_due": tier.months or 0,
-            "monthly": {k: paid_by_member[e.member_id].get(k, 0.0) for k in month_keys},
+            "status": status,
+            "months_due": (tier.months or 0) if tier else 0,
+            "monthly": {k: paid_by_member[uid].get(k, 0.0) for k in month_keys},
             "paid": paid,
             "expected": expected,
             "balance": expected - paid,
-            "note": e.note,
+            "note": e.note if e is not None else None,
         })
         if active:
             seg = segments.setdefault((tier.id, disc), {
@@ -165,6 +221,12 @@ def dues_ledger(db: Session, season: FinanceSeason) -> dict:
             seg["projected"] += expected_full
 
     rows.sort(key=lambda r: (r["status"] != EnrollmentStatus.ACTIVE, r["name"].lower()))
+    on_roster = {r["member_id"] for r in rows}
+    unlisted = sorted(
+        ({"member_id": uid, "name": p.member.full_name if p.member else f"#{uid}", "paid": paid_total[uid]}
+         for uid, p in {p.member_id: p for p in payments}.items() if uid not in on_roster),
+        key=lambda r: r["name"].lower(),
+    )
     projection = sorted(segments.values(), key=lambda s: s.pop("_order"))
     collected = sum(p.amount or 0 for p in payments)
     return {
@@ -183,56 +245,129 @@ def dues_ledger(db: Session, season: FinanceSeason) -> dict:
             "unenrolled_paid": collected - sum(r["paid"] for r in rows),
             "by_month": {k: sum(r["monthly"][k] for r in rows) for k in month_keys},
         },
+        # paid this season but on no team and no exception row
+        "unlisted_payers": unlisted,
+        "events": [
+            {"id": ev.id, "name": ev.name, "tier_id": ev.dues_tier_id}
+            for ev in db.scalars(select(Event).where(Event.status != "archived").order_by(Event.name))
+        ],
     }
 
 
 # --- cash --------------------------------------------------------------------
-def cash_balances(db: Session) -> dict:
-    """Money each holder has, per payment method: transfers in − transfers out
-    − transfer fees − spendings they paid + dues they received."""
-    methods = list(db.scalars(
+HolderKey = tuple[str, int]  # ("user", id) or ("party", id) for a legacy holder
+
+
+class Holders:
+    """Resolves who holds a money row: its account, else the account linked to
+    its legacy party (so linking a party later fixes every old row at once),
+    else the legacy party itself."""
+
+    def __init__(self, db: Session):
+        self.db = db
+        self.parties = {p.id: p for p in db.scalars(select(FinanceParty))}
+        self._users: dict[int, User | None] = {}
+
+    def key(self, user_id: int | None, party_id: int | None) -> HolderKey | None:
+        if user_id is not None:
+            return ("user", user_id)
+        if party_id is not None:
+            p = self.parties.get(party_id)
+            if p is not None and p.user_id is not None:
+                return ("user", p.user_id)
+            return ("party", party_id)
+        return None
+
+    def user(self, uid: int) -> User | None:
+        if uid not in self._users:
+            self._users[uid] = self.db.get(User, uid)
+        return self._users[uid]
+
+    def out(self, key: HolderKey | None) -> dict | None:
+        if key is None:
+            return None
+        kind, hid = key
+        if kind == "user":
+            u = self.user(hid)
+            return {"kind": "user", "id": hid, "name": u.full_name if u else f"#{hid}", "legacy": False}
+        p = self.parties.get(hid)
+        return {"kind": "party", "id": hid, "name": p.name if p else f"#{hid}", "legacy": True}
+
+
+def cash_holder_ids(db: Session) -> set[int]:
+    """Accounts allowed to hold the team's money."""
+    return access.users_with_privilege(db, "finance.handle_cash")
+
+
+def _balances(db: Session, holders: Holders) -> dict[HolderKey, dict[int | None, float]]:
+    bal: dict[HolderKey, dict[int | None, float]] = defaultdict(lambda: defaultdict(float))
+    for t in db.scalars(select(CashTransfer)):
+        to = holders.key(t.to_user_id, t.to_party_id)
+        frm = holders.key(t.from_user_id, t.from_party_id)
+        if to is not None:
+            bal[to][t.to_method_id] += t.amount or 0
+        if frm is not None:
+            bal[frm][t.from_method_id] -= (t.amount or 0) + (t.fees or 0)
+    for s in db.scalars(select(Spending)):
+        k = holders.key(s.holder_id, s.paid_by_id)
+        if k is not None:
+            bal[k][s.method_id] -= s.net
+    for p in db.scalars(select(DuesPayment)):
+        k = holders.key(p.holder_id, p.received_by_id)
+        if k is not None:
+            bal[k][p.method_id] += p.amount or 0
+    for f in db.scalars(select(FundingLine).where(FundingLine.received_on.is_not(None))):
+        if f.holder_id is not None:
+            bal[("user", f.holder_id)][f.method_id] += f.amount or 0
+    return bal
+
+
+def _methods(db: Session) -> list[FinanceOption]:
+    return list(db.scalars(
         select(FinanceOption)
         .where(FinanceOption.list_key == OptionList.PAYMENT_METHOD)
         .order_by(FinanceOption.sort_order, FinanceOption.id)
     ))
-    parties = {p.id: p for p in db.scalars(select(FinanceParty))}
-    bal: dict[int, dict[int | None, float]] = defaultdict(lambda: defaultdict(float))
 
-    for t in db.scalars(select(CashTransfer)):
-        if t.to_party_id is not None:
-            bal[t.to_party_id][t.to_method_id] += t.amount or 0
-        if t.from_party_id is not None:
-            bal[t.from_party_id][t.from_method_id] -= (t.amount or 0) + (t.fees or 0)
-    for s in db.scalars(select(Spending).where(Spending.paid_by_id.is_not(None))):
-        bal[s.paid_by_id][s.method_id] -= s.net
-    for p in db.scalars(select(DuesPayment).where(DuesPayment.received_by_id.is_not(None))):
-        bal[p.received_by_id][p.method_id] += p.amount or 0
 
-    holder_type_names = {"cfo", "cash holder"}
-    holder_ids = set(bal) | {
-        pid for pid, p in parties.items()
-        if p.is_active and p.type is not None and p.type.value.strip().lower() in holder_type_names
-    }
+def cash_balances(db: Session) -> dict:
+    """Money each holder has, per payment method: hand-overs in − hand-overs
+    out − fees − what they spent + dues and funding they received."""
+    holders = Holders(db)
+    bal = _balances(db, holders)
+    keys = set(bal) | {("user", uid) for uid in cash_holder_ids(db)}
     # Each column carries the string `key` its cells are stored under, so the
     # client never has to rebuild it (str(None) is "None" here but
     # String(null) is "null" in JS, which once hid the Unspecified money).
-    columns = [{"id": m.id, "key": str(m.id), "name": m.value} for m in methods]
-    has_unassigned = any(None in by_method for by_method in bal.values())
-    if has_unassigned:
+    columns = [{"id": m.id, "key": str(m.id), "name": m.value} for m in _methods(db)]
+    if any(None in by_method for by_method in bal.values()):
         columns.append({"id": None, "key": "none", "name": "Unspecified"})
 
     rows = []
-    for pid in sorted(holder_ids, key=lambda i: parties[i].name.lower() if i in parties else ""):
-        by_method = bal.get(pid, {})
-        cells = {c["key"]: by_method.get(c["id"], 0.0) for c in columns}
+    for k in keys:
+        by_method = bal.get(k, {})
+        h = holders.out(k)
         rows.append({
-            "party_id": pid,
-            "name": parties[pid].name if pid in parties else f"#{pid}",
-            "cells": cells,
+            "holder": h,
+            "party_id": k[1] if k[0] == "party" else None,
+            "user_id": k[1] if k[0] == "user" else None,
+            "name": h["name"] + (" (legacy)" if h["legacy"] else ""),
+            "cells": {c["key"]: by_method.get(c["id"], 0.0) for c in columns},
             "total": sum(by_method.values()),
         })
+    rows.sort(key=lambda r: r["name"].lower())
     totals = {c["key"]: sum(r["cells"][c["key"]] for r in rows) for c in columns}
     return {"methods": columns, "rows": rows, "totals": totals, "total": sum(r["total"] for r in rows)}
+
+
+def my_cash(db: Session, user: User) -> dict:
+    """What the signed-in holder has on them, per method."""
+    holders = Holders(db)
+    by_method = _balances(db, holders).get(("user", user.id), {})
+    methods = [{"id": m.id, "name": m.value, "amount": by_method.get(m.id, 0.0)} for m in _methods(db)]
+    if by_method.get(None):
+        methods.append({"id": None, "name": "Unspecified", "amount": by_method[None]})
+    return {"methods": methods, "total": sum(by_method.values())}
 
 
 # --- dashboard -----------------------------------------------------------------
@@ -356,7 +491,8 @@ def dashboard(db: Session, season_id: int | None) -> dict:
         "by_event": [{"name": k, **v} for k, v in sorted(by_event.items(), key=lambda kv: -kv[1]["needed"])],
         "monthly": [{"month": k, **v} for k, v in sorted(monthly.items())],
         "funding": [
-            {"source": f.source, "type": names.get(f.type_id) if f.type_id else None,
+            {"id": f.id, "received_on": f.received_on.isoformat() if f.received_on else None,
+             "source": f.source, "type": names.get(f.type_id) if f.type_id else None,
              "amount": f.amount, "status": f.status, "season_id": f.season_id}
             for f in funding
         ],

@@ -3,6 +3,7 @@ import dayjs from 'dayjs';
 
 import type { FinanceDashboard } from '../api/types';
 import { BarList, Columns, Panel, PanelGrid, StatRow, StatTile, compact, egp } from './charts';
+import EmptyState from './EmptyState';
 
 const STATUS_TAG: Record<string, { color: string; label: string }> = {
   over: { color: 'error', label: 'Over budget' },
@@ -102,7 +103,7 @@ export default function FinanceOverview({ data, compactView = false }: { data: F
             pagination={false}
             rowKey="name"
             dataSource={data.by_event}
-            locale={{ emptyText: 'No budget lines yet' }}
+            locale={{ emptyText: <EmptyState compact phrase="No budget lines yet." /> }}
             columns={[
               { title: 'Event', dataIndex: 'name' },
               { title: 'Needed', dataIndex: 'needed', align: 'right', render: egp },

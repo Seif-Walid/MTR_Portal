@@ -1,7 +1,8 @@
-import { Empty, Table, Tag, Typography } from 'antd';
+import { Table, Tag, Typography } from 'antd';
 
 import type { Allocation, AllocationPurpose, InventoryItem } from '../api/types';
 import { PURPOSE_META } from './tags';
+import EmptyState from './EmptyState';
 
 /** Column identity: a distinct event is its own column; otherwise group
  *  by purpose + free-text label. */
@@ -40,7 +41,7 @@ interface Row {
  *  number is derived from the item's allocations — no hardcoded data. */
 export default function HoldingsMatrix({ item }: { item: InventoryItem }) {
   if (item.allocations.length === 0) {
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing allocated yet" />;
+    return <EmptyState compact phrase="Nothing allocated yet." />;
   }
 
   // distinct activity columns, ordered by purpose then label

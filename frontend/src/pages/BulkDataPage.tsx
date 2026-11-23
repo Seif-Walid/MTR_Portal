@@ -1,8 +1,9 @@
-import { Card, Empty, Tag, Typography, message } from 'antd';
+import { Card, Tag, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
 import DataGrid from '../components/DataGrid';
+import EmptyState from '../components/EmptyState';
 
 interface TableSummary {
   key: string;
@@ -95,7 +96,7 @@ export default function BulkDataPage() {
             title={<Typography.Text strong style={{ fontSize: 16 }}>{current.label}</Typography.Text>}
           />
         ) : (
-          loaded && <Empty description="You have no editable tables." />
+          loaded && <EmptyState phrase="You have no tables you can edit." action={{ label: 'Open the dashboard', to: '/explore' }} />
         )}
       </Card>
     </div>

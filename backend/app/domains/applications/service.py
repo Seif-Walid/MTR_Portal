@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.domains.access import service as access
-from app.domains.applications.models import Application, ApplicationStatus
+from app.core.security import hash_password, verify_password
+from app.domains.applications.models import Application, ApplicationSource, ApplicationStatus
 from app.domains.applications.schemas import ApplicationIn
 from app.domains.events.models import Event, EventStatus
 from app.domains.members.service import digits, roster
@@ -40,24 +41,91 @@ def client_hash(request: Request) -> str | None:
     return hashlib.sha256(f"{settings.application_ip_salt}:{ip}".encode()).hexdigest()
 
 
+# an entry request still waiting on someone (not accepted, not declined)
+OPEN_STATUSES = (ApplicationStatus.NEW, ApplicationStatus.CONTACTED, ApplicationStatus.WAITLISTED)
+
+
+def _rate_limit(db: Session, sender: str | None) -> None:
+    if sender is None:
+        return
+    recent = db.scalar(
+        select(func.count(Application.id)).where(
+            Application.client_hash == sender,
+            Application.created_at >= _now() - timedelta(hours=1),
+        )
+    )
+    if recent >= PER_HOUR:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many applications from this connection — try again in an hour",
+        )
+
+
+def open_entry_request(db: Session, email: str) -> Application | None:
+    return db.scalar(
+        select(Application)
+        .where(
+            func.lower(Application.email) == email.lower(),
+            Application.source == ApplicationSource.PORTAL,
+            Application.status.in_(OPEN_STATUSES),
+            Application.member_id.is_(None),
+        )
+        .order_by(Application.created_at.desc())
+        .limit(1)
+    )
+
+
+def pending_entry(db: Session, email: str, password: str) -> bool:
+    """Is this someone signing in before their entry request was accepted?
+    Only said when the password matches the one they chose, so the sign-in
+    form can't be used to find out who has asked."""
+    app = open_entry_request(db, email)
+    return app is not None and app.password_hash is not None and verify_password(password, app.password_hash)
+
+
+def request_entry(db: Session, payload, sender: str | None) -> Application:
+    """File (or refresh) a portal "Request entry" as an application for a
+    reviewer to accept or decline. Asking again while one is still open
+    updates it instead of adding another."""
+    phone = (payload.phone or "").strip()
+    if not 8 <= len("".join(ch for ch in phone if ch.isdigit())) <= 15:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Enter a phone number we can reach on WhatsApp")
+    now = _now()
+    answers = {
+        "full_name": " ".join(payload.full_name.split()),
+        "email": payload.email.lower(),
+        "phone": phone,
+        "school": (payload.school or "").strip(),
+        "year": (payload.year or "").strip(),
+        "motivation": (payload.why or "").strip(),
+        "password_hash": hash_password(payload.password),
+    }
+    app = open_entry_request(db, payload.email)
+    if app is not None:
+        for k, v in answers.items():
+            setattr(app, k, v)
+        app.updated_at = now
+        db.commit()
+        return app
+    _rate_limit(db, sender)
+    app = Application(**answers, source=ApplicationSource.PORTAL, client_hash=sender,
+                      created_at=now, updated_at=now)
+    db.add(app)
+    db.flush()
+    for uid in reviewer_ids(db):
+        notify(db, uid, NotificationType.APPLICATION_RECEIVED,
+               f"{app.full_name} requested entry to the portal")
+    db.commit()
+    return app
+
+
 def submit(db: Session, payload: ApplicationIn, sender: str | None) -> Application | None:
     """Store a website application. Returns None for a honeypot hit, which the
     caller still answers with success so the bot learns nothing."""
     if payload.website:
         return None
     now = _now()
-    if sender is not None:
-        recent = db.scalar(
-            select(func.count(Application.id)).where(
-                Application.client_hash == sender,
-                Application.created_at >= now - timedelta(hours=1),
-            )
-        )
-        if recent >= PER_HOUR:
-            raise HTTPException(
-                status.HTTP_429_TOO_MANY_REQUESTS,
-                "Too many applications from this connection — try again in an hour",
-            )
+    _rate_limit(db, sender)
 
     event = None
     if payload.event_id is not None:
@@ -86,6 +154,7 @@ def submit(db: Session, payload: ApplicationIn, sender: str | None) -> Applicati
             Application.event_id.is_(None) if payload.event_id is None
             else Application.event_id == payload.event_id,
             Application.status == ApplicationStatus.NEW,
+            Application.source == ApplicationSource.WEBSITE,
             Application.created_at >= now - RESUBMIT_WINDOW,
         )
         .order_by(Application.created_at.desc())

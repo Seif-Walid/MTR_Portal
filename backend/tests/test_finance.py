@@ -47,11 +47,11 @@ def books(db_session):
         DuesDiscount(season_id=season.id, min_years=1, discount=0.5),
         DuesDiscount(season_id=season.id, min_years=2, discount=0.9),
     ])
-    veteran = User(full_name="Veteran", mtr_id="MTR-001", hashed_password=UNUSABLE_PASSWORD,
+    veteran = User(full_name="Veteran", mtr_id="MTR-901", hashed_password=UNUSABLE_PASSWORD,
                    joined_at=datetime(2024, 1, 1, tzinfo=timezone.utc))
-    rookie = User(full_name="Rookie", mtr_id="MTR-011", hashed_password=UNUSABLE_PASSWORD,
+    rookie = User(full_name="Rookie", mtr_id="MTR-911", hashed_password=UNUSABLE_PASSWORD,
                   joined_at=datetime(2026, 7, 1, tzinfo=timezone.utc))
-    quitter = User(full_name="Quitter", mtr_id="MTR-012", hashed_password=UNUSABLE_PASSWORD)
+    quitter = User(full_name="Quitter", mtr_id="MTR-912", hashed_password=UNUSABLE_PASSWORD)
     db.add_all([veteran, rookie, quitter])
     db.flush()
     db.add_all([
@@ -115,7 +115,7 @@ def test_dashboard_rollup(login, org, books):
 
 def test_cash_matrix(login, org, books):
     body = login("admin").get("/api/finance/cash").json()
-    osama = next(r for r in body["rows"] if r["name"] == "Osama")
+    osama = next(r for r in body["rows"] if r["name"] == "Osama (legacy)")
     assert osama["cells"][str(books["cash"].id)] == 2540 and osama["total"] == 2540
 
 
@@ -128,7 +128,7 @@ def test_cash_matrix_shows_unspecified_method(login, org, books, db_session):
     body = login("admin").get("/api/finance/cash").json()
     unspecified = next(m for m in body["methods"] if m["id"] is None)
     assert unspecified["name"] == "Unspecified"
-    osama = next(r for r in body["rows"] if r["name"] == "Osama")
+    osama = next(r for r in body["rows"] if r["name"] == "Osama (legacy)")
     assert osama["cells"][unspecified["key"]] == 300
     assert sum(osama["cells"][m["key"]] for m in body["methods"]) == osama["total"] == 2840
     assert body["totals"][unspecified["key"]] == 300

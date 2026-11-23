@@ -1,7 +1,7 @@
 import {
   ApiOutlined, CheckOutlined, CloseOutlined, DeleteOutlined, FileExcelOutlined, FilePdfOutlined, PlusOutlined, SendOutlined, ToolOutlined,
 } from '@ant-design/icons';
-import { Alert, Button, Checkbox, Empty, Input, Modal, Popconfirm, Segmented, Space, Spin, Tooltip, message } from 'antd';
+import { Alert, Button, Checkbox, Input, Modal, Popconfirm, Segmented, Space, Spin, Tooltip, message } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -11,6 +11,7 @@ import type {
   AiAction, AiConnectInfo, AiConversation, AiConversationDetail, AiMessage, AiMode, AiStatus, AiToolUse,
 } from '../api/types';
 import { asButton } from '../components/a11y';
+import EmptyState from '../components/EmptyState';
 
 const MONO = 'var(--font-mono)';
 const DISPLAY = 'var(--font-display)';
@@ -392,10 +393,8 @@ export default function AssistantPage() {
            <div className="ai-thread">
             {current && <ActionsPanel sticky actions={current.actions} onDecided={() => open(current.id)} />}
             {!current?.messages.length && !live && (
-              <Empty
-                style={{ marginTop: 60 }}
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={
+              <EmptyState
+                phrase={
                   <span style={{ color: MUTED }}>
                     Ask in plain words. It finds parts, people and events by meaning, and <b>proposes</b> changes for you to confirm.
                     <br />Use <b style={{ color: PLAN }}>Plan</b> for research and costing, e.g. joining a new competition.

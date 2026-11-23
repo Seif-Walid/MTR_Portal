@@ -68,7 +68,7 @@ def test_signup_claims_roster_account(client, db_session, org):
     m = make_member(db_session, "Roster Person", mtr_id="MTR-060", email="person@gmail.com",
                     joined_at=datetime(2025, 1, 1, tzinfo=timezone.utc))
     db_session.commit()
-    r = client.post("/api/auth/register", json={
+    r = client.post("/api/auth/request-entry", json={
         "email": "Person@gmail.com", "full_name": "Person", "password": "longenough1",
     })
     assert r.status_code == 201, r.text
@@ -77,7 +77,7 @@ def test_signup_claims_roster_account(client, db_session, org):
     assert m.claimed
     # once claimed, the email is taken like any other
     client.cookies.clear()
-    assert client.post("/api/auth/register", json={
+    assert client.post("/api/auth/request-entry", json={
         "email": "person@gmail.com", "full_name": "Thief", "password": "longenough1",
     }).status_code == 409
 
@@ -112,3 +112,34 @@ def test_event_card_carries_record_and_participations(login, org, db_session):
     parts = admin.get(f"/api/events/{ev.id}/participations").json()
     assert parts[0]["name"] == "Pilot" and parts[0]["mtr_id"] == "MTR-070"
     assert login("comp_member").get(f"/api/events/{ev.id}/participations").status_code == 403
+
+
+def test_participations_come_from_teams_with_the_record_filling_gaps(login, org, db_session):
+    from app.domains.events.models import EventCategory, EventTeam, EventTeamMember
+
+    db = db_session
+    ev = Event(name="ROV27", code="ROV27")
+    db.add(ev)
+    db.flush()
+    cat = EventCategory(event_id=ev.id, name="Main")
+    db.add(cat)
+    db.flush()
+    team = EventTeam(category_id=cat.id, name="Pilots")
+    db.add(team)
+    db.flush()
+    db.add_all([
+        EventTeamMember(team_id=team.id, user_id=org["student"].id, role="Pilot"),
+        # imported record for the same person: lends its rating, not its free-text team
+        EventParticipation(event_id=ev.id, member_id=org["student"].id, team="old text", rating="A"),
+        # someone only the record knows (a registration): still shown
+        EventParticipation(event_id=ev.id, member_id=org["comp_member"].id, role="Registered"),
+    ])
+    db.commit()
+    _grant(db, org, "admin", "members.view")
+    rows = {r["member_id"]: r for r in login("admin").get(f"/api/events/{ev.id}/participations").json()}
+    s = rows[org["student"].id]
+    assert s["team"] == "Pilots" and s["team_id"] == team.id and s["role"] == "Pilot"
+    assert s["rating"] == "A" and s["source"] == "team"
+    assert rows[org["comp_member"].id]["source"] == "record"
+    detail = login("admin").get(f"/api/members/{org['student'].id}").json()
+    assert detail["participations"][0]["team"] == "Pilots"

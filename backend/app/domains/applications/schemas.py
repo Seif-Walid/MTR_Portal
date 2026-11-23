@@ -78,6 +78,7 @@ class ApplicationOut(BaseModel):
     motivation: str
     event_id: int | None
     event_name: str | None
+    source: str  # "website" (join form) or "portal" (request entry)
     status: ApplicationStatus
     notes: str | None
     member_id: int | None

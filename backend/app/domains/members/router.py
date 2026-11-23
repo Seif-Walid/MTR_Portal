@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.domains.access import service as access
 from app.domains.audit.service import log as audit_log
 from app.domains.auth.deps import DB, CurrentUser
-from app.domains.events.models import EventParticipation
+from app.domains.events.participations import Participation, participations
 from app.domains.members import service
 from app.domains.members.schemas import (
     DuplicateCheckIn,
@@ -24,11 +24,11 @@ from app.domains.users.roster import new_member, next_mtr_id
 router = APIRouter(prefix="/members", tags=["members"])
 
 
-def _event_label(p: EventParticipation) -> str:
+def _event_label(p: Participation) -> str:
     return p.event.code or p.event.name
 
 
-def _row(m: User, parts: list[EventParticipation]) -> dict:
+def _row(m: User, parts: list[Participation]) -> dict:
     return {
         "id": m.id,
         "mtr_id": m.mtr_id,
@@ -48,17 +48,17 @@ def _row(m: User, parts: list[EventParticipation]) -> dict:
     }
 
 
-def _participation_out(p: EventParticipation) -> ParticipationOut:
+def _participation_out(p: Participation) -> ParticipationOut:
     e = p.event
     return ParticipationOut(
-        id=p.id, event_id=e.id, event_name=e.name, event_code=e.code,
+        id=p.record_id, team_id=p.team_id, source=p.source, event_id=e.id, event_name=e.name, event_code=e.code,
         event_kind=e.kind.name if e.kind else None, event_start=e.start_date,
         role=p.role, team=p.team, mentor=p.mentor, rating=p.rating, registered_at=p.registered_at,
     )
 
 
 def _detail(db: DB, m: User) -> MemberDetail:
-    parts = list(db.scalars(select(EventParticipation).where(EventParticipation.member_id == m.id)))
+    parts = participations(db, member_id=m.id)
     parts.sort(key=lambda p: p.event.start_date or p.event.created_at.date(), reverse=True)
     return MemberDetail(
         **_row(m, parts),

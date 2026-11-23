@@ -1,8 +1,8 @@
 from datetime import date, datetime, timezone
 from enum import StrEnum
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, event, select
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from app.core.database import Base
 
@@ -106,5 +106,57 @@ class User(Base):
 
     @property
     def label(self) -> str:
-        """How a person reads in any picker: MTR ID first when they have one."""
+        """How a person reads in any picker: MTR ID first."""
         return f"{self.mtr_id} — {self.full_name}" if self.mtr_id else self.full_name
+
+
+# --- MTR IDs: every person carries one ---------------------------------------
+MTR_PREFIX = "MTR-"
+
+
+def format_mtr_id(number: int) -> str:
+    return f"{MTR_PREFIX}{number:03d}"
+
+
+def mtr_number(mtr_id: str | None) -> int:
+    digits = "".join(ch for ch in (mtr_id or "") if ch.isdigit())
+    return int(digits) if digits else 0
+
+
+def highest_mtr_number(session: Session) -> int:
+    with session.no_autoflush:
+        stored = session.execute(select(User.mtr_id).where(User.mtr_id.is_not(None))).scalars()
+        pending = (o.mtr_id for o in (*session.new, *session.dirty) if isinstance(o, User))
+        return max((mtr_number(m) for m in (*stored, *pending)), default=0)
+
+
+@event.listens_for(Session, "before_flush")
+def _number_people(session: Session, _ctx, _instances) -> None:
+    """Whoever is saved without an MTR ID gets the next free one, whichever
+    way they were added (roster form, grid, accepted application, admin,
+    seed) — so no one is ever left without an ID. A bulk re-keying (the
+    member-database import) pauses this with `session.info["defer_mtr_ids"]`
+    and calls `number_everyone` when it's done."""
+    if session.info.get("defer_mtr_ids"):
+        return
+    missing = [
+        o for o in (*session.new, *session.dirty)
+        if isinstance(o, User) and not o.mtr_id and o not in session.deleted
+    ]
+    if not missing:
+        return
+    highest = highest_mtr_number(session)
+    for user in sorted(missing, key=lambda u: u.id or 0):
+        highest += 1
+        user.mtr_id = format_mtr_id(highest)
+
+
+def number_everyone(session: Session) -> int:
+    """Give every stored person without an MTR ID the next free one, in id
+    order. Returns how many were numbered."""
+    highest = highest_mtr_number(session)
+    missing = list(session.scalars(select(User).where(User.mtr_id.is_(None)).order_by(User.id)))
+    for user in missing:
+        highest += 1
+        user.mtr_id = format_mtr_id(highest)
+    return len(missing)

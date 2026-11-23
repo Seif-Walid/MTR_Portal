@@ -1,4 +1,4 @@
-import { Card, Empty, Space, Table, Typography } from 'antd';
+import { Card, Space, Table, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 
 import { api } from '../api/client';
@@ -7,13 +7,14 @@ import { STATUS_META, StatusTag } from '../components/tags';
 import TaskDrawer from '../components/TaskDrawer';
 import TimeBlockPanel from '../components/TimeBlockPanel';
 import { openableRow } from '../components/a11y';
+import EmptyState from '../components/EmptyState';
 
 const MONO = 'var(--font-mono)';
 const DISPLAY = 'var(--font-display)';
 
 function StatCard({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
   return (
-    <div style={{ border: `1px solid ${accent ? 'color-mix(in srgb, var(--brand-fg) 25%, transparent)' : 'var(--border)'}`, borderRadius: 12, background: 'var(--surface)', padding: '14px 16px', minWidth: 0 }}>
+    <div className="mtr-inset" style={{ borderRadius: 12, padding: '14px 16px', minWidth: 0 }}>
       <div style={{ fontFamily: MONO, fontWeight: 600, fontSize: 26, color: accent ? 'var(--brand-fg)' : 'var(--text-primary)', lineHeight: 1 }}>{value}</div>
       <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', marginTop: 8 }}>{label}</div>
     </div>
@@ -122,7 +123,7 @@ export default function TeamPage() {
       <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: '0 0 18px', color: 'var(--text-primary)' }}>My Teams</h2>
 
       {!loading && blocks.length === 0 && (
-        <Empty description="You're not on any team yet" style={{ marginTop: 40 }} />
+        <EmptyState phrase="You're not on any team yet." action={{ label: 'Browse events', to: '/events' }} />
       )}
 
       {blocks.map((b) => (

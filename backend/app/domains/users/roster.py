@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import UNUSABLE_PASSWORD
 from app.domains.access.models import AccessLevel
-from app.domains.users.models import User
+from app.domains.users.models import User, format_mtr_id, highest_mtr_number
 
 # the ladder level a new member starts on — the same one the roster import gives
 MEMBER_LEVEL = "Member"
@@ -13,16 +13,7 @@ MEMBER_LEVEL = "Member"
 
 def next_mtr_id(db: Session) -> str:
     """The next free MTR ID, continuing after the current highest number."""
-    highest = 0
-    for (mtr_id,) in db.execute(select(User.mtr_id).where(User.mtr_id.is_not(None))):
-        digits = "".join(ch for ch in mtr_id if ch.isdigit())
-        if digits:
-            highest = max(highest, int(digits))
-    return format_mtr_id(highest + 1)
-
-
-def format_mtr_id(number: int) -> str:
-    return f"MTR-{number:03d}"
+    return format_mtr_id(highest_mtr_number(db) + 1)
 
 
 def unclaimed_account(db: Session, email: str) -> User | None:

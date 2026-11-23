@@ -34,6 +34,8 @@ const SSO_ERRORS: Record<string, string> = {
   google_email_unverified: 'That Google account has no verified email address.',
   google_domain_not_allowed: 'That Google account is not on the allowed domain list for this portal.',
   google_account_mismatch: "That Google account doesn't match the account you're linking from.",
+  not_a_member:
+    "That Google account isn't a member of the portal yet. Use Request entry to ask for access — you can sign in once someone accepts it.",
   link_required:
     'That email already has a password account here. Sign in with your password below, then link Google from the account menu.',
 };
@@ -61,7 +63,7 @@ const fieldLabel: React.CSSProperties = {
 };
 
 export default function LoginPage() {
-  const { me, login, register } = useAuth();
+  const { me, login, requestEntry } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
@@ -70,6 +72,10 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [school, setSchool] = useState('');
+  const [year, setYear] = useState('');
+  const [why, setWhy] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -128,12 +134,32 @@ export default function LoginPage() {
       if (!em || !password) return setError('Enter your email and password.');
       return run(() => login(em, password));
     }
-    // register
+    // request entry
     if (!fullName.trim()) return setError('Enter your name.');
     if (!em) return setError('Enter your email.');
+    if (!phone.trim()) return setError('Enter a phone number we can reach you on.');
     if (password.length < 8) return setError('Password must be at least 8 characters.');
     if (password !== confirm) return setError('Passwords do not match.');
-    run(() => register(em, fullName.trim(), password));
+    sendEntryRequest(em);
+  };
+
+  const sendEntryRequest = async (em: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await requestEntry({
+        email: em, full_name: fullName.trim(), password, phone: phone.trim(),
+        school: school.trim() || undefined, year: year.trim() || undefined, why: why.trim() || undefined,
+      });
+      if (result === 'signed-in') return navigate('/tasks');
+      switchMode('signin');
+      setEmail(em);
+      setNotice("Request sent. Someone on the team will review it — once it's accepted you can sign in here with this email and password.");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Something went wrong');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const sendResetLink = async (em: string) => {
@@ -173,7 +199,7 @@ export default function LoginPage() {
 
   const submitLabel = {
     signin: 'Sign in →',
-    register: 'Create account →',
+    register: 'Send request →',
     forgot: 'Send reset link →',
     reset: 'Set new password →',
   }[mode];
@@ -252,7 +278,7 @@ export default function LoginPage() {
           ) : (
           <div style={{ display: 'flex', gap: 6, marginBottom: 22, background: 'rgba(8,11,17,.6)', border: '1px solid rgba(120,170,230,.12)', borderRadius: 10, padding: 4 }}>
             <div className={`mtr-seg-tab${mode === 'signin' ? ' active' : ''}`} onClick={() => switchMode('signin')}>Sign in</div>
-            <div className={`mtr-seg-tab${mode === 'register' ? ' active' : ''}`} onClick={() => switchMode('register')}>Create account</div>
+            <div className={`mtr-seg-tab${mode === 'register' ? ' active' : ''}`} onClick={() => switchMode('register')}>Request entry</div>
           </div>
           )}
           {mode === 'forgot' && (
@@ -279,6 +305,18 @@ export default function LoginPage() {
               <>
                 <div style={fieldLabel}>Full name</div>
                 <input className="mtr-field" style={{ marginBottom: 16 }} placeholder="Your name" value={fullName} onChange={(e) => setFullName(e.target.value)} autoComplete="name" />
+                <div style={fieldLabel}>Phone (WhatsApp)</div>
+                <input className="mtr-field" style={{ marginBottom: 16 }} type="tel" placeholder="01012345678" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <div style={{ flex: 2, minWidth: 0 }}>
+                    <div style={fieldLabel}>University / school</div>
+                    <input className="mtr-field" style={{ marginBottom: 16 }} placeholder="Optional" value={school} onChange={(e) => setSchool(e.target.value)} autoComplete="organization" />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={fieldLabel}>Year</div>
+                    <input className="mtr-field" style={{ marginBottom: 16 }} placeholder="Optional" value={year} onChange={(e) => setYear(e.target.value)} />
+                  </div>
+                </div>
               </>
             )}
 
@@ -304,7 +342,14 @@ export default function LoginPage() {
             {(mode === 'register' || mode === 'reset') && (
               <>
                 <div style={fieldLabel}>Confirm password</div>
-                <input className="mtr-field" style={{ marginBottom: 22 }} type="password" placeholder="••••••••" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
+                <input className="mtr-field" style={{ marginBottom: mode === 'register' ? 16 : 22 }} type="password" placeholder="••••••••" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
+              </>
+            )}
+
+            {mode === 'register' && (
+              <>
+                <div style={fieldLabel}>Why do you want in?</div>
+                <textarea className="mtr-field" style={{ marginBottom: 22, minHeight: 64, resize: 'vertical', fontFamily: 'inherit' }} placeholder="Optional — a line about you or who sent you" value={why} onChange={(e) => setWhy(e.target.value)} maxLength={2000} />
               </>
             )}
 
@@ -333,7 +378,7 @@ export default function LoginPage() {
 
           {mode === 'register' && (
             <div style={{ fontSize: 12, color: 'rgba(224,236,252,.5)', marginTop: 10, lineHeight: 1.5 }}>
-              New accounts start without a team role — an admin will place you in the org chart.
+              Nobody gets in straight away: your request goes to the team's Applications page, and you can sign in once someone accepts it. Already added by an admin? Use the email they have — your account is activated right away.
             </div>
           )}
 
@@ -345,7 +390,7 @@ export default function LoginPage() {
             </div>
           )}
 
-          {(mode === 'signin' || mode === 'register') && (
+          {mode === 'signin' && (
           <>
           {/* divider */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0' }}>

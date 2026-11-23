@@ -436,7 +436,7 @@ def apply(
         try:
             with db.begin_nested():
                 if c.id is None:
-                    obj = spec.model(**_insert_defaults(spec, c.fields))
+                    obj = spec.model(**_insert_defaults(spec, c.fields, actor_id))
                     db.add(obj)
                     db.flush()
                     adds += 1
@@ -460,11 +460,14 @@ def apply(
                 return {"ok": False, "errors": errors, "summary": {"adds": 0, "updates": 0, "deletes": 0}, "ids": {}}
 
     deleted: list[int] = []
+    deleted_actor: dict[int, int | None] = {}
     if not blocked_deletes:
         for did in deletes:
             obj = db.get(spec.model, did)
             if obj is None:
                 continue
+            if spec.actor_attr:
+                deleted_actor[did] = getattr(obj, spec.actor_attr)
             if spec.delete == "deactivate":
                 obj.is_active = False
             elif spec.delete == "soft":
@@ -477,7 +480,7 @@ def apply(
     summary = {"adds": adds, "updates": updates, "deletes": removed}
     if adds or updates or removed:
         db.flush()
-        _audit_changes(db, spec, actor_id, before, created, updated, deleted)
+        _audit_changes(db, spec, actor_id, before, created, updated, deleted, deleted_actor)
     try:
         db.commit()
     except IntegrityError as exc:  # e.g. a delete still referenced by a foreign key
@@ -511,6 +514,7 @@ def _editable(spec: TableSpec, row: dict) -> dict:
 def _audit_changes(
     db: Session, spec: TableSpec, actor_id: int, before: dict[int, dict],
     created: set[int], updated: set[int], deleted: list[int],
+    _deleted_actor: dict[int, int | None] | None = None,
 ) -> None:
     """One audit entry per touched row, in the grid's own cell format:
     updates carry {column: [old, new]}, creates and deletes the whole row (a
@@ -534,8 +538,10 @@ def _audit_changes(
         if changes:
             audit.log(db, actor_id, "bulk", "update", spec.key, rid, {"changes": changes})
     for rid in deleted:
-        audit.log(db, actor_id, "bulk", "delete", spec.key, rid,
-                  {"row": _editable(full, before.get(rid, {})), "policy": spec.delete})
+        detail = {"row": _editable(full, before.get(rid, {})), "policy": spec.delete}
+        if spec.actor_attr:
+            detail["actor_value"] = (_deleted_actor or {}).get(rid)
+        audit.log(db, actor_id, "bulk", "delete", spec.key, rid, detail)
 
 
 def table_rows(db: Session, spec: TableSpec) -> list[dict]:
@@ -566,9 +572,11 @@ def _constraint_column(spec: TableSpec, exc: IntegrityError) -> str | None:
     return None
 
 
-def _insert_defaults(spec: TableSpec, fields: dict) -> dict:
+def _insert_defaults(spec: TableSpec, fields: dict, actor_id: int | None = None) -> dict:
     """Fill columns a new row needs but the grid never edits."""
     out = {**fields, **spec.insert_values}
+    if spec.actor_attr and actor_id is not None:
+        out[spec.actor_attr] = actor_id
     if spec.model is User:
         # a bulk-added person starts unclaimed: no password until its owner
         # signs in with Google or follows a reset mail (see auth.router)
@@ -1144,7 +1152,10 @@ def restore(db: Session, spec: TableSpec, audit_id: int, actor_id: int) -> dict:
             return {"ok": False, "message": f"Can't restore: {msg}"}
         try:
             with db.begin_nested():
-                db.add(spec.model(id=rid, **_insert_defaults(spec, coerced[0].fields)))
+                fields = _insert_defaults(spec, coerced[0].fields)
+                if spec.actor_attr:  # the original holder, not whoever restores it
+                    fields[spec.actor_attr] = detail.get("actor_value")
+                db.add(spec.model(id=rid, **fields))
                 db.flush()
         except IntegrityError as exc:
             db.rollback()

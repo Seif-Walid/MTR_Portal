@@ -132,6 +132,9 @@ class Column:
     # column-level access: a viewer without this privilege never sees the column —
     # not in the grid, the export, an upload, or the data dashboard
     view_privilege: str | None = None
+    # a viewer without this privilege sees the column but can't change it
+    # (e.g. anyone keeping the roster sees access levels; only user admins set them)
+    edit_privilege: str | None = None
 
     @property
     def model_attr(self) -> str:
@@ -175,6 +178,13 @@ class TableSpec:
     insert_values: dict = field(default_factory=dict)
     # the column tying a row to a finance season: rows of a closed season are read-only
     period_attr: str | None = None
+    # the one screen this table is edited from (e.g. "finance"): such tables
+    # are left out of Data tables and the dashboard's edit-in-place handles,
+    # so the same records can't be entered from several places
+    home: str | None = None
+    # a column stamped with the editing account on insert (e.g. who holds the
+    # money a new spending row logs) — never typed, never picked
+    actor_attr: str | None = None
     # set on a viewer-narrowed copy (for_privileges): the table with every column
     full: "TableSpec | None" = field(default=None, repr=False, compare=False)
 
@@ -194,8 +204,12 @@ class TableSpec:
     def for_privileges(self, privileges: set[str]) -> "TableSpec":
         """This table as one viewer may see it: columns they lack the
         privilege for are dropped (so nothing downstream can read or write them)."""
-        cols = [c for c in self.columns if c.view_privilege is None or c.view_privilege in privileges]
-        return self if len(cols) == len(self.columns) else replace(self, columns=cols, full=self)
+        cols = [
+            c if c.edit_privilege is None or c.edit_privilege in privileges or not c.editable
+            else replace(c, editable=False)
+            for c in self.columns if c.view_privilege is None or c.view_privilege in privileges
+        ]
+        return self if cols == self.columns else replace(self, columns=cols, full=self)
 
     def filters(self) -> list:
         out = [] if self.where is None else [self.where()]
@@ -224,38 +238,34 @@ _PHONES = dict(pattern=r"\+?\d[\d \-]{6,15}(\s*[,/]\s*\+?\d[\d \-]{6,15})*",
                pattern_hint="one or more phone numbers, separated by commas")
 # member contact / identity details: only people who maintain the roster see them
 _PII = "members.edit"
+# who may change someone's access: their level, manager and whether they can sign in
+_ADMIN = "users.manage"
 
 
 # --- the tables -------------------------------------------------------------
 # Column order mirrors the matching exporter header exactly.
 TABLES: dict[str, TableSpec] = {
-    "people": TableSpec(
-        group="People",
-        key="people", label="People", model=User, privilege="users.manage", delete="deactivate",
-        columns=[
-            Column("id", "int", editable=False),
-            Column("email", "str", **_EMAIL),
-            Column("full_name", "str", required=True, max_length=150),
-            Column("department", "str", choices=_enum(Department)),
-            Column("access_level", ref="access_level", attr="access_level_id"),
-            Column("manager_id", "int", ref="user"),
-            Column("is_active", "bool"),
-        ],
-    ),
     "members": TableSpec(
-        # The roster (the member database's Members sheet) — the same people as
-        # the People tab, seen through their roster fields. Gated at
-        # members.edit since it holds member PII (national_id, guardians). A
-        # new row is a new member's account, unclaimed until they sign in; only
-        # never-claimed, unreferenced members can be deleted (the guard in
-        # service.py) — everyone else is retired by deactivating.
-        key="members", label="Members (roster)", model=User,
+        # Everyone: one row per person — member and account are the same
+        # record, so there is one table for them (the old separate "People"
+        # grid is folded in here). Gated at members.edit since it holds member
+        # PII (national_id, guardians); access level, manager and active can
+        # only be changed by user admins. A new row is a new member's account,
+        # unclaimed until they sign in, numbered automatically when the MTR ID
+        # is left blank; only never-claimed, unreferenced members can be
+        # deleted (the guard in service.py) — everyone else is retired by
+        # unticking Active.
+        key="members", label="Members", model=User,
         privilege="members.edit", delete="hard", group="Members",
         columns=[
             Column("id", "int", editable=False),
             Column("mtr_id", "str", label="MTR ID", pattern=r"MTR-\d{3,}", pattern_hint="MTR- followed by the number, e.g. MTR-123"),
             Column("full_name", "str", label="Name", required=True, max_length=150),
             Column("email", "str", label="Gmail", **_EMAIL),
+            Column("department", "str", choices=_enum(Department)),
+            Column("access_level", ref="access_level", attr="access_level_id", edit_privilege=_ADMIN),
+            Column("manager_id", "int", ref="user", label="Manager", edit_privilege=_ADMIN),
+            Column("is_active", "bool", label="Active", edit_privilege=_ADMIN),
             Column("phone", "str", view_privilege=_PII, **_PHONE),
             Column("national_id", "str", label="National ID", pattern=r"\d{14}", pattern_hint="the 14-digit national ID",
                    view_privilege=_PII),
@@ -276,8 +286,9 @@ TABLES: dict[str, TableSpec] = {
     ),
     "event_participations": TableSpec(
         # One row per (member x event) — the member database's Participations.
-        key="event_participations", label="Participations", model=EventParticipation,
-        privilege="members.edit", delete="hard", group="Members",
+        key="event_participations", label="Participations (imported record)", model=EventParticipation,
+        privilege="members.edit", delete="none", group="Members", read_only=True,
+        description="History imported from the member database. Who takes part in an event now comes from its teams and role seats — add people on the event's teams instead.",
         columns=[
             Column("id", "int", editable=False),
             Column("event_id", "int", ref="event", required=True, label="Event"),
@@ -433,7 +444,7 @@ TABLES: dict[str, TableSpec] = {
     # --- finance books -----------------------------------------------------
     "finance_seasons": TableSpec(
         key="finance_seasons", label="Seasons", model=FinanceSeason,
-        privilege="finance.edit", delete="hard", group="Finance",
+        privilege="finance.edit", delete="hard", group="Finance", home="finance",
         description="Seasons of the books. The USD rate converts USD budget prices; the start date anchors dues maturity.",
         columns=[
             Column("id", "int", editable=False),
@@ -448,7 +459,7 @@ TABLES: dict[str, TableSpec] = {
     ),
     "budget_lines": TableSpec(
         key="budget_lines", label="Budget", model=BudgetLine,
-        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
+        privilege="finance.edit", delete="hard", group="Finance", home="finance", period_attr="season_id",
         description="What the season plans to buy. FMV = full worth; needed cost = what is still to buy after in-stock. Grey columns are computed.",
         columns=[
             Column("id", "int", editable=False),
@@ -472,8 +483,9 @@ TABLES: dict[str, TableSpec] = {
     ),
     "spendings": TableSpec(
         key="spendings", label="Spendings", model=Spending,
-        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
-        description="Money actually spent. Net = count × unit cost.",
+        privilege="finance.edit", delete="hard", group="Finance", home="finance", period_attr="season_id",
+        actor_attr="holder_id",
+        description="Money actually spent. Net = count × unit cost. Paid by is the account that logged it.",
         columns=[
             Column("id", "int", editable=False),
             Column("season_id", "int", ref="fin_season", required=True, label="Season"),
@@ -487,14 +499,16 @@ TABLES: dict[str, TableSpec] = {
             Column("unit_cost", "number", label="Unit cost", min=0),
             Column("net", "number", editable=False, label="Net (EGP)"),
             Column("method_id", "int", ref="opt_payment_method", label="Method"),
-            Column("paid_by_id", "int", ref="fin_party", label="Paid by"),
+            Column("holder_id", "int", ref="user", editable=False, label="Paid by"),
+            Column("paid_by_id", "int", ref="fin_party", editable=False, label="Legacy holder"),
+            Column("payee_party_id", "int", ref="fin_party", label="Supplier"),
             Column("receipt", "str", label="Receipt / link"),
             Column("note", "str"),
         ],
     ),
     "dues_tiers": TableSpec(
         key="dues_tiers", label="Dues tiers", model=DuesTier,
-        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
+        privilege="finance.edit", delete="hard", group="Finance", home="finance", period_attr="season_id",
         description="Fee schedule per season: monthly fee × months, and/or a one-time fee.",
         columns=[
             Column("id", "int", editable=False),
@@ -508,7 +522,7 @@ TABLES: dict[str, TableSpec] = {
     ),
     "dues_discounts": TableSpec(
         key="dues_discounts", label="Dues discounts", model=DuesDiscount,
-        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
+        privilege="finance.edit", delete="hard", group="Finance", home="finance", period_attr="season_id",
         description="Loyalty discount by years with the team (0.5 = 50% off).",
         columns=[
             Column("id", "int", editable=False),
@@ -519,15 +533,14 @@ TABLES: dict[str, TableSpec] = {
         ],
     ),
     "dues_enrollments": TableSpec(
-        key="dues_enrollments", label="Dues roster", model=DuesEnrollment,
-        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
-        description="Who owes dues this season and on which tier. Maturity is counted from the join date unless overridden.",
+        key="dues_enrollments", label="Dues exceptions", model=DuesEnrollment,
+        privilege="finance.edit", delete="hard", group="Finance", home="finance", period_attr="season_id",
+        description="Who owes dues comes from the season's event teams. A row here is an exception: add someone not on a team, change their tier or maturity, or mark them withdrawn.",
         columns=[
             Column("id", "int", editable=False),
             Column("season_id", "int", ref="fin_season", required=True, label="Season"),
             Column("member_id", "int", ref="user", required=True, label="Member"),
-            Column("tier_id", "int", ref="dues_tier", required=True, label="Tier"),
-            Column("event_team_id", "int", ref="event_team", label="Event team"),
+            Column("tier_id", "int", ref="dues_tier", label="Tier override"),
             Column("status", "str", choices=_enum(EnrollmentStatus)),
             Column("maturity_override", "int", label="Maturity override (yrs)"),
             Column("note", "str"),
@@ -535,8 +548,9 @@ TABLES: dict[str, TableSpec] = {
     ),
     "dues_payments": TableSpec(
         key="dues_payments", label="Dues collection", model=DuesPayment,
-        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
-        description="One row per payment. Positive = payment, negative = refund.",
+        privilege="finance.edit", delete="hard", group="Finance", home="finance", period_attr="season_id",
+        actor_attr="holder_id",
+        description="One row per payment. Positive = payment, negative = refund. Received by is the account that logged it.",
         columns=[
             Column("id", "int", editable=False),
             Column("season_id", "int", ref="fin_season", required=True, label="Season"),
@@ -544,27 +558,32 @@ TABLES: dict[str, TableSpec] = {
             Column("member_id", "int", ref="user", required=True, label="Member"),
             Column("amount", "number", required=True, label="Amount (EGP)"),
             Column("method_id", "int", ref="opt_payment_method", label="Method"),
-            Column("received_by_id", "int", ref="fin_party", label="Received by"),
+            Column("holder_id", "int", ref="user", editable=False, label="Received by"),
+            Column("received_by_id", "int", ref="fin_party", editable=False, label="Legacy holder"),
             Column("note", "str"),
         ],
     ),
     "funding_lines": TableSpec(
         key="funding_lines", label="Funding", model=FundingLine,
-        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
+        privilege="finance.edit", delete="hard", group="Finance", home="finance", period_attr="season_id",
         description="Money coming in besides dues (projected dues are added automatically on the dashboard).",
         columns=[
             Column("id", "int", editable=False),
             Column("season_id", "int", ref="fin_season", required=True, label="Season"),
             Column("source", "str", required=True),
+            Column("party_id", "int", ref="fin_party", label="Sponsor / contact"),
             Column("type_id", "int", ref="opt_funding_type", label="Type"),
             Column("amount", "number", label="Amount (EGP)", min=0),
             Column("status", "str", choices=_enum(FundingStatus)),
+            Column("received_on", "date", editable=False, label="Received"),
+            Column("method_id", "int", ref="opt_payment_method", editable=False, label="Method"),
+            Column("holder_id", "int", ref="user", editable=False, label="Received by"),
             Column("note", "str"),
         ],
     ),
     "payables": TableSpec(
         key="payables", label="Payables", model=Payable,
-        privilege="finance.edit", delete="hard", group="Finance", period_attr="season_id",
+        privilege="finance.edit", delete="hard", group="Finance", home="finance", period_attr="season_id",
         description="Money the team owes.",
         columns=[
             Column("id", "int", editable=False),
@@ -579,24 +598,26 @@ TABLES: dict[str, TableSpec] = {
     ),
     "cash_transfers": TableSpec(
         key="cash_transfers", label="Cash transfers", model=CashTransfer,
-        privilege="finance.edit", delete="hard", group="Finance",
-        description="Money moved between holders. Leave 'From' blank for an opening balance.",
+        privilege="finance.edit", delete="hard", group="Finance", home="finance",
+        description="Money handed between holders. Leave 'From' blank for an opening balance (admins only — holders hand over from Finance).",
         columns=[
             Column("id", "int", editable=False),
             Column("transferred_on", "date", label="Date"),
-            Column("from_party_id", "int", ref="fin_party", label="From"),
+            Column("from_user_id", "int", ref="user", label="From"),
             Column("from_method_id", "int", ref="opt_payment_method", label="From method"),
             Column("amount", "number", label="Amount (EGP)", min=0),
             Column("fees", "number", label="Fees (EGP)", min=0),
-            Column("to_party_id", "int", ref="fin_party", label="To"),
+            Column("to_user_id", "int", ref="user", label="To"),
             Column("to_method_id", "int", ref="opt_payment_method", label="To method"),
+            Column("from_party_id", "int", ref="fin_party", editable=False, label="Legacy from"),
+            Column("to_party_id", "int", ref="fin_party", editable=False, label="Legacy to"),
             Column("note", "str"),
         ],
     ),
     "finance_parties": TableSpec(
-        key="finance_parties", label="People & entities", model=FinanceParty,
-        privilege="finance.edit", delete="hard", group="Finance",
-        description="Cash holders, suppliers, sponsors and organizers money moves to or from.",
+        key="finance_parties", label="Contacts", model=FinanceParty,
+        privilege="finance.edit", delete="hard", group="Finance", home="finance",
+        description="Outside contacts money moves to or from: suppliers, sponsors, organizers. Cash holders are portal accounts — a legacy holder row only needs its portal account set.",
         columns=[
             Column("id", "int", editable=False),
             Column("name", "str", required=True),
@@ -625,7 +646,7 @@ _OPTION_LABELS = {
 for _list, _label in _OPTION_LABELS.items():
     TABLES[f"options_{_list.value}"] = TableSpec(
         key=f"options_{_list.value}", label=f"List: {_label}", model=FinanceOption,
-        privilege="finance.edit", delete="hard", group="Finance",
+        privilege="finance.edit", delete="hard", group="Finance", home="finance",
         description="A pick-list used across the books. Renaming a value renames it everywhere.",
         where=(lambda lk=_list.value: FinanceOption.list_key == lk),
         insert_values={"list_key": _list.value},

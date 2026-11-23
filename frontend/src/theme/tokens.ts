@@ -26,8 +26,9 @@ export const FONT_MONO = "'Geist Mono Variable', 'Geist Mono', ui-monospace, mon
 type Roles = Record<string, string>;
 
 const LIGHT: Roles = {
-  background: '#f1f2f4',
+  background: '#eef0f3',
   surface: '#ffffff',
+  'surface-solid': '#ffffff',
   'surface-alt': '#e9ebee',
   'surface-raised': '#ffffff',
   border: '#d9dce1',
@@ -64,6 +65,20 @@ const LIGHT: Roles = {
   'cat-amber': '#b36f00',
   'cat-steel': '#68727f',
 
+  // "Aurora glass": translucent panels floating over a multi-colour field
+  'glass-fill': 'rgb(255 255 255 / 0.56)',
+  'glass-strong': 'rgb(255 255 255 / 0.8)',
+  'glass-border': 'rgb(255 255 255 / 0.78)',
+  'glass-line': 'rgb(20 24 48 / 0.08)',
+  'glass-sheen': 'rgb(255 255 255 / 0.55)',
+  // aurora = the logo's world: brand blue, MTR cyan, steel, one red ember
+  'aura-1': '#8db6ff',
+  'aura-2': '#86d6f0',
+  'aura-3': '#c3c8d0',
+  'aura-4': '#aebfdd',
+  'aura-5': '#e3343f',
+  'aura-opacity': '0.5',
+
   scrim: 'rgb(18 20 24 / 0.38)',
   glass: 'rgb(255 255 255 / 0.82)',
   'shadow-color': 'rgb(18 20 24 / 0.06)',
@@ -74,8 +89,11 @@ const LIGHT: Roles = {
 // hairlines, ice-white text, MTR cyan as the brand voice.
 const DARK: Roles = {
   background: '#06080c',
-  surface: '#0c1118',
-  'surface-alt': '#121925',
+  // translucent, so panels take on the aurora instead of sitting as black
+  // slabs; `surface-solid` is for things content scrolls underneath
+  surface: 'rgb(16 24 37 / 0.55)',
+  'surface-solid': '#0c1118',
+  'surface-alt': 'rgb(60 84 120 / 0.16)',
   'surface-raised': '#111823',
   border: '#1c2635',
   'border-light': '#141c28',
@@ -109,6 +127,18 @@ const DARK: Roles = {
   'cat-teal': '#4fd6c4',
   'cat-amber': '#ffb26b',
   'cat-steel': '#aab6c6',
+
+  'glass-fill': 'rgb(18 25 38 / 0.5)',
+  'glass-strong': 'rgb(14 19 29 / 0.8)',
+  'glass-border': 'rgb(255 255 255 / 0.08)',
+  'glass-line': 'rgb(255 255 255 / 0.06)',
+  'glass-sheen': 'rgb(255 255 255 / 0.07)',
+  'aura-1': '#1d5fe0',
+  'aura-2': '#1696c9',
+  'aura-3': '#2a3442',
+  'aura-4': '#10295e',
+  'aura-5': '#e3343f',
+  'aura-opacity': '0.24',
 
   scrim: 'rgb(2 4 8 / 0.62)',
   glass: 'rgb(12 17 24 / 0.8)',
@@ -158,6 +188,9 @@ const DERIVED = `
   --shadow-lg: 0 8px 24px var(--shadow-color), 0 2px 6px var(--shadow-color);
   --shadow-xl: 0 16px 40px var(--shadow-strong);
   --shadow-floating: 0 20px 48px var(--shadow-strong);
+  --glass-blur: blur(22px) saturate(1.6);
+  --shadow-lift: 0 24px 48px -20px var(--shadow-strong), 0 6px 14px -6px var(--shadow-color);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
 `;
 
 const block = (r: Roles) => Object.entries(r).map(([k, v]) => `  --${k}: ${v};`).join('\n');

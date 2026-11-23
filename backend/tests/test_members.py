@@ -29,8 +29,8 @@ def test_users_list_carries_roster_profile(login, org, db_session):
     assert student["profile"]["graduating_year"] == 2030
     assert student["profile"]["birthday"] == "2007-01-10"
 
-    # someone with no roster data still appears, with an empty profile
-    assert by_id[org["admin"].id]["profile"]["mtr_id"] is None
+    # someone with no roster data still appears — numbered like everyone
+    assert by_id[org["admin"].id]["profile"]["mtr_id"].startswith("MTR-")
 
 
 def test_users_list_requires_users_manage(login, org):
@@ -50,9 +50,10 @@ def test_update_sets_roster_fields(login, org, db_session):
     assert r.json()["profile"]["graduating_year"] == 2029
 
     # partial update leaves untouched fields alone; blank clears a field
+    # clearing the MTR ID re-issues one: nobody is left without an ID
     r = admin.patch(f"/api/users/{uid}", json={"profile": {"mtr_id": ""}})
     assert r.status_code == 200
-    assert r.json()["profile"]["mtr_id"] is None
+    assert r.json()["profile"]["mtr_id"] not in (None, "MTR-500")
     assert r.json()["profile"]["major"] == "Robotics"
 
 

@@ -87,5 +87,5 @@ def test_import_roster_events_participations(db_session, org, tmp_path):
     rep2 = imp.run(db, path, None, False)
     db.commit()
     assert db.query(EventParticipation).count() == 2
-    assert db.query(User).filter(User.mtr_id.is_not(None)).count() == 3
+    assert db.query(User).filter(User.mtr_id.is_(None)).count() == 0  # everyone numbered
     assert rep2.counts["events created"] == 0 and rep2.counts["new members (with Gmail)"] == 0

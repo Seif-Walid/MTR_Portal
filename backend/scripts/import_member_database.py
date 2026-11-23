@@ -85,6 +85,7 @@ from app.domains.finance.models import (
 )
 from app.domains.members.service import digits, name_key
 from app.domains.users.models import User
+from app.domains.users.models import number_everyone
 from app.domains.users.roster import format_mtr_id
 
 # Sheet event IDs whose portal event is named differently.
@@ -242,7 +243,7 @@ def import_members(db: Session, wb, rep: Report) -> dict[int, User]:
         p.mtr_id = None
     db.flush()
     unmatched_old = [p for p in profiles if p.id not in claimed]
-    rep.add("portal members not in the sheet (MTR ID cleared)", len(unmatched_old))
+    rep.add("portal members not in the sheet (MTR ID re-issued)", len(unmatched_old))
 
     member_level = db.scalar(select(AccessLevel).where(AccessLevel.name == MEMBER_LEVEL))
     now = datetime.now(timezone.utc)
@@ -669,7 +670,16 @@ def import_finance(db: Session, wb, members: dict[int, User],
 def run(db: Session, members_path: str, finance_path: str | None, replace_finance: bool) -> Report:
     rep = Report()
     mwb = openpyxl.load_workbook(members_path, data_only=True)
-    members = import_members(db, mwb, rep)
+    # the sheet's numbering wins: hold automatic MTR IDs back while re-keying,
+    # then number whoever the sheet doesn't list after its highest
+    db.info["defer_mtr_ids"] = True
+    try:
+        members = import_members(db, mwb, rep)
+        db.flush()
+    finally:
+        db.info.pop("defer_mtr_ids", None)
+    rep.add("portal people not in the sheet (numbered after it)", number_everyone(db))
+    db.flush()
     events = import_events(db, mwb, rep)
     import_participations(db, mwb, members, events, rep)
     if finance_path:

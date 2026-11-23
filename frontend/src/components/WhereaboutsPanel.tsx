@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
 import type { InventoryItem, Location, StockMovement, UserBrief, Whereabouts } from '../api/types';
+import EmptyState from './EmptyState';
 
 function placeLabel(m: StockMovement, dir: 'from' | 'to'): string {
   const loc = dir === 'from' ? m.from_location : m.to_location;
@@ -136,7 +137,7 @@ export default function WhereaboutsPanel({ item, canManage }: { item: InventoryI
       <Divider plain>Movement history</Divider>
       <List
         size="small"
-        locale={{ emptyText: 'No movements yet' }}
+        locale={{ emptyText: <EmptyState compact phrase="No movements yet." /> }}
         dataSource={movements}
         renderItem={(m) => (
           <List.Item>

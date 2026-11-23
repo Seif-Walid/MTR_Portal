@@ -41,6 +41,9 @@ function makeCubes(n: number): Cube[] {
   }));
 }
 
+// cube ink: the canvas's CSS `color`, re-read each frame so theme switches follow
+let INK = '255,255,255';
+
 function drawCube(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, rot: number, alpha: number) {
   // isometric wire cube: front square + back square offset + joining edges
   const d = s * 0.42;
@@ -49,8 +52,8 @@ function drawCube(ctx: CanvasRenderingContext2D, x: number, y: number, s: number
   const h = s / 2;
   const f = [pt(-h, -h), pt(h, -h), pt(h, h), pt(-h, h)];
   const b = [pt(-h + d, -h - d), pt(h + d, -h - d), pt(h + d, h - d), pt(-h + d, h - d)];
-  ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
-  ctx.fillStyle = `rgba(255,255,255,${alpha * 0.12})`;
+  ctx.strokeStyle = `rgba(${INK},${alpha})`;
+  ctx.fillStyle = `rgba(${INK},${alpha * 0.12})`;
   ctx.beginPath();
   f.forEach(([a, bb], i) => (i ? ctx.lineTo(a, bb) : ctx.moveTo(a, bb)));
   ctx.closePath();
@@ -90,6 +93,8 @@ export function CubeField({ count = 9 }: { count?: number }) {
     };
 
     const frame = (t: number) => {
+      const m = getComputedStyle(canvas).color.match(/\d+(\.\d+)?/g);
+      if (m) INK = m.slice(0, 3).join(',');
       const dt = Math.min((t - last) / 1000, 0.05);
       last = t;
       ctx.clearRect(0, 0, w, h);
@@ -122,7 +127,7 @@ export function CubeField({ count = 9 }: { count?: number }) {
         for (let j = i + 1; j < pos.length; j++) {
           const d = Math.hypot(pos[i][0] - pos[j][0], pos[i][1] - pos[j][1]);
           if (d < 190) {
-            ctx.strokeStyle = `rgba(255,255,255,${(1 - d / 190) * 0.16})`;
+            ctx.strokeStyle = `rgba(${INK},${(1 - d / 190) * 0.16})`;
             ctx.beginPath();
             ctx.moveTo(pos[i][0], pos[i][1]);
             ctx.lineTo(pos[j][0], pos[j][1]);

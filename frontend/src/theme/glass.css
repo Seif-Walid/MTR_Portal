@@ -1,0 +1,150 @@
+/* ==========================================================================
+   "Aurora glass" layer, on top of base.css.
+   - a slow multi-colour aurora behind the whole shell (ref: university ERP's
+     many hues, Lumora's warm glows)
+   - containers are frosted glass, not solid sheets, so the colour shows
+     through (ref: Lumora)
+   - containers float: they lift toward you on hover and a sheen follows the
+     cursor (ref: Lisso's loose, unpinned cards)
+   - colour stays on-brand: steel glass, MTR blue→cyan light, and the
+     logo's red only as a faint ember and for things that need attention
+   Role tokens only.
+   ========================================================================== */
+
+/* ── Aurora ──────────────────────────────────────────────────────────────── */
+.mtr-aurora {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+}
+.mtr-aurora span {
+  position: absolute; width: 52vmax; height: 52vmax; border-radius: 50%;
+  filter: blur(90px); opacity: var(--aura-opacity);
+  animation: mtr-drift 46s var(--ease-in-out) infinite alternate;
+  will-change: transform;
+}
+.mtr-aurora span:nth-child(1) { background: var(--aura-1); top: -22vmax; left: -10vmax; }
+.mtr-aurora span:nth-child(2) { background: var(--aura-2); top: -14vmax; right: -18vmax; animation-duration: 58s; animation-delay: -12s; }
+.mtr-aurora span:nth-child(3) { background: var(--aura-3); bottom: -26vmax; left: 18vw; animation-duration: 52s; animation-delay: -24s; }
+.mtr-aurora span:nth-child(4) { background: var(--aura-4); bottom: -20vmax; right: -12vmax; width: 40vmax; height: 40vmax; animation-duration: 64s; animation-delay: -6s; }
+.mtr-aurora span:nth-child(5) { background: var(--aura-5); top: 34vh; right: 6vw; width: 18vmax; height: 18vmax; opacity: calc(var(--aura-opacity) * 0.35); animation-duration: 70s; animation-delay: -30s; }
+@keyframes mtr-drift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(6vw, 4vh, 0) scale(1.12); }
+  100% { transform: translate3d(-4vw, 8vh, 0) scale(0.94); }
+}
+.mtr-shell-content { position: relative; z-index: 1; }
+
+/* ── Glass surfaces ──────────────────────────────────────────────────────
+   --mx/--my are set by the shell's pointer tracker; the sheen sits under
+   the content as a second background layer. */
+.mtr-glass,
+.home-panel,
+.home-stat,
+.circuit-panel,
+.ant-card,
+.circuit-table .ant-table:not(:has(.ant-table-placeholder)),
+.mtr-course-card {
+  background:
+    radial-gradient(420px circle at var(--mx, -999px) var(--my, -999px), var(--glass-sheen), transparent 45%),
+    var(--glass-fill) !important;
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-sm);
+}
+:root[data-theme='dark'] :is(.mtr-glass, .home-panel, .home-stat, .circuit-panel, .ant-card, .circuit-table .ant-table:not(:has(.ant-table-placeholder)), .mtr-course-card) {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05), 0 10px 30px -14px rgb(0 0 0 / 0.6);
+}
+
+/* tables: cells let the glass through; fixed columns stay solid so rows
+   sliding underneath never show through them */
+.circuit-table .ant-table-thead > tr > th { background: color-mix(in srgb, var(--surface-alt) 45%, transparent) !important; }
+.circuit-table .ant-table-tbody > tr > td { background: transparent; border-bottom-color: var(--glass-line) !important; }
+.circuit-table .ant-table-tbody > tr:not(.ant-table-placeholder):hover > td { background: color-mix(in srgb, var(--surface) 45%, transparent) !important; }
+/* an empty table is just the empty state: hovering it lights nothing up */
+.ant-table-wrapper .ant-table-tbody > tr.ant-table-placeholder:hover > td,
+.ant-table-wrapper .ant-table-tbody > tr.ant-table-placeholder > td { background: transparent !important; }
+.circuit-table .ant-table-cell-fix-left, .circuit-table .ant-table-cell-fix-right { background: var(--surface-solid) !important; }
+.ant-card .ant-card-head { border-bottom-color: var(--glass-line); }
+
+/* ── No boxes inside boxes ───────────────────────────────────────────────
+   A frame on its own (.mtr-inset: grid frames, chart sections, stat tiles)
+   is glass. Anything boxy that sits inside another panel drops its own
+   fill, border, shadow and lift, so a page is one layer of panels with
+   content laid straight on them. */
+.mtr-inset {
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-border);
+}
+:is(.mtr-glass, .home-panel, .circuit-panel, .ant-card, .mtr-course-card, .ant-modal-content, .ant-drawer-content)
+  :is(.mtr-glass, .home-panel, .circuit-panel, .ant-card, .mtr-inset, .circuit-table .ant-table, .mtr-course-card, .mtr-card-btn, .ant-collapse, .ant-list-bordered) {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transform: none !important;
+}
+/* nested cards keep their title rule as the only separator */
+:is(.ant-card, .circuit-panel, .home-panel) .ant-card > .ant-card-head { padding-inline: 0; }
+:is(.ant-card, .circuit-panel, .home-panel) .ant-card > .ant-card-body { padding-inline: 0; }
+/* a stat strip inside a panel: hairlines between tiles, no outer frame */
+:is(.ant-card, .circuit-panel, .home-panel, .mtr-glass) .mtr-statrow { border-color: transparent !important; }
+/* clickable tiles inside a panel: flat at rest, a soft tint under the cursor */
+:is(.ant-card, .circuit-panel, .home-panel, .mtr-glass) .mtr-card-btn:hover {
+  background: color-mix(in srgb, var(--brand-fg) 6%, transparent) !important;
+}
+
+/* overlays: stronger glass */
+.ant-modal .ant-modal-content,
+.ant-drawer .ant-drawer-content,
+.ant-dropdown-menu,
+.ant-select-dropdown,
+.ant-popover-inner,
+.ant-picker-dropdown .ant-picker-panel-container {
+  background: var(--glass-strong) !important;
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border) !important;
+}
+.ant-modal .ant-modal-header, .ant-modal .ant-modal-footer { background: transparent !important; }
+
+/* shell chrome */
+.mtr-rail {
+  background: var(--glass-fill) !important;
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-inline-end-color: var(--glass-border) !important;
+}
+.mtr-header { background: color-mix(in srgb, var(--background) 30%, transparent); }
+.mtr-header.is-scrolled { background: var(--glass-fill); border-bottom-color: var(--glass-border); }
+
+/* ── Float on hover ──────────────────────────────────────────────────────
+   Containers aren't pinned to the page: they lift and cast a deeper shadow.
+   Cards that hold tables or forms only lift a hair — a whole work area
+   jumping around while you type in it is noise, not delight. */
+.home-panel, .home-stat, .circuit-panel, .ant-card, .mtr-course-card, .mtr-card-btn {
+  transition:
+    transform 420ms var(--ease-spring),
+    box-shadow 320ms var(--ease-out),
+    border-color 200ms var(--ease-out);
+}
+.home-panel:hover, .circuit-panel:hover, .ant-card:hover, .mtr-course-card:hover, .mtr-card-btn:hover {
+  transform: translateY(-4px);
+  box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-lift);
+}
+.ant-card:has(.ant-table, form, .ant-form):hover,
+.circuit-panel:has(.ant-table, form, .ant-form):hover { transform: translateY(-1px); }
+.ant-modal .ant-card:hover, .ant-drawer .ant-card:hover { transform: none; }
+
+/* ── Rail: steel icons, brand gradient for the current page ──────────── */
+.mtr-nav .mtr-nav-icon svg { opacity: 1; }
+.mtr-nav:hover .mtr-nav-icon { transform: scale(1.08) rotate(-6deg); background: var(--hover-tint); color: var(--brand-fg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .mtr-aurora span { animation: none; }
+  .home-panel:hover, .home-stat:hover, .circuit-panel:hover, .ant-card:hover, .mtr-course-card:hover, .mtr-card-btn:hover { transform: none; }
+}
+/* phones: lighter blur, cheaper paint */
+@media (max-width: 768px) {
+  .mtr-aurora span { filter: blur(60px); }
+}

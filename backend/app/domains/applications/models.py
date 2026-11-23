@@ -15,8 +15,15 @@ class ApplicationStatus(StrEnum):
     DECLINED = "declined"
 
 
+class ApplicationSource(StrEnum):
+    WEBSITE = "website"  # the site's "Join the team" form
+    PORTAL = "portal"  # "Request entry" on the portal's sign-in page
+
+
 class Application(Base):
-    """A join application sent from the website's "Join the team" form.
+    """A join application: from the website's "Join the team" form, or a
+    request for entry made on the portal's sign-in page (which is the only way
+    to ask for an account — nobody can make one for themselves).
 
     It stays its own record until someone acts on it: an application is not a
     member, and adding the applicant to the roster (`member_id`) is a separate,
@@ -39,6 +46,13 @@ class Application(Base):
     event_id: Mapped[int | None] = mapped_column(
         ForeignKey("events.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    source: Mapped[str] = mapped_column(
+        String(20), default=ApplicationSource.WEBSITE, server_default=ApplicationSource.WEBSITE.value
+    )
+    # Entry requests only: the hash of the password the person chose, given
+    # to their account when the request is accepted (so they can sign in at
+    # once) and dropped as soon as the request is settled either way.
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default=ApplicationStatus.NEW, index=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     # The member (account) this applicant became, or turned out to already be.

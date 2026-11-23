@@ -630,7 +630,14 @@ export interface FinanceSeasonBrief {
 
 export interface CashMatrix {
   methods: { id: number | null; key: string; name: string }[];
-  rows: { party_id: number; name: string; cells: Record<string, number>; total: number }[];
+  rows: {
+    holder: FinanceHolder | null;
+    party_id: number | null;
+    user_id: number | null;
+    name: string;
+    cells: Record<string, number>;
+    total: number;
+  }[];
   totals: Record<string, number>;
   total: number;
 }
@@ -656,16 +663,22 @@ export interface FinanceDashboard {
   by_category: { name: string; needed: number; spent: number }[];
   by_event: { name: string; needed: number; spent: number }[];
   monthly: { month: string; collected: number; spent: number }[];
-  funding: { source: string; type: string | null; amount: number; status: string; season_id: number }[];
+  funding: {
+    id: number; received_on: string | null; source: string; type: string | null;
+    amount: number; status: string; season_id: number;
+  }[];
   cash: CashMatrix;
 }
 
 export interface DuesRow {
-  enrollment_id: number;
+  enrollment_id: number | null; // set only when an exception row exists
   member_id: number;
   name: string;
   mtr_id: string | null;
-  tier: string;
+  tier: string | null;
+  tier_overridden: boolean;
+  source: 'team' | 'manual';
+  events: string[];
   joined_at: string | null;
   maturity: number;
   maturity_overridden: boolean;
@@ -692,6 +705,78 @@ export interface DuesLedger {
     members: number; active: number; projected: number; collected: number; expected: number;
     balance: number; unenrolled_paid: number; by_month: Record<string, number>;
   };
+  unlisted_payers: { member_id: number; name: string; paid: number }[];
+  events: { id: number; name: string; tier_id: number | null }[];
+}
+
+/** Who holds a money row: an account, or (spreadsheet era) a legacy party. */
+export interface FinanceHolder {
+  kind: 'user' | 'party';
+  id: number;
+  name: string;
+  legacy: boolean;
+}
+
+export type LedgerKind = 'dues' | 'funding' | 'spending' | 'handover';
+
+export interface LedgerEntry {
+  kind: LedgerKind;
+  id: number;
+  date: string | null;
+  amount: number;
+  direction: 'in' | 'out' | 'move';
+  title: string;
+  holder: FinanceHolder | null;
+  mine: boolean;
+  can_edit: boolean;
+  note: string | null;
+  season_id: number | null;
+  method: string | null;
+  method_id: number | null;
+  // per kind
+  member_id?: number;
+  party_id?: number | null;
+  type?: string | null;
+  event_id?: number | null;
+  event?: string | null;
+  event_team_id?: number | null;
+  team?: string | null;
+  category?: string | null;
+  category_id?: number | null;
+  subcategory_id?: number | null;
+  count?: number;
+  unit_cost?: number;
+  receipt?: string | null;
+  payee_party_id?: number | null;
+  payee?: string | null;
+  fees?: number;
+  to?: FinanceHolder | null;
+  to_method?: string | null;
+}
+
+export interface MyCash {
+  methods: { id: number | null; name: string; amount: number }[];
+  total: number;
+}
+
+type Named = { id: number; name: string };
+
+export interface FinanceFormOptions {
+  methods: Named[];
+  categories: Named[];
+  subcategories: Named[];
+  funding_types: Named[];
+  contacts: Named[];
+  events: { id: number; name: string; teams: Named[] }[];
+  holders: { id: number; name: string; me: boolean }[];
+  owing: {
+    member_id: number; name: string; mtr_id: string | null; tier: string | null;
+    monthly_fee: number; balance: number; status: string;
+  }[];
+  expected_funding: { id: number; source: string; amount: number; season_id: number }[];
+  season: FinanceSeasonBrief | null;
+  can_handle_cash: boolean;
+  can_edit: boolean;
 }
 
 export interface EventMoney {
@@ -722,7 +807,9 @@ export interface RosterMember {
 }
 
 export interface Participation {
-  id: number;
+  id: number | null; // the imported record's id; null when known only from teams
+  team_id: number | null;
+  source: 'team' | 'seat' | 'record';
   event_id: number;
   event_name: string;
   event_code: string | null;
@@ -773,7 +860,9 @@ export interface RosterStats {
 }
 
 export interface EventParticipant {
-  id: number;
+  id: number | null;
+  team_id: number | null;
+  source: 'team' | 'seat' | 'record';
   member_id: number;
   mtr_id: string | null;
   name: string;
@@ -840,6 +929,7 @@ export interface Application {
   motivation: string;
   event_id: number | null; // the event they applied to join; null = the team in general
   event_name: string | null;
+  source: 'website' | 'portal'; // portal = "Request entry" on the sign-in page
   status: ApplicationStatus;
   notes: string | null;
   member_id: number | null;

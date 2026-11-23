@@ -17,7 +17,6 @@ from app.domains.events.models import (
 )
 from app.domains.inventory.models import InventoryItem, Location, StockMovement
 from app.domains.positions.models import Position
-from app.domains.users.models import User
 
 
 def _s(v) -> str:
@@ -39,21 +38,6 @@ def _parse_datetime(v: str) -> datetime | None:
 
 
 # --- export: DB row -> grid row ---------------------------------------------
-def _export_people(db: Session) -> tuple[list[str], list[list[str]]]:
-    header = ["id", "email", "full_name", "department", "access_level", "manager_id", "is_active"]
-    rows = []
-    # Deactivated users are the People table's soft-delete: they keep their row
-    # for FK integrity (manager_id, movement actor, ...) but drop out of the
-    # grid, so deleting a person actually makes them disappear — same contract
-    # as the deleted_at filters below.
-    for u in db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.id)):
-        rows.append([
-            _s(u.id), u.email, u.full_name, _s(u.department),
-            u.access_level.name if u.access_level else "", _s(u.manager_id), _s(u.is_active),
-        ])
-    return header, rows
-
-
 def _export_positions(db: Session) -> tuple[list[str], list[list[str]]]:
     header = ["id", "title", "parent_id", "occupant_ids", "is_technical", "access_level"]
     rows = [
@@ -136,7 +120,6 @@ def _export_movements(db: Session) -> tuple[list[str], list[list[str]]]:
 
 
 _EXPORTERS = {
-    "people": _export_people,
     "positions": _export_positions,
     "event_kinds": _export_event_kinds,
     "event_categories": _export_categories,

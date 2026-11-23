@@ -1,0 +1,27 @@
+/* Finance — money in / out / hand-over. Role tokens only; reuses Home's hero and rows. */
+
+.fin-hero { min-height: 168px; }
+.fin-hero__actions { position: relative; display: flex; gap: 18px; flex-shrink: 0; }
+.fin-hero .home-hero__sub strong { color: #fff; font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) {
+  .fin-hero { flex-direction: column; align-items: flex-start; }
+  .fin-hero__actions { gap: 12px; }
+}
+
+.fin-ledger { display: flex; flex-direction: column; gap: 22px; }
+.fin-ledger__bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+.fin-month__head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 6px; margin-bottom: 8px; }
+.fin-month__head h3 { margin: 0; font: 700 15px/1.3 var(--font-display); font-stretch: 112%; color: var(--text-secondary); }
+
+.fin-amt { flex-shrink: 0; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.fin-amt.is-in { color: var(--success-text, var(--text-primary)); }
+.fin-amt.is-out { color: var(--text-primary); }
+.fin-amt.is-move { color: var(--text-tertiary); }
+.fin-row .fin-amt { min-width: 84px; text-align: end; }
+
+.fin-row__icon.is-in { color: var(--success-text, var(--text-secondary)); }
+.fin-row__icon.is-out { color: var(--text-secondary); }
+
+.fin-tiers { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px 24px; }
+.fin-tiers__row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--border-light); }

@@ -17,6 +17,7 @@ import { ThemeModeProvider, useThemeMode } from './theme/ThemeContext';
 import { installTokens } from './theme/tokens';
 import './tables.css';
 import './theme/base.css';
+import './theme/glass.css';
 
 installTokens();
 

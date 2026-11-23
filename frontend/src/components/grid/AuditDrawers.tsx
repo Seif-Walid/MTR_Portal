@@ -1,10 +1,11 @@
 import { RollbackOutlined } from '@ant-design/icons';
-import { Button, Drawer, Empty, Spin, Tag, Timeline, Typography, message, theme } from 'antd';
+import { Button, Drawer, Spin, Tag, Timeline, Typography, message, theme } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 
 import { api, ApiError } from '../../api/client';
 import { ColumnMeta, Option, displayText, optionsFor } from './sheet';
+import EmptyState from '../EmptyState';
 
 // The grid's two audit views: one row's change history, and the table's
 // recycle bin of deleted rows (each restorable from the snapshot the delete
@@ -60,7 +61,7 @@ export function RowHistory({ table, columns, options, rowId, onClose }: Common &
       {!entries ? (
         <Spin />
       ) : !entries.length ? (
-        <Empty description="No recorded changes yet (history starts with edits made after this feature shipped)." />
+        <EmptyState compact phrase="No recorded changes yet. History starts with edits made after this feature shipped." />
       ) : (
         <Timeline
           items={entries.map((e) => ({
@@ -127,7 +128,7 @@ export function RecycleBin({ table, columns, options, open, onClose, onRestored 
       {!entries ? (
         <Spin />
       ) : !entries.length ? (
-        <Empty description="Nothing deleted" />
+        <EmptyState compact phrase="Nothing deleted." />
       ) : (
         entries.map((e) => (
           <div key={e.id} style={{ border: `1px solid ${token.colorBorderSecondary}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>

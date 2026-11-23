@@ -14,7 +14,6 @@ from app.domains.events.models import (
     EventTeam,
     EventTeamMember,
     EventKind,
-    EventParticipation,
     tree_order,
 )
 from app.domains.events.role_sync import (
@@ -49,6 +48,7 @@ from app.domains.events.service import (
     require_view,
     sub_team_ids,
 )
+from app.domains.events.participations import participations
 from app.domains.inventory.models import InventoryAllocation
 from app.domains.positions import role_engine
 from app.domains.positions.schemas import EntityRoleOut
@@ -269,9 +269,7 @@ def _base_out(db: DB, comp: Event, manage: bool) -> dict:
         can_manage=manage,
         code=comp.code,
         record={k: getattr(comp, k) for k in RECORD_FIELDS if getattr(comp, k) not in (None, "")},
-        participation_count=db.scalar(
-            select(func.count()).select_from(EventParticipation).where(EventParticipation.event_id == comp.id)
-        ) or 0,
+        participation_count=len(participations(db, event_ids={comp.id})),
     )
 
 
@@ -288,14 +286,13 @@ RECORD_FIELDS = [
 def event_participations(event_id: int, db: DB, user: CurrentUser) -> list[dict]:
     """Everyone the member database records as taking part in this event."""
     access.require_privilege(db, user, "members.view")
-    rows = db.scalars(select(EventParticipation).where(EventParticipation.event_id == event_id))
     out = [
         {
-            "id": p.id, "member_id": p.member_id, "mtr_id": p.member.mtr_id, "name": p.member.full_name,
-            "role": p.role, "team": p.team, "mentor": p.mentor, "rating": p.rating,
-            "registered_at": p.registered_at,
+            "id": p.record_id, "member_id": p.member.id, "mtr_id": p.member.mtr_id, "name": p.member.full_name,
+            "role": p.role, "team": p.team, "team_id": p.team_id, "mentor": p.mentor, "rating": p.rating,
+            "registered_at": p.registered_at, "source": p.source,
         }
-        for p in rows
+        for p in participations(db, event_ids={event_id})
     ]
     return sorted(out, key=lambda r: (r["team"] or "~", r["name"].lower()))
 

@@ -1,4 +1,4 @@
-import { AutoComplete, Button, Empty, Form, Input, Modal, Popconfirm, Select, Table, Tag, Typography, message } from 'antd';
+import { AutoComplete, Button, Form, Input, Modal, Popconfirm, Select, Table, Tag, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
@@ -17,6 +17,7 @@ import { AwardTag, StatusTag } from '../components/tags';
 import TaskDrawer from '../components/TaskDrawer';
 import { openableRow } from '../components/a11y';
 import { CloseOutlined } from '@ant-design/icons';
+import EmptyState from '../components/EmptyState';
 
 const MONO = 'var(--font-mono)';
 const DISPLAY = 'var(--font-display)';
@@ -197,14 +198,14 @@ function EventList() {
         full roster, who ran it, and the tasks you took on.
       </p>
       {loaded && total === 0 ? (
-        <Empty description="No archived events yet" style={{ marginTop: 40 }} />
+        <EmptyState phrase="No archived events yet. Finished events land here." action={{ label: 'See current events', to: '/events' }} />
       ) : (
         <>
           <KindSwitch kinds={kinds} slug={slug} onPick={(s) => setParams({ kind: s }, { replace: true })} />
           {/* The Hall-of-Fame headline counts competitions only, so it heads that section alone. */}
           {kind?.slug === 'competition' && summary && <Overview summary={summary} />}
           {kind && kind.count === 0 && (
-            <Empty description={`No archived ${kind.event_label.toLowerCase()}s yet`} style={{ marginTop: 30 }} />
+            <EmptyState phrase={`No archived ${kind.event_label.toLowerCase()}s yet.`} action={{ label: 'See current events', to: '/events' }} />
           )}
           {kind && kind.count > 0 && (
             <div style={{ fontFamily: MONO, fontSize: 11, color: 'var(--text-tertiary)', margin: '0 0 14px' }}>
@@ -592,7 +593,7 @@ function EventDetail({ eventId }: { eventId: number }) {
             Your tasks
           </div>
           {total === 0 ? (
-            <Empty description="You held no tasks in this event" style={{ marginTop: 20 }} />
+            <EmptyState compact phrase="You held no tasks in this event." action={{ label: 'Open my tasks', to: '/tasks' }} />
           ) : (
             <>
               <p style={{ fontFamily: MONO, fontSize: 12, color: 'var(--text-tertiary)', margin: '0 0 14px' }}>

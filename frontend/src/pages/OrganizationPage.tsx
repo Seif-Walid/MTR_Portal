@@ -1,5 +1,5 @@
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Empty, Form, Input, Modal, Popconfirm, Select, Space, Switch, Tree, Typography, message } from 'antd';
+import { Button, Form, Input, Modal, Popconfirm, Select, Space, Switch, Tree, Typography, message } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -7,6 +7,7 @@ import { api, ApiError } from '../api/client';
 import type { AccessLevel as AccessLevelT, EventKind as EventKindT, PositionNode, RoleEvent, RoleTemplate, UserBrief } from '../api/types';
 import { can, useAuth } from '../auth/AuthContext';
 import { personOptions } from '../lib/people';
+import EmptyState from '../components/EmptyState';
 
 const DISPLAY = 'var(--font-display)';
 
@@ -348,7 +349,7 @@ export default function OrganizationPage() {
       </div>
 
       {!loading && treeData.length === 0 ? (
-        <Empty description="No positions yet" />
+        <EmptyState phrase="No positions yet. The org chart grows from the first seat." action={{ label: 'See members', to: '/members' }} />
       ) : (
         <div className="mtr-org-tree" style={{ padding: '8px 4px' }}>
           <Tree treeData={treeData} expandedKeys={expandedKeys} onExpand={setExpandedKeys} blockNode selectable={false} draggable={canManage ? { icon: false } : false} onDrop={onDrop} />

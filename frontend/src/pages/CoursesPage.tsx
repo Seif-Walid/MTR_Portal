@@ -17,24 +17,7 @@ import {
   SettingOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
-import {
-  Button,
-  ColorPicker,
-  DatePicker,
-  Empty,
-  Form,
-  Input,
-  InputNumber,
-  Modal,
-  Popconfirm,
-  Segmented,
-  Select,
-  Spin,
-  Switch,
-  Tag,
-  Upload,
-  message,
-} from 'antd';
+import { Button, ColorPicker, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Segmented, Select, Spin, Switch, Tag, Upload, message } from 'antd';
 import type { UploadFile } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -44,6 +27,7 @@ import type { Course, CourseDetail, CourseMaterial, MaterialKind, TaskStatus } f
 import { can, useAuth } from '../auth/AuthContext';
 import { C, hexA } from '../theme/circuitTokens';
 import { asButton } from '../components/a11y';
+import EmptyState from '../components/EmptyState';
 
 type Kind = { key: MaterialKind; label: string };
 
@@ -186,7 +170,12 @@ function Catalogue() {
       {courses === null ? (
         <div role="status" aria-label="Loading" style={{ display: 'grid', placeItems: 'center', padding: 80 }}><Spin /></div>
       ) : shown.length === 0 ? (
-        <Empty description={courses.length ? 'No course matches' : 'No courses yet'} style={{ padding: 60 }} />
+        <EmptyState
+          phrase={courses.length ? 'No course matches that search.' : 'No courses yet.'}
+          action={courses.length
+            ? { label: 'Clear the search', onClick: () => setQ('') }
+            : manage ? { label: 'Create a course', onClick: () => setCreating(true) } : { label: 'Open my tasks', to: '/tasks' }}
+        />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 28 }}>
           {shown.map((c) => (
@@ -324,7 +313,11 @@ function CoursePage({ courseId }: { courseId: number }) {
         </div>
       )}
       {items.length === 0 ? (
-        <Empty description="Nothing on this shelf yet" style={{ padding: 50 }} />
+        <EmptyState
+          compact
+          phrase="Nothing on this shelf yet."
+          action={course.can_manage ? { label: `Add to ${kinds.find((k) => k.key === active)?.label ?? active}`, onClick: () => setAdding(true) } : { label: 'Open my tasks', to: '/tasks' }}
+        />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
           {items.map((m) => (
@@ -567,7 +560,7 @@ function MaterialViewer({ courseId, materialId }: { courseId: number; materialId
   const m = course?.materials.find((x) => x.id === materialId);
   if (!course) return <div role="status" aria-label="Loading" style={{ display: 'grid', placeItems: 'center', padding: 80 }}><Spin /></div>;
   if (!m || !m.url) {
-    return <Empty description="This material isn't available" style={{ padding: 60 }} />;
+    return <EmptyState phrase="This material isn't available." action={{ label: 'Back to courses', to: '/courses' }} />;
   }
   const shelf = course.materials.filter((x) => x.kind === m.kind && x.url);
   const i = shelf.findIndex((x) => x.id === m.id);

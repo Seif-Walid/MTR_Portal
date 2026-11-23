@@ -1,7 +1,8 @@
-import { Empty, Space, Tag, Typography } from 'antd';
+import { Space, Tag, Typography } from 'antd';
 
 import type { AllocationPurpose, InventoryItem } from '../api/types';
 import { PURPOSE_META } from './tags';
+import EmptyState from './EmptyState';
 
 const ORDER: AllocationPurpose[] = ['training', 'event', 'research', 'borrowed', 'other'];
 
@@ -16,7 +17,7 @@ export default function UsageBreakdown({
 }) {
   const entries = ORDER.filter((p) => (item.by_purpose[p] ?? 0) > 0);
   if (entries.length === 0) {
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing in use" />;
+    return <EmptyState compact phrase="Nothing in use." />;
   }
   return (
     <Space direction="vertical" size={4} style={{ minWidth: 180 }}>

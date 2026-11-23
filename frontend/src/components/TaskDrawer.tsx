@@ -22,6 +22,7 @@ import { api, ApiError } from '../api/client';
 import type { Attachment, Task, TaskHistoryEntry, TaskStatus } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { PriorityTag, STATUS_META, StatusTag } from './tags';
+import EmptyState from './EmptyState';
 
 type ActivityItem =
   | { kind: 'comment'; at: string; author: string; body: string }
@@ -401,7 +402,7 @@ export default function TaskDrawer({
           <Divider plain>Files &amp; links</Divider>
           <List
             size="small"
-            locale={{ emptyText: 'Nothing attached yet' }}
+            locale={{ emptyText: <EmptyState compact phrase="Nothing attached yet." /> }}
             dataSource={task.attachments}
             renderItem={(a) => (
               <List.Item>
@@ -441,7 +442,7 @@ export default function TaskDrawer({
           <Divider plain>Activity</Divider>
           <List
             size="small"
-            locale={{ emptyText: 'No activity yet' }}
+            locale={{ emptyText: <EmptyState compact phrase="No activity yet." /> }}
             dataSource={activity}
             renderItem={(item) =>
               item.kind === 'comment' ? (

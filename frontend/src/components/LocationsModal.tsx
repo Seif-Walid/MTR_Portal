@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
 import type { Location } from '../api/types';
+import EmptyState from './EmptyState';
 
 const KINDS = ['room', 'shelf', 'box', 'other'];
 
@@ -49,7 +50,7 @@ export default function LocationsModal({ open, onClose }: { open: boolean; onClo
       </Space.Compact>
       <List
         size="small"
-        locale={{ emptyText: 'No locations yet' }}
+        locale={{ emptyText: <EmptyState compact phrase="No locations yet." /> }}
         dataSource={locations}
         renderItem={(l) => (
           <List.Item

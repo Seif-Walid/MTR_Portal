@@ -1,6 +1,7 @@
-import { Empty, Tooltip, theme } from 'antd';
+import { Tooltip, theme } from 'antd';
 
 import { hexA } from '../theme/circuitTokens';
+import EmptyState from './EmptyState';
 
 // Small, dependency-free chart primitives for the dashboards. Every chart here
 // is single-series, so one mark hue carries it (validated against the dark
@@ -72,6 +73,7 @@ export function StatRow({ children, min = 180 }: { children: React.ReactNode; mi
   const { token } = theme.useToken();
   return (
     <div
+      className="mtr-statrow"
       style={{
         display: 'grid',
         gridTemplateColumns: `repeat(auto-fit, minmax(${min}px, 1fr))`,
@@ -110,7 +112,7 @@ export function BarList({
 }) {
   const { token } = theme.useToken();
   const max = Math.max(0, ...items.map((i) => Math.max(i.value, i.track ?? 0)));
-  if (!items.length || max === 0) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={empty} />;
+  if (!items.length || max === 0) return <EmptyState compact phrase={empty} />;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {trackLabel && (
@@ -216,7 +218,7 @@ export function Columns({
 }) {
   const { token } = theme.useToken();
   const max = Math.max(0, ...items.map((i) => i.value));
-  if (!items.length || max === 0) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={empty} />;
+  if (!items.length || max === 0) return <EmptyState compact phrase={empty} />;
   const step = every ?? Math.max(1, Math.ceil(items.length / 12));
   const peak = items.reduce((best, it, i) => (it.value > items[best].value ? i : best), 0);
   return (
@@ -311,10 +313,9 @@ export function Panel({
   const { token } = theme.useToken();
   return (
     <section
+      className="mtr-inset"
       style={{
-        border: `1px solid ${token.colorBorderSecondary}`,
         borderRadius: token.borderRadiusLG,
-        background: token.colorBgContainer,
         padding: '14px 16px 16px',
         minWidth: 0,
         ...style,

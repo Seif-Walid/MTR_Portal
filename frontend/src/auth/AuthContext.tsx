@@ -8,11 +8,23 @@ export function can(me: Me | null, key: string): boolean {
   return !!me && me.privileges.includes(key);
 }
 
+export interface EntryRequest {
+  email: string;
+  full_name: string;
+  password: string;
+  phone: string;
+  school?: string;
+  year?: string;
+  why?: string;
+}
+
 interface AuthState {
   me: Me | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, fullName: string, password: string) => Promise<void>;
+  /** "Request entry": an admin-added member is activated and signed in
+   * ('signed-in'); anyone else files a request for review ('pending'). */
+  requestEntry: (fields: EntryRequest) => Promise<'signed-in' | 'pending'>;
   logout: () => Promise<void>;
   applyMe: (me: Me) => void;
 }
@@ -37,8 +49,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMe(await api.post<Me>('/api/auth/login', { email, password }));
   };
 
-  const register = async (email: string, fullName: string, password: string) => {
-    setMe(await api.post<Me>('/api/auth/register', { email, full_name: fullName, password }));
+  const requestEntry = async (fields: EntryRequest) => {
+    const r = await api.post<Me | { status: 'pending' }>('/api/auth/request-entry', fields);
+    if ('status' in r && r.status === 'pending') return 'pending';
+    setMe(r as Me);
+    return 'signed-in';
   };
 
   const logout = async () => {
@@ -47,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ me, loading, login, register, logout, applyMe: setMe }}>
+    <AuthContext.Provider value={{ me, loading, login, requestEntry, logout, applyMe: setMe }}>
       {children}
     </AuthContext.Provider>
   );
