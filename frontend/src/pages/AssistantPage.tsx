@@ -12,6 +12,7 @@ import type {
 } from '../api/types';
 import { asButton } from '../components/a11y';
 import EmptyState from '../components/EmptyState';
+import VoiceInput from '../components/VoiceInput';
 
 const MONO = 'var(--font-mono)';
 const DISPLAY = 'var(--font-display)';
@@ -446,6 +447,12 @@ export default function AssistantPage() {
         .ai-md h1 { font-size: 20px; } .ai-md h2 { font-size: 17px; } .ai-md h3 { font-size: 15px; }
         .ai-md ul, .ai-md ol { padding-left: 1.3em; margin: .3em 0 .6em; }
         .ai-md a { color: ${ACCENT}; }
+        .voice-input { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+        .voice-lang { font-size: 12px; min-width: 28px; color: var(--text-secondary); }
+        .voice-timer { font-family: ${MONO}; font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+        .voice-input.is-recording .ant-btn-dangerous { animation: voice-pulse 1.4s ease-in-out infinite; }
+        @keyframes voice-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,77,79,.45); } 50% { box-shadow: 0 0 0 6px rgba(255,77,79,0); } }
+        @media (prefers-reduced-motion: reduce) { .voice-input.is-recording .ant-btn-dangerous { animation: none; } }
       `}</style>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
         <Space align="center" size={12} wrap>
@@ -508,6 +515,7 @@ export default function AssistantPage() {
                 placeholder={placeholder} disabled={!status?.available}
                 onPressEnter={(e) => { if (!e.shiftKey) { e.preventDefault(); send(); } }}
               />
+              <VoiceInput value={draft} onChange={setDraft} whisper={!!status?.transcribe} disabled={!status?.available || !!live} />
               <Button aria-label="Send message" type="primary" icon={<SendOutlined />} onClick={send} loading={!!live} disabled={!status?.available || !draft.trim()} />
             </div>
           </div>

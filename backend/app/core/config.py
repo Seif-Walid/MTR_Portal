@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     cerebras_api_key: str = ""
     mistral_api_key: str = ""
+    # Voice input: Groq Whisper cleans up the browser's live dictation.
+    ai_transcribe_model: str = "whisper-large-v3-turbo"
     ai_max_tool_rounds: int = 15
     claude_cli_path: str = "claude"
     ai_model_assistant: str = "sonnet"

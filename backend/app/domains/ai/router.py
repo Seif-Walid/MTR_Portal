@@ -12,7 +12,7 @@ import json
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.domains.access import service as access
-from app.domains.ai import prompts, search as semantic, service
+from app.domains.ai import prompts, search as semantic, service, voice
 from app.domains.ai.models import (
     ActionStatus,
     AiConversation,
@@ -129,6 +129,7 @@ def ai_status(db: DB, user: CurrentUser) -> dict:
     else:
         configured = settings.ai_provider == "claude_code" and not settings.cookie_secure
     out["available"] = configured or _provider_override is not None
+    out["transcribe"] = voice.available()
     return out
 
 
@@ -354,6 +355,17 @@ def revoke_connection(token_id: int, db: DB, user: CurrentUser) -> None:
 def check_token(auth: TokenUser) -> dict:
     """Cheap bearer check the hosted MCP endpoint runs before serving."""
     return {"user_id": auth[0].id}
+
+
+# ------------------------------------------------------------------ voice
+@router.post("/transcribe")
+def transcribe(db: DB, user: CurrentUser, audio: Annotated[UploadFile, File()],
+               language: Annotated[str | None, Form(max_length=8)] = None) -> dict:
+    """One finished recording -> text (Groq Whisper). The browser shows live
+    words while recording; this replaces them with the cleaner version."""
+    service.require_ai(db, user)
+    data = audio.file.read(voice.MAX_BYTES + 1)
+    return {"text": voice.transcribe(data, audio.filename or "speech.webm", audio.content_type or "", language or None)}
 
 
 # ----------------------------------------------------------------- search

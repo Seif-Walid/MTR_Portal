@@ -989,6 +989,8 @@ export interface AiStatus {
   embedder: string;
   /** provider "chain": the free-tier models in order, and which are cooling down */
   chain?: { link: string; ready: boolean; retry_in_s: number }[];
+  /** backend can clean up dictation with Whisper (Groq key set) */
+  transcribe?: boolean;
 }
 
 export interface AiConnection {

@@ -297,3 +297,40 @@ def test_make_document_rejects_mixed_blocks(client, login, org):
     out = _call(client, headers, "make_document", format="pdf", filename="x", title="x",
                 blocks=[{"text": "hi", "table": "SELECT 1"}])
     assert "error" in out and "exactly one" in json.dumps(out)
+
+
+def test_transcribe_sends_one_clip_to_groq_and_needs_ai_use(client, login, org, monkeypatch):
+    from app.core.config import settings
+    from app.domains.ai import voice
+
+    clip = {"audio": ("speech.webm", b"\x1aE\xdf\xa3fake", "audio/webm")}
+    monkeypatch.setattr(settings, "groq_api_key", "")
+    admin = login("admin")
+    assert admin.get("/api/ai/status").json()["transcribe"] is False
+    assert admin.post("/api/ai/transcribe", files=clip).status_code == 503  # no key yet
+
+    monkeypatch.setattr(settings, "groq_api_key", "gsk_test")
+    sent = {}
+
+    class Res:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"text": "  add two servos to the drone team  "}
+
+    def fake_post(url, **kw):
+        sent.update(url=url, **kw)
+        return Res()
+
+    monkeypatch.setattr(voice.httpx, "post", fake_post)
+    assert admin.get("/api/ai/status").json()["transcribe"] is True
+    r = admin.post("/api/ai/transcribe", files=clip, data={"language": "ar"})
+    assert r.status_code == 200 and r.json() == {"text": "add two servos to the drone team"}
+    assert sent["url"] == voice.GROQ_URL
+    assert sent["data"]["model"] == settings.ai_transcribe_model and sent["data"]["language"] == "ar"
+    assert sent["headers"]["Authorization"] == "Bearer gsk_test"
+
+    Res.status_code = 429
+    assert admin.post("/api/ai/transcribe", files=clip).status_code == 429
+    assert login("comp_member").post("/api/ai/transcribe", files=clip).status_code == 403
