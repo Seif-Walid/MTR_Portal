@@ -8,6 +8,8 @@ export default defineConfig({
     proxy: {
       // same-origin in dev: session cookie just works
       '/api': process.env.API_PROXY ?? 'http://localhost:8000',
+      // OAuth discovery for outside AI agents (see backend ai/oauth.py)
+      '/.well-known/oauth-': process.env.API_PROXY ?? 'http://localhost:8000',
     },
   },
 });

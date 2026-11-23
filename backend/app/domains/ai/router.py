@@ -76,13 +76,13 @@ def get_provider():
 def token_user(
     db: Annotated[Session, Depends(get_db)],
     authorization: Annotated[str | None, Header()] = None,
-) -> tuple[User, int | None]:
+) -> tuple[User, int | None, bool]:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing AI token")
     return service.resolve_token(db, authorization.split(" ", 1)[1].strip())
 
 
-TokenUser = Annotated[tuple[User, int | None], Depends(token_user)]
+TokenUser = Annotated[tuple[User, int | None, bool], Depends(token_user)]
 
 
 class ToolCall(BaseModel):
@@ -91,14 +91,14 @@ class ToolCall(BaseModel):
 
 @router.get("/tools")
 def list_tools(auth: TokenUser) -> list[dict]:
-    return catalog()
+    return catalog(direct=auth[2])
 
 
 @router.get("/history")
 def conversation_history(auth: TokenUser, db: DB) -> list[dict]:
     """The token's conversation before its latest user message (which the
     provider gets on its own, with any portal notes folded in)."""
-    user, conversation_id = auth
+    user, conversation_id, _ = auth
     conv = db.get(AiConversation, conversation_id) if conversation_id is not None else None
     if conv is None or conv.user_id != user.id:
         return []
@@ -109,8 +109,8 @@ def conversation_history(auth: TokenUser, db: DB) -> list[dict]:
 
 @router.post("/tools/{name}")
 def run_tool(name: str, payload: ToolCall, auth: TokenUser, db: DB) -> Any:
-    user, conversation_id = auth
-    return service.call_tool(db, user, name, payload.arguments, conversation_id)
+    user, conversation_id, direct = auth
+    return service.call_tool(db, user, name, payload.arguments, conversation_id, direct)
 
 
 # ----------------------------------------------------------------- status
@@ -325,25 +325,19 @@ def reject_actions(payload: ActionIds, db: DB, user: CurrentUser) -> None:
     service.reject(db, user, payload.ids)
 
 
-# ------------------------------------------------- connect your AI agent
-class ConnectRequest(BaseModel):
-    agent: str = Field(default="AI agent", min_length=1, max_length=60)
-
-
+# --------------------------------------------- outside agents (OAuth-connected)
 def _connection(rec: AiToken) -> dict:
     return {"id": rec.id, "agent": rec.label.removeprefix(service.AGENT_LABEL),
             "created_at": rec.created_at, "last_used_at": rec.last_used_at}
 
 
 @router.post("/connect")
-def connect_agent(db: DB, user: CurrentUser, payload: ConnectRequest | None = None) -> dict:
-    """Mint a personal token for the user's own AI agent (Claude Code, Codex,
-    Antigravity, any MCP client), which then talks to the hosted MCP endpoint
-    /api/ai/mcp. Shown once; valid until revoked."""
+def connect_script(db: DB, user: CurrentUser) -> dict:
+    """A short-lived token for scripts and the stdio MCP server. Its writes
+    are only proposed. People's agents connect through OAuth instead."""
     service.require_ai(db, user)
-    token, rec = service.mint_token(db, user, None, label=service.AGENT_LABEL + (payload or ConnectRequest()).agent,
-                                     expires=False)
-    return {"token": token, "connection": _connection(rec)}
+    token, _ = service.mint_token(db, user, None, label="terminal")
+    return {"token": token, "expires_in_hours": settings.ai_token_ttl_hours}
 
 
 @router.get("/connections")

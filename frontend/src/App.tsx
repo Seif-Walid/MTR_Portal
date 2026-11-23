@@ -1,7 +1,9 @@
 import { Spin } from 'antd';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 
 import { can, useAuth } from './auth/AuthContext';
+import { pendingReturn } from './auth/returnTo';
 import AppLayout from './components/AppLayout';
 import AdminUsersPage from './pages/AdminUsersPage';
 import ApplicationsPage from './pages/ApplicationsPage';
@@ -16,6 +18,7 @@ import MembersPage from './pages/MembersPage';
 import HomePage from './pages/HomePage';
 import InventoryPage from './pages/InventoryPage';
 import LoginPage from './pages/LoginPage';
+import OAuthConsentPage from './pages/OAuthConsentPage';
 import OrganizationPage from './pages/OrganizationPage';
 import ProfilePage from './pages/ProfilePage';
 import RequestsPage from './pages/RequestsPage';
@@ -26,6 +29,14 @@ import TeamPage from './pages/TeamPage';
 
 export default function App() {
   const { me, loading } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // signed in (password or Google) while an AI agent's consent was waiting
+  useEffect(() => {
+    const back = me ? pendingReturn() : null;
+    if (back && location.pathname !== '/oauth/consent') navigate(back, { replace: true });
+  }, [me, location.pathname, navigate]);
 
   if (loading) {
     return (
@@ -39,6 +50,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/reset-password" element={<LoginPage />} />
+      <Route path="/oauth/consent" element={<OAuthConsentPage />} />
       {me ? (
         <Route element={<AppLayout />}>
           <Route path="/home" element={<HomePage />} />

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import re
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Callable, Literal
@@ -550,6 +551,22 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
 ]}
 
 
-def catalog() -> list[dict]:
-    return [{"name": t.name, "description": t.description, "kind": t.kind, "input_schema": t.schema()}
-            for t in TOOLS.values()]
+_PROPOSE_CLAUSES = re.compile(
+    r"\s*(Not executed until the user confirms\.|,? but only runs after the user confirms|"
+    r"Actions you proposed that still wait for the user's confirmation\.)")
+
+
+def _direct_description(t: Tool) -> str:
+    """Wording for agents whose writes run at once (no confirmation step)."""
+    if t.kind != "write":
+        return t.description
+    text = _PROPOSE_CLAUSES.sub("", t.description.removeprefix("PROPOSE ")).strip()
+    first, _, rest = text.partition(" ")
+    verb = {"creating": "Create", "adding": "Add", "giving": "Give", "assigning": "Assign"}.get(first.lower(), first.capitalize())
+    return f"{verb} {rest} Runs immediately as the signed-in person; the result has the real ids."
+
+
+def catalog(direct: bool = False) -> list[dict]:
+    return [{"name": t.name, "description": _direct_description(t) if direct else t.description,
+             "kind": t.kind, "input_schema": t.schema()}
+            for t in TOOLS.values() if not (direct and t.name == "list_pending_actions")]

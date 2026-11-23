@@ -130,3 +130,32 @@ class AiEmbedding(Base):
     text: Mapped[str] = mapped_column(Text)
     vector: Mapped[str] = mapped_column(Text)  # JSON list[float], L2-normalised
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class OAuthClient(Base):
+    """An outside AI agent registered itself (RFC 7591 dynamic registration)
+    so it can ask people to connect it to the portal's MCP endpoint. Public
+    client: no secret, PKCE protects the code exchange."""
+
+    __tablename__ = "oauth_clients"
+
+    client_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    redirect_uris: Mapped[str] = mapped_column(Text)  # JSON list
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class OAuthCode(Base):
+    """A one-time authorization code a person granted an agent on the consent
+    page; exchanged (with the PKCE verifier) for an agent token."""
+
+    __tablename__ = "oauth_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    client_id: Mapped[str] = mapped_column(ForeignKey("oauth_clients.client_id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    redirect_uri: Mapped[str] = mapped_column(Text)
+    code_challenge: Mapped[str] = mapped_column(String(128))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -48,7 +48,13 @@ def mint_token(db: Session, user: User, conversation_id: int | None = None, labe
     return token, rec
 
 
-def resolve_token(db: Session, token: str) -> tuple[User, int | None]:
+def is_direct(rec: AiToken) -> bool:
+    """Agents connected from outside (OAuth) act directly: their writes run
+    at once. Chat and script tokens keep the propose → confirm flow."""
+    return rec.label.startswith(AGENT_LABEL)
+
+
+def resolve_token(db: Session, token: str) -> tuple[User, int | None, bool]:
     rec = db.scalar(select(AiToken).where(AiToken.token_hash == _digest(token)))
     if rec is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid AI token")
@@ -62,7 +68,7 @@ def resolve_token(db: Session, token: str) -> tuple[User, int | None]:
     if rec.last_used_at is None or now - _aware(rec.last_used_at) > _TOUCH_EVERY:
         rec.last_used_at = now
         db.commit()
-    return user, rec.conversation_id
+    return user, rec.conversation_id, is_direct(rec)
 
 
 def agent_connections(db: Session, user: User) -> list[AiToken]:
@@ -135,7 +141,8 @@ def _unescape(value):
     return value
 
 
-def call_tool(db: Session, user: User, name: str, raw: dict, conversation_id: int | None) -> dict:
+def call_tool(db: Session, user: User, name: str, raw: dict, conversation_id: int | None,
+              direct: bool = False) -> dict:
     tool = TOOLS.get(name)
     if tool is None:
         return {"error": f"Unknown tool {name}"}
@@ -155,6 +162,8 @@ def call_tool(db: Session, user: User, name: str, raw: dict, conversation_id: in
     # (so "4 more of the same part" or "the team from #12" is checked for
     # real), roll everything back, then store it as pending.
     user = _fresh(db, user)
+    if direct:
+        return _run_now(db, user, name, tool, inp)
     chain = [(a.id, a.tool, json.loads(a.input)) for a in _pending_chain(db, user, conversation_id)]
     chain.append((0, name, inp.model_dump(mode="json")))
     try:
@@ -179,6 +188,24 @@ def call_tool(db: Session, user: User, name: str, raw: dict, conversation_id: in
     db.commit()
     return {"proposed": True, "action_id": action.id, "summary": summary,
             "note": "Awaiting the user's confirmation in the portal. Do not claim it is done."}
+
+
+def _run_now(db: Session, user: User, name: str, tool, inp) -> dict:
+    """A directly connected agent's write: run it for real, as the person,
+    recorded like a confirmed action (audit log, action history)."""
+    summary = tool.summarize(db, inp) if tool.summarize else name
+    action = AiPendingAction(user_id=user.id, conversation_id=None, tool=name,
+                             input=json.dumps(inp.model_dump(mode="json")), summary=summary)
+    db.add(action)
+    db.commit()
+    try:
+        out = confirm(db, user, [action.id])
+    except HTTPException as exc:
+        action = db.get(AiPendingAction, action.id)
+        action.status, action.decided_at = ActionStatus.REJECTED, datetime.now(timezone.utc)
+        db.commit()
+        return {"error": exc.detail, "status": exc.status_code, "note": "Nothing was changed."}
+    return {"done": True, "action_id": action.id, "summary": summary, "result": out["done"][0]["result"]}
 
 
 # ----------------------------------------------------------- confirm/reject

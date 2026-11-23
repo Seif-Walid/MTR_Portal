@@ -3,6 +3,7 @@ import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-route
 
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import { afterLogin } from '../auth/returnTo';
 import { LogoImage } from '../components/Logo';
 import '@fontsource-variable/space-grotesk/wght.css';
 import '@fontsource-variable/geist/wght.css';
@@ -102,14 +103,14 @@ export default function LoginPage() {
     }
   }, [searchParams, setSearchParams]);
 
-  if (me && mode !== 'reset') return <Navigate to="/tasks" replace />;
+  if (me && mode !== 'reset') return <Navigate to={afterLogin()} replace />;
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
     setError(null);
     try {
       await fn();
-      navigate('/tasks');
+      navigate(afterLogin());
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Something went wrong');
     } finally {
@@ -151,7 +152,7 @@ export default function LoginPage() {
         email: em, full_name: fullName.trim(), password, phone: phone.trim(),
         school: school.trim() || undefined, year: year.trim() || undefined, why: why.trim() || undefined,
       });
-      if (result === 'signed-in') return navigate('/tasks');
+      if (result === 'signed-in') return navigate(afterLogin());
       switchMode('signin');
       setEmail(em);
       setNotice("Request sent. Someone on the team will review it — once it's accepted you can sign in here with this email and password.");

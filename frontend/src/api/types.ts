@@ -998,11 +998,6 @@ export interface AiConnection {
   last_used_at: string | null;
 }
 
-export interface AiConnectInfo {
-  token: string;
-  connection: AiConnection;
-}
-
 export interface SearchHit {
   type: 'inventory' | 'event' | 'team' | 'person' | 'budget_line';
   id: number;

@@ -270,7 +270,7 @@ def find_actions(db: Session, user: User, inp: FindActionsIn) -> dict:
         return {"actions": [f"{o['method']} {o['path']} — {o['summary']}" for o in operations()],
                 "note": "Nothing matched those words, so here is every action. Pick one and call find_actions with its words to get its inputs."}
     return {"actions": [describe(op, full=i < 5) for i, op in enumerate(hits)],
-            "note": "GET → portal_read. Anything else → portal_change (only proposes; the user confirms)."}
+            "note": "GET → portal_read. Anything else → portal_change."}
 
 
 def portal_read(db: Session, user: User, inp: ReadIn) -> Any:

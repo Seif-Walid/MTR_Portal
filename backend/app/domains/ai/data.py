@@ -31,6 +31,7 @@ from app.domains.users.models import User
 ROW_CAP = 20_000  # per table copied into the query DB
 NEVER = {
     "ai_tokens", "ai_embeddings", "ai_messages", "ai_conversations", "ai_pending_actions", "ai_files",
+    "oauth_clients", "oauth_codes",
     "auth_sessions", "password_reset_tokens", "drive_connections",
 }
 SECRET = re.compile(r"(password|token|secret|hash)", re.I)

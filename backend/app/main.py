@@ -9,6 +9,7 @@ from app.core.borrowed import BorrowMiddleware
 from app.core.config import settings
 from app.domains.access.router import router as access_router
 from app.domains.ai.mcp_http import PATH as MCP_PATH, hosted as hosted_mcp
+from app.domains.ai.oauth import router as oauth_router, well_known as oauth_well_known
 from app.domains.ai.router import router as ai_router
 from app.domains.applications.router import router as applications_router
 from app.domains.archive.router import router as archive_router
@@ -84,9 +85,11 @@ for domain_router in (
     timeblocks_router,
     public_router,
     ai_router,
+    oauth_router,
     drive_router,
 ):
     app.include_router(domain_router, prefix="/api")
+app.include_router(oauth_well_known)  # /.well-known/oauth-* (nginx forwards them)
 
 
 # Hosted MCP for people's own AI agents (see app/domains/ai/mcp_http.py).

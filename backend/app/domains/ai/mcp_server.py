@@ -68,7 +68,17 @@ async def call_tool(ctx, params) -> types.CallToolResult:
     )
 
 
+HOSTED_INSTRUCTIONS = (
+    "Tools for the MindTech Robotics portal, acting as the person who connected you, with their "
+    "permissions. Resolve names to ids with semantic_search / find_person before acting. Use "
+    "find_actions to discover any page action, portal_read to run reads and portal_change for "
+    "writes. Writes run immediately and are recorded in the portal's audit log, so check ids and "
+    "amounts first and say what you changed."
+)
+
 server = Server("portal", instructions=INSTRUCTIONS, on_list_tools=list_tools, on_call_tool=call_tool)
+# what /api/ai/mcp serves: same tools, for agents whose writes run at once
+hosted_server = Server("portal", instructions=HOSTED_INSTRUCTIONS, on_list_tools=list_tools, on_call_tool=call_tool)
 
 
 async def main() -> None:
