@@ -74,8 +74,19 @@ class Settings(BaseSettings):
 
     # AI assistant. `ai_provider`: "disabled" | "claude_code" (spawns the local
     # `claude` CLI on the developer's own logged-in subscription — local only,
-    # refused when cookie_secure is on, i.e. behind real HTTPS in prod).
+    # refused when cookie_secure is on, i.e. behind real HTTPS in prod) |
+    # "chain" (free-tier hosted models, tried in order; see providers/chain.py).
     ai_provider: str = "disabled"
+    # "provider:model" links, first that answers wins; a link whose provider
+    # has no key below is skipped. Providers: gemini, groq, openrouter,
+    # cerebras, mistral (all OpenAI-compatible).
+    ai_chain: str = "gemini:gemini-3.5-flash-lite,gemini:gemini-3.1-flash-lite,groq:openai/gpt-oss-120b"
+    gemini_api_key: str = ""
+    groq_api_key: str = ""
+    openrouter_api_key: str = ""
+    cerebras_api_key: str = ""
+    mistral_api_key: str = ""
+    ai_max_tool_rounds: int = 15
     claude_cli_path: str = "claude"
     ai_model_assistant: str = "sonnet"
     ai_model_bulk: str = "haiku"  # one-off batch jobs (inventory aliases)

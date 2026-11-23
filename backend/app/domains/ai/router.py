@@ -60,6 +60,13 @@ def get_provider():
         from app.domains.ai.providers.claude_code import ClaudeCodeProvider
 
         return ClaudeCodeProvider()
+    if settings.ai_provider == "chain":
+        from app.domains.ai.providers import chain
+
+        if not chain.configured_links():
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                                "No AI model is configured (set AI_CHAIN and an API key)")
+        return chain.ChainProvider()
     raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                         "The AI assistant is not configured (set AI_PROVIDER)")
 
@@ -86,6 +93,19 @@ def list_tools(auth: TokenUser) -> list[dict]:
     return catalog()
 
 
+@router.get("/history")
+def conversation_history(auth: TokenUser, db: DB) -> list[dict]:
+    """The token's conversation before its latest user message (which the
+    provider gets on its own, with any portal notes folded in)."""
+    user, conversation_id = auth
+    conv = db.get(AiConversation, conversation_id) if conversation_id is not None else None
+    if conv is None or conv.user_id != user.id:
+        return []
+    rows = list(conv.messages)
+    last_user = max((i for i, m in enumerate(rows) if m.role == "user"), default=len(rows))
+    return [{"role": m.role, "text": m.text, "tools": json.loads(m.tools or "[]")} for m in rows[:last_user]]
+
+
 @router.post("/tools/{name}")
 def run_tool(name: str, payload: ToolCall, auth: TokenUser, db: DB) -> Any:
     user, conversation_id = auth
@@ -96,10 +116,19 @@ def run_tool(name: str, payload: ToolCall, auth: TokenUser, db: DB) -> Any:
 @router.get("/status")
 def ai_status(db: DB, user: CurrentUser) -> dict:
     service.require_ai(db, user)
-    configured = settings.ai_provider == "claude_code" and not settings.cookie_secure
-    return {"provider": settings.ai_provider, "available": configured or _provider_override is not None,
-            "models": {"assistant": settings.ai_model_assistant, "planner": settings.ai_model_planner},
-            "embedder": settings.ai_embedder}
+    out = {"provider": settings.ai_provider, "embedder": settings.ai_embedder,
+           "models": {"assistant": settings.ai_model_assistant, "planner": settings.ai_model_planner}}
+    if settings.ai_provider == "chain":
+        from app.domains.ai.providers import chain
+
+        links = chain.chain_status()
+        out["chain"] = links
+        out["models"] = {"assistant": links[0]["link"] if links else "", "planner": links[0]["link"] if links else ""}
+        configured = bool(links)
+    else:
+        configured = settings.ai_provider == "claude_code" and not settings.cookie_secure
+    out["available"] = configured or _provider_override is not None
+    return out
 
 
 # ---------------------------------------------------------- conversations
@@ -327,6 +356,8 @@ async def fill_inventory_aliases(db: DB, user: CurrentUser) -> dict:
     """Have the local Claude Code write 'also known as' names for items that
     have none (ai.admin; local provider only). Slow: about a minute per 60 items."""
     access.require_privilege(db, user, "ai.admin")
+    if settings.ai_provider != "claude_code":
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Alias filling needs the local Claude Code provider")
     get_provider()  # same local-only guard as the chat
     from app.domains.ai.aliases import fill_missing
 

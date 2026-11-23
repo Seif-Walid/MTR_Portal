@@ -372,7 +372,10 @@ export default function AssistantPage() {
           <h2 style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 22, margin: 0, color: TEXT }}>Assistant</h2>
           {status && (
             <span style={{ fontSize: 12.5, color: MUTED }}>
-              {status.available ? `Claude Code · ${status.models.assistant} / ${status.models.planner}` : 'Not configured'}
+              {!status.available ? 'Not configured'
+                : status.provider === 'chain'
+                  ? `Free models · ${status.chain?.find((l) => l.ready)?.link ?? 'all busy, retrying soon'}`
+                  : `Claude Code · ${status.models.assistant} / ${status.models.planner}`}
             </span>
           )}
         </Space>
