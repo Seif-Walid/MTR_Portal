@@ -110,7 +110,9 @@ class AiToken(Base):
         ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=True
     )
     label: Mapped[str] = mapped_column(String(100), default="")
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # NULL = a personal agent connection: valid until its owner revokes it
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

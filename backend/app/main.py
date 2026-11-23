@@ -1,9 +1,14 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
+from starlette.routing import Route
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.borrowed import BorrowMiddleware
 from app.core.config import settings
 from app.domains.access.router import router as access_router
+from app.domains.ai.mcp_http import PATH as MCP_PATH, hosted as hosted_mcp
 from app.domains.ai.router import router as ai_router
 from app.domains.applications.router import router as applications_router
 from app.domains.archive.router import router as archive_router
@@ -29,7 +34,15 @@ from app.domains.tasks.router import router as tasks_router
 from app.domains.timeblocks.router import router as timeblocks_router
 from app.domains.users.router import router as users_router
 
-app = FastAPI(title="Organization Operations Portal", version="1.0.0")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    async with hosted_mcp.lifespan():
+        yield
+
+
+app = FastAPI(title="Organization Operations Portal", version="1.0.0", lifespan=lifespan)
 app.add_middleware(BorrowMiddleware)
 
 app.add_middleware(
@@ -74,6 +87,10 @@ for domain_router in (
     drive_router,
 ):
     app.include_router(domain_router, prefix="/api")
+
+
+# Hosted MCP for people's own AI agents (see app/domains/ai/mcp_http.py).
+app.router.routes.append(Route(MCP_PATH, endpoint=hosted_mcp, methods=["GET", "POST", "DELETE"]))
 
 
 @app.get("/api/health")

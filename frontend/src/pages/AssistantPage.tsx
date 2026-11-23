@@ -8,7 +8,7 @@ import remarkGfm from 'remark-gfm';
 
 import { api, ApiError, streamEvents } from '../api/client';
 import type {
-  AiAction, AiConnectInfo, AiConversation, AiConversationDetail, AiMessage, AiMode, AiStatus, AiToolUse,
+  AiAction, AiConnectInfo, AiConnection, AiConversation, AiConversationDetail, AiMessage, AiMode, AiStatus, AiToolUse,
 } from '../api/types';
 import { asButton } from '../components/a11y';
 import EmptyState from '../components/EmptyState';
@@ -189,8 +189,14 @@ function ActionsPanel({ actions, onDecided, sticky = false }: { actions: AiActio
 
 type AgentId = 'claude' | 'codex' | 'antigravity' | 'other';
 
+const AGENTS: Record<AgentId, string> = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  antigravity: 'Antigravity',
+  other: 'Other',
+};
+
 interface AgentSetup {
-  label: string;
   step: string;
   snippet: string;
   copyLabel: string;
@@ -198,88 +204,103 @@ interface AgentSetup {
   after: React.ReactNode;
 }
 
-const tomlString = (v: string) => JSON.stringify(v);
+const MCP_URL = `${window.location.origin}/api/ai/mcp`;
 
-function agentSetups(info: AiConnectInfo): Record<AgentId, AgentSetup> {
-  const { command, args, env } = info.server;
-  const envPairs = Object.entries(env);
-  const plainJson = JSON.stringify({ mcpServers: { portal: { command, args, env } } }, null, 2);
+function agentSetup(agent: AgentId, token: string): AgentSetup {
+  const bearer = `Bearer ${token}`;
   const example = <>&quot;give 4 motor drivers to team A in competition C&quot;</>;
-  return {
-    claude: {
-      label: 'Claude Code',
-      step: 'RUN ONCE IN A TERMINAL',
-      snippet: info.command,
-      copyLabel: 'Copy command',
-      alt: { label: 'Copy .mcp.json instead', snippet: JSON.stringify(info.mcp_json, null, 2) },
-      after: <>Then start <code>claude</code> and ask, for example: {example}.</>,
-    },
-    codex: {
-      label: 'Codex',
-      step: 'RUN ONCE IN A TERMINAL',
-      snippet: ['codex mcp add portal', ...envPairs.map(([k, v]) => `--env ${k}=${v}`), '--', command, ...args].join(' '),
-      copyLabel: 'Copy command',
-      alt: {
-        label: 'Copy config.toml block instead',
+  switch (agent) {
+    case 'claude':
+      return {
+        step: 'RUN ONCE IN A TERMINAL',
+        snippet: `claude mcp add --transport http --scope user portal ${MCP_URL} --header "Authorization: ${bearer}"`,
+        copyLabel: 'Copy command',
+        alt: {
+          label: 'Copy .mcp.json instead',
+          snippet: JSON.stringify({ mcpServers: { portal: { type: 'http', url: MCP_URL, headers: { Authorization: bearer } } } }, null, 2),
+        },
+        after: <>Then start <code>claude</code> and ask, for example: {example}.</>,
+      };
+    case 'codex':
+      return {
+        step: 'ADD TO ~/.codex/config.toml',
         snippet: [
           '[mcp_servers.portal]',
-          `command = ${tomlString(command)}`,
-          `args = [${args.map(tomlString).join(', ')}]`,
+          `url = "${MCP_URL}"`,
           '',
-          '[mcp_servers.portal.env]',
-          ...envPairs.map(([k, v]) => `${k} = ${tomlString(v)}`),
+          '[mcp_servers.portal.http_headers]',
+          `Authorization = "${bearer}"`,
         ].join('\n'),
-      },
-      after: <>The TOML block goes in <code>~/.codex/config.toml</code>. Then start <code>codex</code> and ask, for example: {example}.</>,
-    },
-    antigravity: {
-      label: 'Antigravity',
-      step: 'ADD TO mcp_config.json',
-      snippet: plainJson,
-      copyLabel: 'Copy config',
-      after: (
-        <>
-          In Antigravity open the agent panel&apos;s <b>⋯</b> menu, then <b>MCP Servers → Manage MCP Servers → View raw
-          config</b>, and merge this into <code>mcp_config.json</code> (it lives at{' '}
-          <code>~/.gemini/config/mcp_config.json</code>). Refresh the servers, then ask the agent, for
-          example: {example}.
-        </>
-      ),
-    },
-    other: {
-      label: 'Other',
-      step: 'STANDARD MCP SERVER CONFIG',
-      snippet: plainJson,
-      copyLabel: 'Copy config',
-      after: <>Any agent that speaks MCP over stdio (Cursor, Windsurf, Gemini CLI, VS Code…) takes this shape in its MCP settings.</>,
-    },
-  };
+        copyLabel: 'Copy config',
+        after: <>Restart <code>codex</code>, check it with <code>/mcp</code>, then ask, for example: {example}.</>,
+      };
+    case 'antigravity':
+      return {
+        step: 'ADD TO mcp_config.json',
+        snippet: JSON.stringify({ mcpServers: { portal: { serverUrl: MCP_URL, headers: { Authorization: bearer } } } }, null, 2),
+        copyLabel: 'Copy config',
+        after: (
+          <>
+            In Antigravity open the agent panel&apos;s <b>⋯</b> menu, then <b>MCP Servers → Manage MCP Servers → View raw
+            config</b>, and merge this into <code>mcp_config.json</code> (it lives at{' '}
+            <code>~/.gemini/config/mcp_config.json</code>). Refresh the servers, then ask the agent, for example: {example}.
+          </>
+        ),
+      };
+    default:
+      return {
+        step: 'MCP SERVER (STREAMABLE HTTP)',
+        snippet: `URL:     ${MCP_URL}\nHeader:  Authorization: ${bearer}`,
+        copyLabel: 'Copy',
+        after: <>Any agent that supports remote MCP servers over HTTP with a custom header (Cursor, Windsurf, Gemini CLI, VS Code…) takes these two values.</>,
+      };
+  }
 }
 
+const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : 'never');
+
 function ConnectModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [info, setInfo] = useState<AiConnectInfo | null>(null);
   const [agent, setAgent] = useState<AgentId>('claude');
+  const [token, setToken] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [connections, setConnections] = useState<AiConnection[] | null>(null);
+  const load = useCallback(
+    () => api.get<AiConnection[]>('/api/ai/connections').then(setConnections).catch((e) => message.error(e.message)),
+    [],
+  );
   useEffect(() => {
-    if (open) api.post<AiConnectInfo>('/api/ai/connect').then(setInfo).catch((e) => message.error(e.message));
-    else setInfo(null);
-  }, [open]);
-  const setups = useMemo(() => (info ? agentSetups(info) : null), [info]);
+    if (open) load();
+    else { setToken(null); setConnections(null); }
+  }, [open, load]);
+  const create = () => {
+    setBusy(true);
+    api.post<AiConnectInfo>('/api/ai/connect', { agent: AGENTS[agent] })
+      .then((info) => { setToken(info.token); load(); })
+      .catch((e) => message.error(e.message))
+      .finally(() => setBusy(false));
+  };
+  const revoke = (id: number) =>
+    api.delete(`/api/ai/connections/${id}`).then(() => { message.success('Disconnected'); load(); }).catch((e) => message.error(e.message));
   const copy = (text: string) => navigator.clipboard.writeText(text).then(() => message.success('Copied'));
-  const setup = setups?.[agent];
+  const setup = token ? agentSetup(agent, token) : null;
   return (
     <Modal open={open} onCancel={onClose} footer={null} title="Connect your AI agent" width={720} destroyOnHidden>
       <p style={{ color: MUTED }}>
         This connects your own coding agent to the portal&apos;s tools as <b>you</b>, with your permissions. Changes it
-        proposes show up here for you to confirm. The token is valid for {info?.expires_in_hours ?? 12} hours. Keep it
-        private, because it acts as you.
+        proposes show up here for you to confirm. You set it up once: it keeps working after you close the site or
+        restart your laptop, until you disconnect it below. Keep the token private, because it acts as you.
       </p>
-      {!setups || !setup ? <Spin /> : (
+      <Segmented<AgentId>
+        value={agent}
+        onChange={(v) => { setAgent(v); setToken(null); }}
+        options={(Object.keys(AGENTS) as AgentId[]).map((id) => ({ value: id, label: AGENTS[id] }))}
+      />
+      {!setup ? (
+        <div style={{ marginTop: 12 }}>
+          <Button type="primary" loading={busy} onClick={create}>Get setup for {AGENTS[agent]}</Button>
+        </div>
+      ) : (
         <>
-          <Segmented<AgentId>
-            value={agent}
-            onChange={setAgent}
-            options={(Object.keys(setups) as AgentId[]).map((id) => ({ value: id, label: setups[id].label }))}
-          />
           <div style={{ fontFamily: MONO, fontSize: 11, color: MUTED, margin: '12px 0 4px' }}>{setup.step}</div>
           <pre style={{ ...PANEL, padding: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 11.5, color: TEXT }}>{setup.snippet}</pre>
           <Space>
@@ -287,7 +308,28 @@ function ConnectModal({ open, onClose }: { open: boolean; onClose: () => void })
             {setup.alt && <Button size="small" onClick={() => copy(setup.alt!.snippet)}>{setup.alt.label}</Button>}
           </Space>
           <p style={{ color: MUTED, marginTop: 12, marginBottom: 0 }}>{setup.after}</p>
+          <p style={{ color: MUTED, fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+            This token is shown only now. If you lose it, get a new setup and disconnect the old one.
+          </p>
         </>
+      )}
+      <div style={{ fontFamily: MONO, fontSize: 11, color: MUTED, margin: '18px 0 6px' }}>YOUR CONNECTED AGENTS</div>
+      {connections === null ? <Spin size="small" /> : connections.length === 0 ? (
+        <div style={{ color: MUTED, fontSize: 13 }}>None yet.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {connections.map((c) => (
+            <div key={c.id} style={{ ...PANEL, padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <b style={{ color: TEXT }}>{c.agent}</b>
+              <span style={{ color: MUTED, fontSize: 12, flex: 1 }}>
+                connected {when(c.created_at)} · last used {when(c.last_used_at)}
+              </span>
+              <Popconfirm title={`Disconnect ${c.agent}?`} description="It stops working immediately." onConfirm={() => revoke(c.id)}>
+                <Button size="small" danger>Disconnect</Button>
+              </Popconfirm>
+            </div>
+          ))}
+        </div>
       )}
     </Modal>
   );

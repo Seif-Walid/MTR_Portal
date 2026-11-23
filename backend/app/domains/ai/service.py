@@ -26,29 +26,59 @@ def _digest(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def mint_token(db: Session, user: User, conversation_id: int | None = None, label: str = "") -> str:
-    """A random token the MCP server sends as a bearer; only the hash is kept."""
+AGENT_LABEL = "agent:"  # label prefix of personal agent connections (no expiry)
+_TOUCH_EVERY = timedelta(minutes=5)
+
+
+def _aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def mint_token(db: Session, user: User, conversation_id: int | None = None, label: str = "",
+               expires: bool = True) -> tuple[str, AiToken]:
+    """A random token sent as a bearer; only the hash is kept. `expires=False`
+    is a personal agent connection that lasts until it is revoked."""
     token = "mtrai_" + secrets.token_urlsafe(32)
-    db.add(AiToken(
+    rec = AiToken(
         token_hash=_digest(token), user_id=user.id, conversation_id=conversation_id, label=label,
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=settings.ai_token_ttl_hours),
-    ))
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=settings.ai_token_ttl_hours) if expires else None,
+    )
+    db.add(rec)
     db.commit()
-    return token
+    return token, rec
 
 
 def resolve_token(db: Session, token: str) -> tuple[User, int | None]:
     rec = db.scalar(select(AiToken).where(AiToken.token_hash == _digest(token)))
     if rec is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid AI token")
-    expires = rec.expires_at if rec.expires_at.tzinfo else rec.expires_at.replace(tzinfo=timezone.utc)
-    if expires < datetime.now(timezone.utc):
+    now = datetime.now(timezone.utc)
+    if rec.expires_at is not None and _aware(rec.expires_at) < now:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "AI token expired")
     user = db.get(User, rec.user_id)
     if user is None or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Account disabled")
     require_ai(db, user)
+    if rec.last_used_at is None or now - _aware(rec.last_used_at) > _TOUCH_EVERY:
+        rec.last_used_at = now
+        db.commit()
     return user, rec.conversation_id
+
+
+def agent_connections(db: Session, user: User) -> list[AiToken]:
+    return list(db.scalars(
+        select(AiToken).where(AiToken.user_id == user.id, AiToken.expires_at.is_(None),
+                              AiToken.label.startswith(AGENT_LABEL))
+        .order_by(AiToken.created_at.desc())
+    ))
+
+
+def revoke_connection(db: Session, user: User, token_id: int) -> None:
+    rec = db.get(AiToken, token_id)
+    if rec is None or rec.user_id != user.id or rec.expires_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
+    db.delete(rec)
+    db.commit()
 
 
 def require_ai(db: Session, user: User) -> None:

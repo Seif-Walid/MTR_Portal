@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import BASE_DIR, settings
+from app.core.config import settings
 from app.core.database import get_db
 from app.domains.access import service as access
 from app.domains.ai import prompts, search as semantic, service
@@ -28,6 +28,7 @@ from app.domains.ai.models import (
     AiFile,
     AiMessage,
     AiPendingAction,
+    AiToken,
     ConversationMode,
 )
 from app.domains.ai.tools import catalog
@@ -255,7 +256,7 @@ async def send_message(conversation_id: int, payload: MessageIn, db: DB, user: C
     if conv.title in ("New conversation", "New plan"):
         conv.title = payload.text[:80]
     db.commit()
-    token = service.mint_token(db, user, conv.id, label="chat")
+    token, _ = service.mint_token(db, user, conv.id, label="chat")
     system = prompts.PLANNER if conv.mode == ConversationMode.PLANNER else prompts.BASE
     conv_id, user_id, session_id, mode = conv.id, user.id, conv.provider_session_id, conv.mode
     before = {a.id for a in db.scalars(select(AiPendingAction.id).where(AiPendingAction.conversation_id == conv_id))}
@@ -325,23 +326,40 @@ def reject_actions(payload: ActionIds, db: DB, user: CurrentUser) -> None:
 
 
 # ------------------------------------------------- connect your AI agent
+class ConnectRequest(BaseModel):
+    agent: str = Field(default="AI agent", min_length=1, max_length=60)
+
+
+def _connection(rec: AiToken) -> dict:
+    return {"id": rec.id, "agent": rec.label.removeprefix(service.AGENT_LABEL),
+            "created_at": rec.created_at, "last_used_at": rec.last_used_at}
+
+
 @router.post("/connect")
-def connect_terminal(db: DB, user: CurrentUser) -> dict:
-    """Mint a token for the user's own AI agent (Claude Code, Codex, Antigravity,
-    any MCP client). Shown once; `server` is the raw stdio launch spec each
-    client's config is built from."""
+def connect_agent(db: DB, user: CurrentUser, payload: ConnectRequest | None = None) -> dict:
+    """Mint a personal token for the user's own AI agent (Claude Code, Codex,
+    Antigravity, any MCP client), which then talks to the hosted MCP endpoint
+    /api/ai/mcp. Shown once; valid until revoked."""
     service.require_ai(db, user)
-    token = service.mint_token(db, user, None, label="terminal")
-    python = str(BASE_DIR / ".venv" / "bin" / "python3")
-    env = {"PORTAL_URL": settings.ai_portal_url, "PORTAL_AI_TOKEN": token, "PYTHONPATH": str(BASE_DIR)}
-    return {
-        "token": token, "expires_in_hours": settings.ai_token_ttl_hours,
-        "server": {"command": python, "args": ["-m", "app.domains.ai.mcp_server"], "env": env},
-        "mcp_json": {"mcpServers": {"portal": {"type": "stdio", "command": python,
-                                                "args": ["-m", "app.domains.ai.mcp_server"], "env": env}}},
-        "command": " ".join(["claude", "mcp", "add", "portal", "--scope", "user",
-                             *[f"-e {k}={v}" for k, v in env.items()], "--", python, "-m", "app.domains.ai.mcp_server"]),
-    }
+    token, rec = service.mint_token(db, user, None, label=service.AGENT_LABEL + (payload or ConnectRequest()).agent,
+                                     expires=False)
+    return {"token": token, "connection": _connection(rec)}
+
+
+@router.get("/connections")
+def list_connections(db: DB, user: CurrentUser) -> list[dict]:
+    return [_connection(rec) for rec in service.agent_connections(db, user)]
+
+
+@router.delete("/connections/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_connection(token_id: int, db: DB, user: CurrentUser) -> None:
+    service.revoke_connection(db, user, token_id)
+
+
+@router.get("/token")
+def check_token(auth: TokenUser) -> dict:
+    """Cheap bearer check the hosted MCP endpoint runs before serving."""
+    return {"user_id": auth[0].id}
 
 
 # ----------------------------------------------------------------- search

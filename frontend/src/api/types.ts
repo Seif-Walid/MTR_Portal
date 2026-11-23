@@ -991,12 +991,16 @@ export interface AiStatus {
   chain?: { link: string; ready: boolean; retry_in_s: number }[];
 }
 
+export interface AiConnection {
+  id: number;
+  agent: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
 export interface AiConnectInfo {
   token: string;
-  expires_in_hours: number;
-  mcp_json: unknown;
-  command: string;
-  server: { command: string; args: string[]; env: Record<string, string> };
+  connection: AiConnection;
 }
 
 export interface SearchHit {
