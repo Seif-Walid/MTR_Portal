@@ -334,3 +334,40 @@ def test_transcribe_sends_one_clip_to_groq_and_needs_ai_use(client, login, org, 
     Res.status_code = 429
     assert admin.post("/api/ai/transcribe", files=clip).status_code == 429
     assert login("comp_member").post("/api/ai/transcribe", files=clip).status_code == 403
+
+
+def test_mixed_arabic_english_gets_cleanup_pass_and_falls_back(monkeypatch):
+    from app.core.config import settings
+    from app.domains.ai import voice
+    from app.domains.ai.providers import chain
+
+    monkeypatch.setattr(settings, "groq_api_key", "gsk_test")
+    monkeypatch.setattr(settings, "gemini_api_key", "g_test")
+    monkeypatch.setattr(settings, "ai_transcribe_cleanup", "gemini:lite")
+    chain.reset_cooldowns()
+    calls = []
+
+    class Res:
+        def __init__(self, code, body):
+            self.status_code, self._body, self.text, self.headers = code, body, "", {}
+
+        def json(self):
+            return self._body
+
+    replies = {}
+
+    def fake_post(url, **kw):
+        calls.append(url)
+        if url == voice.GROQ_URL:
+            assert "drone team" in kw["data"]["prompt"]  # mixed-language prompt
+            return Res(200, {"text": "محتاجين سنسر للـ drone team"})
+        return replies["chat"]
+
+    monkeypatch.setattr(voice.httpx, "post", fake_post)
+    replies["chat"] = Res(200, {"choices": [{"message": {"content": "محتاجين sensor للـ drone team"}}]})
+    assert voice.transcribe(b"x" * 10, "s.webm", "audio/webm") == "محتاجين sensor للـ drone team"
+    assert calls[1].endswith("/chat/completions")
+
+    replies["chat"] = Res(429, {})  # cleanup model out of quota: Whisper text is kept
+    assert voice.transcribe(b"x" * 10, "s.webm", "audio/webm") == "محتاجين سنسر للـ drone team"
+    chain.reset_cooldowns()

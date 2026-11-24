@@ -88,6 +88,9 @@ class Settings(BaseSettings):
     mistral_api_key: str = ""
     # Voice input: Groq Whisper cleans up the browser's live dictation.
     ai_transcribe_model: str = "whisper-large-v3-turbo"
+    # Text models (same "provider:model" form as ai_chain) that rewrite English
+    # words Whisper spelled in Arabic letters; empty = no cleanup.
+    ai_transcribe_cleanup: str = "gemini:gemini-3.5-flash-lite,gemini:gemini-3.1-flash-lite,groq:openai/gpt-oss-120b"
     ai_max_tool_rounds: int = 15
     claude_cli_path: str = "claude"
     ai_model_assistant: str = "sonnet"
