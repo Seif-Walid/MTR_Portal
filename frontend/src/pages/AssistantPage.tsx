@@ -515,7 +515,7 @@ export default function AssistantPage() {
                 placeholder={placeholder} disabled={!status?.available}
                 onPressEnter={(e) => { if (!e.shiftKey) { e.preventDefault(); send(); } }}
               />
-              <VoiceInput value={draft} onChange={setDraft} whisper={!!status?.transcribe} disabled={!status?.available || !!live} />
+              <VoiceInput value={draft} onChange={setDraft} disabled={!status?.available || !!live} />
               <Button aria-label="Send message" type="primary" icon={<SendOutlined />} onClick={send} loading={!!live} disabled={!status?.available || !draft.trim()} />
             </div>
           </div>
