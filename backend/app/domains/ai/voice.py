@@ -72,7 +72,7 @@ def _cleanup(text: str) -> str:
                 headers={"Authorization": f"Bearer {key}"},
                 json={"model": link.model, "temperature": 0,
                       "messages": [{"role": "system", "content": CLEANUP}, {"role": "user", "content": text}]},
-                timeout=15,
+                timeout=5,  # normally ~1 s; a stuck model must not hold up the text
             )
         except httpx.HTTPError as exc:
             log.warning("Voice cleanup via %s failed: %s", link.label, exc)
