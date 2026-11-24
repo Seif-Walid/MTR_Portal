@@ -61,9 +61,9 @@ services:
       GOOGLE_CLIENT_ID: "446030339213-jfn9k6rr3r3mqrkfjojbd4753694f2oi.apps.googleusercontent.com"
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       APPLICATION_IP_SALT: ${APPLICATION_IP_SALT:-mtr-applications-staging}
-      # Staging data is a copy of production (real members' addresses), so it
-      # must never send real mail.
-      MAIL_BACKEND: disabled
+      # Mail settings (MAIL_BACKEND, SMTP_*) come from ./backend/.env, same
+      # Zoho SMTP as production. Staging data is a copy of production, so these
+      # are real members' addresses: actions taken on staging email real people.
     volumes:
       - staging_uploads:/app/uploads
     healthcheck:
