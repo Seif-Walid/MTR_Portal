@@ -44,10 +44,8 @@ def _queue_task_assigned_email(db: Session, user_id: int, task_id: int) -> None:
     task = db.get(Task, task_id)
     if person is None or task is None or not person.email or not person.is_active:
         return
-    if task.assigner_id == person.id:
-        return  # nobody needs an email about a task they gave themselves
     assigner = db.get(User, task.assigner_id)
-    by = assigner.full_name if assigner else "Someone"
+    by = "You" if task.assigner_id == person.id else (assigner.full_name if assigner else "Someone")
     link = f"{settings.frontend_url.rstrip('/')}/tasks?task={task.id}"
     details = []
     if task.due_date:
@@ -58,7 +56,7 @@ def _queue_task_assigned_email(db: Session, user_id: int, task_id: int) -> None:
 
     text = (
         f"Hi {person.full_name},\n\n"
-        f"{by} assigned you a task on the MindTech Robotics portal:\n\n"
+        f"{by} assigned {'yourself' if by == 'You' else 'you'} a task on the MindTech Robotics portal:\n\n"
         f"  {task.title}\n"
         + "".join(f"  {d}\n" for d in details)
         + (f"\n{description}\n" if description else "")
@@ -67,7 +65,7 @@ def _queue_task_assigned_email(db: Session, user_id: int, task_id: int) -> None:
     esc = html_lib.escape
     html = (
         f"<p>Hi {esc(person.full_name)},</p>"
-        f"<p>{esc(by)} assigned you a task on the MindTech Robotics portal:</p>"
+        f"<p>{esc(by)} assigned {'yourself' if by == 'You' else 'you'} a task on the MindTech Robotics portal:</p>"
         f"<p><strong>{esc(task.title)}</strong>"
         + "".join(f"<br>{esc(d)}" for d in details)
         + "</p>"

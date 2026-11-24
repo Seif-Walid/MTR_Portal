@@ -59,3 +59,18 @@ def test_assignee_without_email_is_skipped(login, org, outbox, db_session):
     db_session.commit()
     make_task(login, "mech_lead", org, "mech_emp")
     assert outbox == []
+
+
+def test_self_assigned_task_still_emails(org, outbox, db_session):
+    from app.domains.notifications.models import NotificationType
+    from app.domains.tasks.models import Task
+
+    me = org["mech_lead"]
+    task = Task(title="Note to self", assigner_id=me.id, assignee_id=me.id)
+    db_session.add(task)
+    db_session.flush()
+    notifications.notify(db_session, me.id, NotificationType.TASK_ASSIGNED, "x", task_id=task.id)
+    db_session.commit()
+    assert len(outbox) == 1
+    assert outbox[0][0] == me.email
+    assert "You assigned yourself a task" in outbox[0][2]
