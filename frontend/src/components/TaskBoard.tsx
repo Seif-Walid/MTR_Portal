@@ -11,21 +11,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
 import type { Task, TaskStatus } from '../api/types';
-import { useAuth } from '../auth/AuthContext';
-import { PriorityTag, STATUS_META } from './tags';
+import { MOVE_LABELS, PriorityTag, STATUS_META } from './tags';
 import './taskboard.css';
 
 const COLUMNS: TaskStatus[] = ['todo', 'in_progress', 'revision_requested', 'submitted', 'approved'];
-
-// mirrors backend TRANSITIONS: who may make each move
-const MOVES: Record<string, 'assignee' | 'reviewer'> = {
-  'todo>in_progress': 'assignee',
-  'in_progress>todo': 'assignee',
-  'in_progress>submitted': 'assignee',
-  'revision_requested>in_progress': 'assignee',
-  'submitted>approved': 'reviewer',
-  'submitted>revision_requested': 'reviewer',
-};
 
 const SPRING = { type: 'spring', stiffness: 420, damping: 34 } as const;
 // the landing glide: a touch softer so the card visibly settles into its slot
@@ -48,7 +37,7 @@ const centre = (el: Element): Rect => {
    so it flies itself in from wherever the old one was last seen (a manual
    FLIP): `flyFrom` holds that spot, keyed by task id. */
 function BoardCard({
-  t, status, flyFrom, onOpen, onDragState, onHover, onDrop, register,
+  t, status, moves, flyFrom, onOpen, onDragState, onHover, onDrop, onQuickMove, register,
 }: {
   t: Task;
   status: TaskStatus;
@@ -57,6 +46,8 @@ function BoardCard({
   onDragState: (t: Task | null) => void;
   onHover: (x: number, y: number) => void;
   onDrop: (t: Task, x: number, y: number, el: HTMLElement) => boolean;
+  moves: TaskStatus[];
+  onQuickMove: (t: Task, to: TaskStatus) => void;
   register: (el: HTMLElement | null) => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -144,6 +135,27 @@ function BoardCard({
         {t.is_blocked && <span className="tb-card__blocked"><LockOutlined aria-hidden /> Blocked</span>}
         <span className="tb-card__avatar" title={t.assignee.full_name} aria-hidden>{initials(t.assignee.full_name)}</span>
       </div>
+      {moves.length > 0 && (
+        // one-click versions of the drags this person may make; kept out of
+        // the drag and the open-card click
+        <div className="tb-card__moves" onPointerDown={(e) => e.stopPropagation()}>
+          {moves.map((to) => {
+            const m = MOVE_LABELS[`${status}>${to}`];
+            return (
+              <button
+                key={to}
+                type="button"
+                className={`tb-move${m?.danger ? ' is-danger' : ''}${to === 'approved' ? ' is-primary' : ''}`}
+                style={{ ['--to' as string]: STATUS_META[to].color }}
+                onClick={(e) => { e.stopPropagation(); onQuickMove(t, to); }}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                {m?.short ?? STATUS_META[to].label}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -157,7 +169,6 @@ export default function TaskBoard({
   onOpen: (id: number) => void;
   onChanged: () => void;
 }) {
-  const { me } = useAuth();
   // Optimistic overrides (column and place in it); each one stays until the
   // refreshed task list agrees, so a card never bounces back mid-reload.
   const [moved, setMoved] = useState<Record<number, TaskStatus>>({});
@@ -205,14 +216,10 @@ export default function TaskBoard({
       .map((x) => x.t);
   };
 
-  // The UI only offers moves this person can plausibly make; the server
-  // checks the reviewer chain properly.
-  const canMove = (t: Task, to: TaskStatus) => {
-    const who = MOVES[`${statusOf(t)}>${to}`];
-    if (!who || !me) return false;
-    if (who === 'assignee') return t.assignee.id === me.id;
-    return t.assignee.id !== me.id;
-  };
+  // The server says which moves this person may make (task.allowed_moves);
+  // a card moved optimistically waits for the reload before moving again.
+  const movesOf = (t: Task): TaskStatus[] => (statusOf(t) === t.status ? t.allowed_moves : []);
+  const canMove = (t: Task, to: TaskStatus) => movesOf(t).includes(to);
   const canDropIn = (t: Task, s: TaskStatus) => statusOf(t) === s || canMove(t, s);
 
   // Which column the pointer is over, and where in it the card would land:
@@ -285,6 +292,14 @@ export default function TaskBoard({
     return true;
   };
 
+  // a button press lands the card on top of the column it moves to
+  const quickMove = (t: Task, to: TaskStatus) => {
+    const el = cardEls.current.get(t.id);
+    if (el) flyFrom.current.set(t.id, { ...centre(el), lifted: false });
+    setNonce((n) => ({ ...n, [t.id]: (n[t.id] ?? 0) + 1 }));
+    void place(t, to, [t.id, ...columnOf(to).map((o) => o.id).filter((id) => id !== t.id)]);
+  };
+
   return (
     <LayoutGroup id="taskboard">
       <div className="tb">
@@ -322,6 +337,8 @@ export default function TaskBoard({
                     key={`${t.id}.${nonce[t.id] ?? 0}`}
                     t={t}
                     status={s}
+                    moves={movesOf(t)}
+                    onQuickMove={quickMove}
                     flyFrom={flyFrom}
                     onOpen={onOpen}
                     onDragState={(d) => { setDragging(d); if (!d) setOver(null); }}

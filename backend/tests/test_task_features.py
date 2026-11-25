@@ -259,3 +259,31 @@ def test_board_order_is_remembered_without_touching_updated_at(login, org):
     # a task outside the person's view is left alone
     theirs = {t["id"]: t for t in login("cto").get("/api/tasks?view=created").json()}
     assert theirs[hidden["id"]]["board_rank"] is None
+
+
+def _submit(login, who, task_id):
+    for to in ("in_progress", "submitted"):
+        r = login(who).patch(f"/api/tasks/{task_id}/status", json={"status": to})
+        assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_allowed_moves_follow_the_server_rules(login, org):
+    t = make_task(login, "mech_lead", org, "mech_emp")
+    assert t["allowed_moves"] == []  # the assigner can't start someone else's task
+    assert login("mech_emp").get(f"/api/tasks/{t['id']}").json()["allowed_moves"] == ["in_progress"]
+
+    assert _submit(login, "mech_emp", t["id"])["allowed_moves"] == []  # can't review own work
+    review = login("mech_lead").get(f"/api/tasks/{t['id']}").json()["allowed_moves"]
+    assert sorted(review) == ["approved", "revision_requested"]
+    # someone above the assigner may review too, and the list endpoint agrees
+    listed = {x["id"]: x for x in login("cto").get("/api/tasks?view=all").json()}
+    assert sorted(listed[t["id"]]["allowed_moves"]) == ["approved", "revision_requested"]
+
+
+def test_self_assigned_task_can_be_reviewed_by_its_assigner(login, org):
+    t = make_task(login, "mech_lead", org, "mech_lead")
+    submitted = _submit(login, "mech_lead", t["id"])
+    assert sorted(submitted["allowed_moves"]) == ["approved", "revision_requested"]
+    r = login("mech_lead").patch(f"/api/tasks/{t['id']}/status", json={"status": "approved"})
+    assert r.status_code == 200, r.text

@@ -50,6 +50,8 @@ class TaskOut(BaseModel):
     course_material_id: int | None = None
     course_id: int | None = None
     board_rank: float | None = None
+    # statuses the person asking may move this task to right now
+    allowed_moves: list[str] = []
     created_at: datetime
     updated_at: datetime
     attachments: list[AttachmentOut] = []

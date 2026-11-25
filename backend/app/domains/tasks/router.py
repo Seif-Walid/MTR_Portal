@@ -31,6 +31,7 @@ from app.domains.tasks.schemas import (
     TeamOptionOut,
 )
 from app.domains.tasks.service import (
+    MoveRules,
     add_comment,
     change_status,
     get_task_or_404,
@@ -41,6 +42,21 @@ from app.domains.tasks.service import (
 from app.domains.users.models import User
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+def _outs(db: DB, user: User, tasks) -> list[TaskOut]:
+    """Tasks as the person sees them, each saying which moves they may make."""
+    rules = MoveRules(db, user)
+    out = []
+    for t in tasks:
+        o = TaskOut.model_validate(t)
+        o.allowed_moves = rules.allowed(t)
+        out.append(o)
+    return out
+
+
+def _out(db: DB, user: User, task: Task) -> TaskOut:
+    return _outs(db, user, [task])[0]
 
 
 @router.get("")
@@ -64,7 +80,7 @@ def list_tasks(
     if event_team_id is not None:
         query = query.where(Task.event_team_id == event_team_id)
     tasks = db.scalars(query.order_by(Task.updated_at.desc())).unique()
-    return [TaskOut.model_validate(t) for t in tasks]
+    return _outs(db, user, tasks)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -73,7 +89,7 @@ def create_task(payload: TaskCreate, db: DB, user: CurrentUser) -> list[TaskOut]
     db.commit()
     for task in tasks:
         db.refresh(task)
-    return [TaskOut.model_validate(t) for t in tasks]
+    return _outs(db, user, tasks)
 
 
 def do_create_tasks(db: DB, user: User, payload: TaskCreate) -> list[Task]:
@@ -182,7 +198,7 @@ def team_options(db: DB, user: CurrentUser, assignee_ids: str = "") -> list[Team
 
 @router.get("/{task_id}")
 def get_task(task_id: int, db: DB, user: CurrentUser) -> TaskOut:
-    return TaskOut.model_validate(get_task_or_404(db, user, task_id))
+    return _out(db, user, get_task_or_404(db, user, task_id))
 
 
 @router.patch("/{task_id}")
@@ -216,13 +232,13 @@ def edit_task(task_id: int, payload: TaskEdit, db: DB, user: CurrentUser) -> Tas
         )
     db.commit()
     db.refresh(task)
-    return TaskOut.model_validate(task)
+    return _out(db, user, task)
 
 
 @router.patch("/{task_id}/blocked")
 def set_task_blocked(task_id: int, payload: BlockedChange, db: DB, user: CurrentUser) -> TaskOut:
     task = get_task_or_404(db, user, task_id)
-    return TaskOut.model_validate(
+    return _out(db, user, 
         set_blocked(db, user, task, payload.is_blocked, payload.reason)
     )
 
@@ -230,7 +246,7 @@ def set_task_blocked(task_id: int, payload: BlockedChange, db: DB, user: Current
 @router.post("/{task_id}/comments", status_code=status.HTTP_201_CREATED)
 def post_comment(task_id: int, payload: TaskCommentCreate, db: DB, user: CurrentUser) -> TaskOut:
     task = get_task_or_404(db, user, task_id)
-    return TaskOut.model_validate(add_comment(db, user, task, payload.body))
+    return _out(db, user, add_comment(db, user, task, payload.body))
 
 
 @router.get("/{task_id}/history")
@@ -267,7 +283,7 @@ def get_batch(batch_id: str, db: DB, user: CurrentUser) -> list[TaskOut]:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Batch not found")
     if not access.is_top(db, user) and user.id != tasks[0].assigner_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the assigner can view the batch")
-    return [TaskOut.model_validate(t) for t in tasks]
+    return _outs(db, user, tasks)
 
 
 class BoardOrder(BaseModel):
@@ -299,7 +315,7 @@ def set_board_order(payload: BoardOrder, db: DB, user: CurrentUser) -> None:
 @router.patch("/{task_id}/status")
 def set_status(task_id: int, payload: StatusChange, db: DB, user: CurrentUser) -> TaskOut:
     task = get_task_or_404(db, user, task_id)
-    return TaskOut.model_validate(change_status(db, user, task, payload.status))
+    return _out(db, user, change_status(db, user, task, payload.status))
 
 
 def _attachable_task(db: DB, user: User, task_id: int) -> Task:

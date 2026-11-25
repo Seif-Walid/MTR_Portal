@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.domains.access import service as access
 from app.domains.audit.service import log as audit_log
 from app.domains.events.models import Event, EventCategory, EventStatus, EventTeam
-from app.domains.hierarchy.service import can_review_task, visible_user_ids
+from app.domains.hierarchy.service import subtree_ids, visible_user_ids
 from app.domains.notifications.models import NotificationType
 from app.domains.notifications.service import notify
 from app.domains.requests.models import WorkRequest
@@ -156,6 +156,36 @@ def get_task_or_404(db: Session, user: User, task_id: int) -> Task:
     return task
 
 
+class MoveRules:
+    """Which TRANSITIONS one person may make: the assignee's moves are theirs
+    (or a top-level person's); reviewing belongs to the assigner, anyone above
+    them, or top level. Built once per request so a whole task list can say
+    what each card allows without a query per task."""
+
+    def __init__(self, db: Session, user: User):
+        self.user_id = user.id
+        self.top = access.is_top(db, user)
+        self._below: set[int] | None = None
+        self._db = db
+
+    def permits(self, rule: str, task: Task) -> bool:
+        if self.top:
+            return True
+        if rule == "assignee":
+            return self.user_id == task.assignee_id
+        if self.user_id == task.assigner_id:
+            return True
+        if self._below is None:
+            self._below = subtree_ids(self._db, self.user_id)
+        return task.assigner_id in self._below
+
+    def allowed(self, task: Task) -> list[str]:
+        return [
+            str(to) for (frm, to), rule in TRANSITIONS.items()
+            if frm == task.status and self.permits(rule, task)
+        ]
+
+
 def change_status(db: Session, user: User, task: Task, new_status: TaskStatus) -> Task:
     rule = TRANSITIONS.get((task.status, new_status))
     if rule is None:
@@ -163,17 +193,12 @@ def change_status(db: Session, user: User, task: Task, new_status: TaskStatus) -
             http_status.HTTP_400_BAD_REQUEST,
             f"Cannot move a task from '{task.status}' to '{new_status}'",
         )
-    if rule == "assignee":
-        if user.id != task.assignee_id and not access.is_top(db, user):
-            raise HTTPException(
-                http_status.HTTP_403_FORBIDDEN, "Only the assignee can make this change"
-            )
-    else:  # reviewer
-        if not can_review_task(db, user, task.assigner_id):
-            raise HTTPException(
-                http_status.HTTP_403_FORBIDDEN,
-                "Only the assigner or someone above them can review this task",
-            )
+    if not MoveRules(db, user).permits(rule, task):
+        raise HTTPException(
+            http_status.HTTP_403_FORBIDDEN,
+            "Only the assignee can make this change" if rule == "assignee"
+            else "Only the assigner or someone above them can review this task",
+        )
 
     old_status = task.status
     task.status = new_status
