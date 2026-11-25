@@ -28,6 +28,14 @@ from app.domains.users import models as _users  # noqa: F401
 
 import json
 
+import bcrypt
+
+# bcrypt's default cost (12 rounds) makes every login/hash ~0.25 s, which was
+# most of the suite's runtime. Tests don't need strong hashes: use the minimum
+# cost. checkpw reads the cost from the hash, so this covers verifies too.
+_real_gensalt = bcrypt.gensalt
+bcrypt.gensalt = lambda rounds=4, prefix=b"2b": _real_gensalt(rounds, prefix)
+
 from app.core.security import hash_password
 from app.domains.access.models import AccessLevel
 from app.domains.users.models import User

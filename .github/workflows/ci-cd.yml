@@ -43,7 +43,8 @@ jobs:
       - name: Run tests
         working-directory: backend
         # Tests use in-memory SQLite (see tests/conftest.py) — no DB service needed.
-        run: pytest -q
+        # Each test builds its own DB, so they parallelise across all cores.
+        run: pytest -q -n auto
 
   frontend-build:
     name: Frontend typecheck & build
@@ -64,27 +65,27 @@ jobs:
         run: npm run build
 
   # -------------------------------------------------- Build images (CI+CD)
-  # On PRs: build only, to catch Dockerfile breakage before merge.
-  # On push: build AND push :<sha> plus a moving tag to GHCR —
-  # :latest for main, :staging for the staging branch.
+  # Runs in PARALLEL with the tests (no `needs`) — the deploy jobs are what wait
+  # for tests to pass. On PRs: build only, to catch Dockerfile breakage. On
+  # push: push only the immutable :<sha> tag; the moving :latest / :staging tag
+  # is applied by the deploy job after tests pass, so an untested image is
+  # never "latest".
+  #
+  # Layer cache lives in GHCR (:buildcache), not the GHA cache: the GHA cache
+  # gets evicted, the apt/pip layers then rebuild with new digests, and the VM
+  # has to download ~190 MB again on every such deploy.
   images:
-    name: Build images${{ github.event_name == 'push' && ' & push to GHCR' || '' }}
-    needs: [backend-tests, frontend-build]
+    name: Build ${{ matrix.service }} image${{ github.event_name == 'push' && ' & push' || '' }}
     runs-on: ubuntu-latest
-    outputs:
-      base: ${{ steps.meta.outputs.base }}
+    strategy:
+      matrix:
+        service: [backend, frontend]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: Compute lowercase image base + moving tag
+      - name: Compute lowercase image name
         id: meta
-        run: |
-          echo "base=${IMAGE_BASE,,}" >> "$GITHUB_OUTPUT"
-          if [ "$GITHUB_REF" = "refs/heads/staging" ]; then
-            echo "channel=staging" >> "$GITHUB_OUTPUT"
-          else
-            echo "channel=latest" >> "$GITHUB_OUTPUT"
-          fi
+        run: echo "image=${IMAGE_BASE,,}-${{ matrix.service }}" >> "$GITHUB_OUTPUT"
       - name: Log in to GHCR
         if: github.event_name == 'push'
         uses: docker/login-action@v3
@@ -92,35 +93,37 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build & push backend
+      - name: Build${{ github.event_name == 'push' && ' & push' || '' }}
         uses: docker/build-push-action@v6
         with:
-          context: ./backend
+          context: ./${{ matrix.service }}
           push: ${{ github.event_name == 'push' }}
-          tags: |
-            ${{ steps.meta.outputs.base }}-backend:${{ steps.meta.outputs.channel }}
-            ${{ steps.meta.outputs.base }}-backend:${{ github.sha }}
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=max,scope=backend
-      - name: Build & push frontend
-        uses: docker/build-push-action@v6
-        with:
-          context: ./frontend
-          push: ${{ github.event_name == 'push' }}
-          tags: |
-            ${{ steps.meta.outputs.base }}-frontend:${{ steps.meta.outputs.channel }}
-            ${{ steps.meta.outputs.base }}-frontend:${{ github.sha }}
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
+          tags: ${{ steps.meta.outputs.image }}:${{ github.sha }}
+          cache-from: |
+            type=registry,ref=${{ steps.meta.outputs.image }}:buildcache
+            type=gha,scope=${{ matrix.service }}
+          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}:buildcache,mode=max', steps.meta.outputs.image) || format('type=gha,mode=max,scope={0}', matrix.service) }}
 
   # ------------------------------------------------------------------ CD
   deploy:
     name: Deploy to VM
-    needs: [images]
+    needs: [backend-tests, frontend-build, images]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production # add required reviewers here to gate prod deploys
     steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Point :latest at this commit's tested images
+        run: |
+          base="${IMAGE_BASE,,}"
+          for svc in backend frontend; do
+            docker buildx imagetools create -t "${base}-${svc}:latest" "${base}-${svc}:${GITHUB_SHA}"
+          done
       - name: Pin image tags for this commit
         run: |
           base="${IMAGE_BASE,,}"
@@ -173,11 +176,23 @@ jobs:
   # never touches production. See deploy/STAGING.md.
   deploy-staging:
     name: Deploy staging to VM
-    needs: [images]
+    needs: [backend-tests, frontend-build, images]
     if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
     runs-on: ubuntu-latest
     environment: staging
     steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Point :staging at this commit's tested images
+        run: |
+          base="${IMAGE_BASE,,}"
+          for svc in backend frontend; do
+            docker buildx imagetools create -t "${base}-${svc}:staging" "${base}-${svc}:${GITHUB_SHA}"
+          done
       - name: Pin image tags for this commit
         run: |
           base="${IMAGE_BASE,,}"
