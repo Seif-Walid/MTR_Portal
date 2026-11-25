@@ -242,3 +242,20 @@ def test_my_teams_surfaces_a_team_you_only_lead_by_seat(login, org):
     mine = next(b for b in event_blocks if b["team_id"] == team["id"])
     # roster spans the seated lead and the member
     assert {m["user"]["id"] for m in mine["members"]} == {org["team_lead"].id, org["comp_member"].id}
+
+
+def test_board_order_is_remembered_without_touching_updated_at(login, org):
+    a = make_task(login, "mech_lead", org, "mech_emp")
+    b = make_task(login, "mech_lead", org, "mech_emp")
+    hidden = make_task(login, "cto", org, "sw_emp")  # mech_emp can't see this one
+
+    r = login("mech_emp").put("/api/tasks/board-order", json={"ids": [b["id"], a["id"], hidden["id"]]})
+    assert r.status_code == 204, r.text
+
+    mine = {t["id"]: t for t in login("mech_emp").get("/api/tasks").json()}
+    assert mine[b["id"]]["board_rank"] == 0
+    assert mine[a["id"]]["board_rank"] == 1
+    assert mine[a["id"]]["updated_at"] == a["updated_at"]
+    # a task outside the person's view is left alone
+    theirs = {t["id"]: t for t in login("cto").get("/api/tasks?view=created").json()}
+    assert theirs[hidden["id"]]["board_rank"] is None

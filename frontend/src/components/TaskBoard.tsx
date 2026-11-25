@@ -1,6 +1,8 @@
 /* Kanban board for tasks: one column per status. Cards can be dragged to
-   another column; only moves the workflow allows light up as drop targets,
-   and the server still has the final say (a refused move springs back). */
+   another column or up and down its own; it lands where it was dropped and
+   that order is saved per task (board_rank). Only moves the workflow allows
+   light up as drop targets, and the server still has the final say (a
+   refused move springs back). */
 import { CalendarOutlined, HolderOutlined, LockOutlined } from '@ant-design/icons';
 import { message } from 'antd';
 import dayjs from 'dayjs';
@@ -35,6 +37,8 @@ function initials(name: string) {
 }
 
 type Rect = { cx: number; cy: number };
+// where a dragged card would land: column, slot in it, insertion-line y (px from the column body top)
+type Target = { col: TaskStatus; index: number; line: number };
 const centre = (el: Element): Rect => {
   const r = el.getBoundingClientRect();
   return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
@@ -154,26 +158,52 @@ export default function TaskBoard({
   onChanged: () => void;
 }) {
   const { me } = useAuth();
-  // optimistic status overrides; each one stays until the refreshed task
-  // list agrees, so a card never bounces back while the reload is in flight
+  // Optimistic overrides (column and place in it); each one stays until the
+  // refreshed task list agrees, so a card never bounces back mid-reload.
   const [moved, setMoved] = useState<Record<number, TaskStatus>>({});
+  const [ranks, setRanks] = useState<Record<number, number>>({});
+  // bumping a card's nonce remounts it, which is what makes it fly in
+  const [nonce, setNonce] = useState<Record<number, number>>({});
   const [dragging, setDragging] = useState<Task | null>(null);
-  const [over, setOver] = useState<TaskStatus | null>(null);
+  const [over, setOver] = useState<Target | null>(null);
   const colRefs = useRef<Partial<Record<TaskStatus, HTMLDivElement | null>>>({});
+  const bodyRefs = useRef<Partial<Record<TaskStatus, HTMLDivElement | null>>>({});
   const flyFrom = useRef(new Map<number, Rect & { lifted: boolean }>());
   const cardEls = useRef(new Map<number, HTMLElement>());
 
   const statusOf = (t: Task) => moved[t.id] ?? t.status;
+  const rankOf = (t: Task) => ranks[t.id] ?? t.board_rank;
 
   useEffect(() => {
+    const byId = new Map(tasks.map((t) => [t.id, t]));
     setMoved((m) => {
       const keep = Object.entries(m).filter(([id, s]) => {
-        const t = tasks.find((x) => x.id === Number(id));
+        const t = byId.get(Number(id));
         return t && t.status !== s;
       });
       return keep.length === Object.keys(m).length ? m : Object.fromEntries(keep);
     });
+    setRanks((m) => {
+      const keep = Object.entries(m).filter(([id, r]) => {
+        const t = byId.get(Number(id));
+        return t && t.board_rank !== r;
+      });
+      return keep.length === Object.keys(m).length ? m : Object.fromEntries(keep);
+    });
   }, [tasks]);
+
+  // A column top to bottom: cards nobody has arranged yet sit on top (newest
+  // first, as the server sends them), then the arranged ones in their order.
+  const columnOf = (s: TaskStatus) => {
+    const col = tasks.filter((t) => statusOf(t) === s);
+    return col
+      .map((t, i) => ({ t, i, r: rankOf(t) }))
+      .sort((a, b) => {
+        if (a.r == null || b.r == null) return a.r == null && b.r == null ? a.i - b.i : a.r == null ? -1 : 1;
+        return a.r - b.r || a.i - b.i;
+      })
+      .map((x) => x.t);
+  };
 
   // The UI only offers moves this person can plausibly make; the server
   // checks the reviewer chain properly.
@@ -183,39 +213,75 @@ export default function TaskBoard({
     if (who === 'assignee') return t.assignee.id === me.id;
     return t.assignee.id !== me.id;
   };
+  const canDropIn = (t: Task, s: TaskStatus) => statusOf(t) === s || canMove(t, s);
 
-  const columnAt = (x: number, y: number): TaskStatus | null => {
+  // Which column the pointer is over, and where in it the card would land:
+  // its slot among the other cards plus the y of the insertion line.
+  const targetAt = (t: Task, x: number, y: number): Target | null => {
     for (const s of COLUMNS) {
       const r = colRefs.current[s]?.getBoundingClientRect();
-      if (r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return s;
+      if (!r || x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
+      const body = bodyRefs.current[s]?.getBoundingClientRect();
+      const others = columnOf(s)
+        .filter((o) => o.id !== t.id)
+        .map((o) => cardEls.current.get(o.id)?.getBoundingClientRect())
+        .filter((b): b is DOMRect => !!b);
+      let index = others.findIndex((b) => y < b.top + b.height / 2);
+      if (index === -1) index = others.length;
+      const top = body?.top ?? r.top;
+      const before = others[index - 1];
+      const after = others[index];
+      const lineY = before && after ? (before.bottom + after.top) / 2
+        : after ? after.top - 5 : before ? before.bottom + 5 : top + 8;
+      return { col: s, index, line: lineY - top };
     }
     return null;
   };
 
-  const move = async (t: Task, to: TaskStatus) => {
-    setMoved((m) => ({ ...m, [t.id]: to }));
+  const flyBack = (t: Task) => {
+    const el = cardEls.current.get(t.id);
+    if (el) flyFrom.current.set(t.id, { ...centre(el), lifted: false });
+    setNonce((n) => ({ ...n, [t.id]: (n[t.id] ?? 0) + 1 }));
+  };
+
+  const forget = <V,>(set: React.Dispatch<React.SetStateAction<Record<number, V>>>, ids: number[]) =>
+    set((m) => {
+      const n = { ...m };
+      ids.forEach((id) => delete n[id]);
+      return n;
+    });
+
+  const place = async (t: Task, to: TaskStatus, ids: number[]) => {
+    const changesColumn = to !== statusOf(t);
+    if (changesColumn) setMoved((m) => ({ ...m, [t.id]: to }));
+    setRanks((m) => ({ ...m, ...Object.fromEntries(ids.map((id, i) => [id, i])) }));
     try {
-      await api.patch<Task>(`/api/tasks/${t.id}/status`, { status: to });
-      message.success(`Moved to ${STATUS_META[to].label.toLowerCase()}`);
+      if (changesColumn) {
+        await api.patch<Task>(`/api/tasks/${t.id}/status`, { status: to });
+        message.success(`Moved to ${STATUS_META[to].label.toLowerCase()}`);
+      }
+      await api.put('/api/tasks/board-order', { ids });
       onChanged();
     } catch (e) {
       message.error(e instanceof ApiError ? e.message : 'Couldn’t move the task');
       // refused: fly the card back from where it sits now
-      const el = cardEls.current.get(t.id);
-      if (el) flyFrom.current.set(t.id, { ...centre(el), lifted: false });
-      setMoved((m) => {
-        const n = { ...m };
-        delete n[t.id];
-        return n;
-      });
+      flyBack(t);
+      forget(setMoved, [t.id]);
+      forget(setRanks, ids);
+      onChanged();
     }
   };
 
   const drop = (t: Task, x: number, y: number, el: HTMLElement) => {
-    const to = columnAt(x, y);
-    if (!to || to === statusOf(t) || !canMove(t, to)) return false;
+    const target = targetAt(t, x, y);
+    if (!target || !canDropIn(t, target.col)) return false;
+    const before = columnOf(target.col).map((o) => o.id);
+    const ids = before.filter((id) => id !== t.id);
+    ids.splice(target.index, 0, t.id);
+    if (target.col === statusOf(t) && ids.every((id, i) => id === before[i])) return false;
     flyFrom.current.set(t.id, { ...centre(el), lifted: true });
-    void move(t, to);
+    setNonce((n) => ({ ...n, [t.id]: (n[t.id] ?? 0) + 1 }));
+    void place(t, target.col, ids);
     return true;
   };
 
@@ -223,10 +289,11 @@ export default function TaskBoard({
     <LayoutGroup id="taskboard">
       <div className="tb">
         {COLUMNS.map((s) => {
-          const col = tasks.filter((t) => statusOf(t) === s);
+          const col = columnOf(s);
           const allowed = dragging ? canMove(dragging, s) : false;
           const home = dragging ? statusOf(dragging) === s : false;
-          const state = !dragging ? '' : allowed ? (over === s ? ' is-over' : ' is-target') : home ? '' : ' is-muted';
+          const isOver = !!dragging && over?.col === s && canDropIn(dragging, s);
+          const state = !dragging ? '' : isOver && !home ? ' is-over' : allowed ? ' is-target' : home ? '' : ' is-muted';
           return (
             <div
               key={s}
@@ -240,19 +307,33 @@ export default function TaskBoard({
                   {col.length}
                 </motion.span>
               </div>
-              <div className="tb-col__body">
+              <div className="tb-col__body" ref={(el) => { bodyRefs.current[s] = el; }}>
+                {isOver && over && (
+                  <motion.div
+                    className="tb-drop-line"
+                    aria-hidden
+                    initial={false}
+                    animate={{ y: over.line }}
+                    transition={{ type: 'spring', stiffness: 700, damping: 45 }}
+                  />
+                )}
                 {col.map((t) => (
-                    <BoardCard
-                      key={t.id}
-                      t={t}
-                      status={s}
-                      flyFrom={flyFrom}
-                      onOpen={onOpen}
-                      onDragState={(d) => { setDragging(d); if (!d) setOver(null); }}
-                      onHover={(x, y) => setOver(columnAt(x, y))}
-                      onDrop={drop}
-                      register={(el) => { if (el) cardEls.current.set(t.id, el); else cardEls.current.delete(t.id); }}
-                    />
+                  <BoardCard
+                    key={`${t.id}.${nonce[t.id] ?? 0}`}
+                    t={t}
+                    status={s}
+                    flyFrom={flyFrom}
+                    onOpen={onOpen}
+                    onDragState={(d) => { setDragging(d); if (!d) setOver(null); }}
+                    onHover={(x, y) => {
+                      const next = targetAt(t, x, y);
+                      setOver((prev) =>
+                        prev && next && prev.col === next.col && prev.index === next.index && Math.abs(prev.line - next.line) < 1
+                          ? prev : next);
+                    }}
+                    onDrop={drop}
+                    register={(el) => { if (el) cardEls.current.set(t.id, el); else cardEls.current.delete(t.id); }}
+                  />
                 ))}
               </div>
             </div>

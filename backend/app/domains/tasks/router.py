@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, status
 from fastapi import Request
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.config import settings
 from app.domains.audit.models import AuditLog
@@ -268,6 +268,32 @@ def get_batch(batch_id: str, db: DB, user: CurrentUser) -> list[TaskOut]:
     if not access.is_top(db, user) and user.id != tasks[0].assigner_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the assigner can view the batch")
     return [TaskOut.model_validate(t) for t in tasks]
+
+
+class BoardOrder(BaseModel):
+    # one board column, top to bottom, as the person sees it
+    ids: list[int] = Field(max_length=500)
+
+
+@router.put("/board-order", status_code=status.HTTP_204_NO_CONTENT)
+def set_board_order(payload: BoardOrder, db: DB, user: CurrentUser) -> None:
+    """Remember how a board column is arranged. Only tasks the person can see
+    are touched; arranging cards is not an edit, so `updated_at` stays put."""
+    visible = set(
+        db.scalars(
+            visible_tasks_query(db, user)
+            .where(Task.id.in_(payload.ids))
+            .with_only_columns(Task.id)
+        )
+    )
+    for rank, task_id in enumerate(payload.ids):
+        if task_id in visible:
+            db.execute(
+                update(Task)
+                .where(Task.id == task_id)
+                .values(board_rank=float(rank), updated_at=Task.updated_at)
+            )
+    db.commit()
 
 
 @router.patch("/{task_id}/status")

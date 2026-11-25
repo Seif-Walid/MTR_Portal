@@ -118,6 +118,7 @@ export interface Task {
   team_visible: boolean;
   course_material_id: number | null; // hands out a course task sheet
   course_id: number | null;
+  board_rank: number | null; // place in its board column; null = not arranged yet
   created_at: string;
   updated_at: string;
   attachments: Attachment[];

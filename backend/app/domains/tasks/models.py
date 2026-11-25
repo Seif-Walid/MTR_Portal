@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from enum import StrEnum
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -57,6 +57,9 @@ class Task(Base):
     course_material_id: Mapped[int | None] = mapped_column(
         ForeignKey("course_materials.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # where the card sits in its board column (lower = higher up); NULL until
+    # someone arranges that column, and unarranged cards sit on top
+    board_rank: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
