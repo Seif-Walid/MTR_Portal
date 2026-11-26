@@ -49,6 +49,9 @@ class TaskOut(BaseModel):
     team_visible: bool
     course_material_id: int | None = None
     course_id: int | None = None
+    board_rank: float | None = None
+    # statuses the person asking may move this task to right now
+    allowed_moves: list[str] = []
     created_at: datetime
     updated_at: datetime
     attachments: list[AttachmentOut] = []
@@ -59,14 +62,13 @@ class TaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str = ""
     # explicit people to assign to
-    assignee_ids: list[int] = Field(default_factory=list)
+    assignee_ids: list[int] = Field(default_factory=list, description="People to assign; one task is made per person.")
     # With assignee_ids: which team the task belongs to — the same person can
     # be on several teams, so the context is picked, not guessed (see
     # tasks/service.shared_team_options). Alone (no assignee_ids): assign to
     # the whole team, fanning out to every member the assigner may task.
-    event_team_id: int | None = None
-    # only meaningful with event_team_id: share the task with the whole team
-    team_visible: bool = False
+    event_team_id: int | None = Field(default=None, description="With assignee_ids: the team the task belongs to. Without assignee_ids: assigns the task to every member of this team.")
+    team_visible: bool = Field(default=False, description="Only with event_team_id: let the whole team see the task.")
     due_date: date | None = None
     priority: TaskPriority = TaskPriority.MEDIUM
     category: str | None = Field(default=None, max_length=100)

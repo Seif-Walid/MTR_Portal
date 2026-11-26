@@ -118,6 +118,8 @@ export interface Task {
   team_visible: boolean;
   course_material_id: number | null; // hands out a course task sheet
   course_id: number | null;
+  board_rank: number | null; // place in its board column; null = not arranged yet
+  allowed_moves: TaskStatus[]; // statuses the viewer may move it to right now (server-decided)
   created_at: string;
   updated_at: string;
   attachments: Attachment[];
@@ -989,8 +991,6 @@ export interface AiStatus {
   embedder: string;
   /** provider "chain": the free-tier models in order, and which are cooling down */
   chain?: { link: string; ready: boolean; retry_in_s: number }[];
-  /** backend can clean up dictation with Whisper (Groq key set) */
-  transcribe?: boolean;
 }
 
 export interface AiConnection {

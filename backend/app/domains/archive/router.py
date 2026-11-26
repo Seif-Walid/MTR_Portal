@@ -140,7 +140,7 @@ class ArchivedStaffAdd(BaseModel):
     """Record someone in a role by hand — a portal account, or just a name."""
 
     role: str = Field(min_length=1, max_length=255)
-    team_id: int | None = None  # NULL = an event-wide role
+    team_id: int | None = Field(default=None, description="Team the role belongs to; omit for an event-wide role.")
     user_id: int | None = None
     name: str | None = Field(default=None, max_length=255)
 

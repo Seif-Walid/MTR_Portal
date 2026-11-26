@@ -58,6 +58,11 @@ def _strip(schema: Any, components: dict, depth: int = 0) -> Any:
         return _strip(components.get(name, {}), components, depth + 1)
     out = {}
     for key, value in schema.items():
+        if key == "properties" and isinstance(value, dict):
+            # a property map: keys are field names (a field may be called
+            # "title"), so strip each field's schema but keep every name
+            out[key] = {k: _strip(v, components, depth) for k, v in value.items()}
+            continue
         if key in ("title", "additionalProperties"):
             continue
         if key == "anyOf":
@@ -261,6 +266,14 @@ class ChangeIn(_In):
         "e.g. 'Record 500 EGP dues paid by Omar Hassan for MRC 2026'"))
 
 
+CHANGE_NOTE = (
+    "GET → portal_read. Anything else → portal_change. Read each field's description: "
+    "it says what values mean. In edits (PATCH/PUT) an omitted or null field is left "
+    "unchanged — to blank a value use its clear_* flag; a list field replaces the whole "
+    "list, so send the full list you want kept."
+)
+
+
 def find_actions(db: Session, user: User, inp: FindActionsIn) -> dict:
     if not inp.query.strip():
         return {"actions": [f"{o['method']} {o['path']} — {o['summary']}" for o in operations()],
@@ -270,7 +283,7 @@ def find_actions(db: Session, user: User, inp: FindActionsIn) -> dict:
         return {"actions": [f"{o['method']} {o['path']} — {o['summary']}" for o in operations()],
                 "note": "Nothing matched those words, so here is every action. Pick one and call find_actions with its words to get its inputs."}
     return {"actions": [describe(op, full=i < 5) for i, op in enumerate(hits)],
-            "note": "GET → portal_read. Anything else → portal_change."}
+            "note": CHANGE_NOTE}
 
 
 def portal_read(db: Session, user: User, inp: ReadIn) -> Any:

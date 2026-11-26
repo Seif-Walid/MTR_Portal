@@ -21,7 +21,7 @@ import { Link } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import type { Attachment, Task, TaskHistoryEntry, TaskStatus } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
-import { PriorityTag, STATUS_META, StatusTag } from './tags';
+import { MOVE_LABELS, PriorityTag, STATUS_META, StatusTag } from './tags';
 import EmptyState from './EmptyState';
 
 type ActivityItem =
@@ -57,29 +57,6 @@ function historyLine(actor: string, action: string, detail: string): string {
       return `${actor} ${action}`;
   }
 }
-
-interface WorkflowAction {
-  to: TaskStatus;
-  label: string;
-  danger?: boolean;
-}
-
-// which transitions each party may trigger from a given status
-const ASSIGNEE_ACTIONS: Partial<Record<TaskStatus, WorkflowAction[]>> = {
-  todo: [{ to: 'in_progress', label: 'Start Working' }],
-  in_progress: [
-    { to: 'submitted', label: 'Submit for Review' },
-    { to: 'todo', label: 'Move back to To Do' },
-  ],
-  revision_requested: [{ to: 'in_progress', label: 'Resume Work' }],
-};
-
-const REVIEWER_ACTIONS: Partial<Record<TaskStatus, WorkflowAction[]>> = {
-  submitted: [
-    { to: 'approved', label: 'Approve' },
-    { to: 'revision_requested', label: 'Request Revision', danger: true },
-  ],
-};
 
 const fmtSize = (n: number) =>
   n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2)} GB`
@@ -186,13 +163,9 @@ export default function TaskDrawer({
   const isAssignee = task?.assignee.id === me.id;
   const isAssigner = task?.assigner.id === me.id;
   const canToggleBlocked = isAssignee || isAssigner || me.level?.rank === 1;
+  // the server says which moves this person may make
   const actions = task
-    ? [
-        ...(isAssignee || me.level?.rank === 1 ? ASSIGNEE_ACTIONS[task.status] ?? [] : []),
-        // the API decides who may review; we optimistically show the buttons
-        // to anyone who is not the assignee and let 403s surface otherwise
-        ...(!isAssignee || me.level?.rank === 1 ? REVIEWER_ACTIONS[task.status] ?? [] : []),
-      ]
+    ? task.allowed_moves.map((to) => ({ to, ...(MOVE_LABELS[`${task.status}>${to}`] ?? { label: to }) }))
     : [];
 
   const upload = async (file: File) => {

@@ -57,6 +57,17 @@ export const STATUS_META: Record<TaskStatus, { label: string; color: string }> =
   revision_requested: { label: 'Needs revision', color: C.amber },
 };
 
+// what a workflow move is called on a button, keyed `from>to` (the server's
+// task.allowed_moves says which of these the viewer may make)
+export const MOVE_LABELS: Record<string, { label: string; short: string; danger?: boolean }> = {
+  'todo>in_progress': { label: 'Start Working', short: 'Start' },
+  'in_progress>submitted': { label: 'Submit for Review', short: 'Submit' },
+  'in_progress>todo': { label: 'Move back to To Do', short: 'Back to to do' },
+  'revision_requested>in_progress': { label: 'Resume Work', short: 'Resume' },
+  'submitted>approved': { label: 'Approve', short: 'Approve' },
+  'submitted>revision_requested': { label: 'Request Revision', short: 'Revise', danger: true },
+};
+
 export function StatusTag({ status }: { status: TaskStatus }) {
   const meta = STATUS_META[status] ?? { label: status, color: C.textMuted };
   return chip(meta.label, meta.color);

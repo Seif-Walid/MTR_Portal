@@ -128,4 +128,4 @@ class UserUpdate(BaseModel):
     access_level_id: int | None = None
     clear_access_level: bool = False
     # Roster fields. Present -> the sent ones are set on the person.
-    profile: MemberProfileIn | None = None
+    profile: MemberProfileIn | None = Field(default=None, description="Roster fields; only the ones sent are changed.")

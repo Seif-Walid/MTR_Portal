@@ -54,10 +54,18 @@
   padding: 12px 14px; border-radius: var(--radius-lg);
   background: var(--surface); border: 1px solid var(--border);
   box-shadow: var(--shadow-sm); cursor: grab; touch-action: none; user-select: none;
-  transition: border-color 160ms var(--ease-out), box-shadow 200ms var(--ease-out);
+  transition: border-color 160ms var(--ease-out), box-shadow 200ms var(--ease-out), translate 200ms var(--ease-out);
+  will-change: transform;
 }
-.tb-card:hover { border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); box-shadow: var(--shadow-md); }
-.tb-card.is-dragging { border-color: var(--primary); }
+/* hover lift uses `translate`, not transform: motion owns transform for the
+   drag, and the two must not fight over it */
+.tb-card:hover { border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); box-shadow: var(--shadow-md); translate: 0 -3px; }
+.tb-card.is-dragging {
+  z-index: 50; cursor: grabbing; translate: 0 0;
+  border-color: var(--primary); box-shadow: var(--shadow-floating);
+  background: var(--surface-solid); /* glass would show the cards underneath */
+}
+
 .tb-card__top { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .tb-card__ctx { flex: 1; min-width: 0; font-size: 12px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tb-card__grip { color: var(--text-disabled); opacity: 0; transition: opacity 150ms; }
@@ -84,3 +92,47 @@
 }
 .tk-layout button[aria-pressed='true'] { color: var(--text-primary); }
 .tk-layout__thumb { position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--surface); box-shadow: var(--shadow-sm); }
+
+/* where a dragged card will land; positioned absolutely so showing it never
+   shifts the cards around it */
+.tb-col__body { position: relative; }
+.tb-drop-line {
+  position: absolute; left: 8px; right: 8px; top: -1px; height: 3px; z-index: 2;
+  border-radius: var(--radius-full); pointer-events: none;
+  background: var(--col); box-shadow: 0 0 10px color-mix(in srgb, var(--col) 60%, transparent);
+}
+.tb-col.is-over .tb-col__body:not(:has(.tb-card)) {
+  min-height: 72px; margin: 0 8px 8px; border-radius: var(--radius-lg);
+  border: 1px dashed color-mix(in srgb, var(--col) 60%, transparent);
+}
+
+/* one-click moves: float over the card's bottom-right corner on hover/focus
+   so revealing them never changes the card's height (and never shoves the
+   cards below); where there is no hover (touch) they sit in the flow */
+.tb-card__moves {
+  position: absolute; right: 8px; bottom: 7px; display: flex; gap: 4px;
+  padding: 2px; border-radius: var(--radius-full); background: var(--surface-solid);
+  opacity: 0; translate: 0 4px; pointer-events: none;
+  transition: opacity 140ms var(--ease-out), translate 160ms var(--ease-out);
+}
+.tb-card:hover .tb-card__moves, .tb-card:focus-within .tb-card__moves {
+  opacity: 1; translate: 0 0; pointer-events: auto;
+}
+@media (hover: none) {
+  .tb-card__moves { position: static; opacity: 1; translate: none; pointer-events: auto; background: none; padding: 0; }
+}
+.tb-card.is-dragging .tb-card__moves { display: none; }
+.tb-move {
+  padding: 3px 10px; border-radius: var(--radius-full); cursor: pointer; white-space: nowrap;
+  font-size: 12px; font-weight: 600; font-family: inherit; color: var(--text-primary);
+  background: color-mix(in srgb, var(--to) 16%, var(--surface-solid));
+  border: 1px solid color-mix(in srgb, var(--to) 50%, transparent);
+  transition: background 150ms var(--ease-out), border-color 150ms var(--ease-out);
+}
+.tb-move:hover { background: color-mix(in srgb, var(--to) 30%, var(--surface-solid)); border-color: var(--to); }
+.tb-move:focus-visible { outline: 2px solid var(--to); outline-offset: 2px; }
+.tb-move.is-primary { background: color-mix(in srgb, var(--to) 32%, var(--surface-solid)); }
+@media (hover: hover) {
+  .tb-card__avatar { transition: opacity 140ms var(--ease-out); }
+  .tb-card:has(.tb-card__moves):is(:hover, :focus-within) .tb-card__avatar { opacity: 0; }
+}

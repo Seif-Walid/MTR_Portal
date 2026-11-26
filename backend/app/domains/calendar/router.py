@@ -20,7 +20,7 @@ def calendar(
 ) -> list[CalendarItem]:
     """Dated items for the calendar. `scope` is 'general' (everything you can
     see) or 'me' (only what you participate in). `sources` is a comma-list of
-    tasks|events|inventory|requests. `start`/`end` bound the window (the
+    tasks|events|inventory|requests|teams. `start`/`end` bound the window (the
     visible month range); omit for no bound. Sources you can't view are
     silently skipped."""
     wanted = [s for s in (sources.split(",") if sources else []) if s in service.SOURCES]

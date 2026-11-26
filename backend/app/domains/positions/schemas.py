@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domains.users.schemas import UserBrief
@@ -24,8 +26,8 @@ class PositionCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     parent_id: int | None = None
     is_technical: bool = False
-    on_website: bool = True  # listed on the public site's People page
-    access_level_id: int | None = None  # power this seat confers; None = nothing
+    on_website: bool = Field(default=True, description="Listed on the public website's People page.")
+    access_level_id: int | None = Field(default=None, description="Access level this seat gives whoever holds it; omit for none.")
     occupant_ids: list[int] = []
 
 
@@ -33,8 +35,8 @@ class PositionEdit(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     is_technical: bool | None = None
     on_website: bool | None = None
-    parent_id: int | None = None  # reparent
-    occupant_ids: list[int] | None = None  # replaces the whole occupant list
+    parent_id: int | None = Field(default=None, description="Move the position under this parent.")
+    occupant_ids: list[int] | None = Field(default=None, description="REPLACES the whole occupant list: include everyone who should keep the seat, not only people being added.")
     access_level_id: int | None = None
     clear_access_level: bool = False
 
@@ -53,20 +55,20 @@ class RoleTemplateOut(BaseModel):
 
 class RoleTemplateCreate(BaseModel):
     title_template: str = Field(min_length=1, max_length=255)
-    event: str
-    access_level_id: int | None = None  # power the produced seats confer
-    event_kind_id: int | None = None  # which event kind fires it; None = all kinds
-    insert_after_id: int | None = None  # chain right after this template, not at the end
+    event: Literal["event_created", "team_created", "team_member_added"] = Field(description="Which trigger creates the seat.")
+    access_level_id: int | None = Field(default=None, description="Access level the produced seats give.")
+    event_kind_id: int | None = Field(default=None, description="Only fire for events of this kind; omit for every kind.")
+    insert_after_id: int | None = Field(default=None, description="Chain right after this template instead of at the end.")
 
 
 class RoleTemplateEdit(BaseModel):
     title_template: str | None = Field(default=None, min_length=1, max_length=255)
-    event: str | None = None  # which trigger point fires it; None = leave unchanged
+    event: Literal["event_created", "team_created", "team_member_added"] | None = Field(default=None, description="Which trigger creates the seat.")
     access_level_id: int | None = None
     clear_access_level: bool = False
     sort_order: int | None = None
-    event_kind_id: int | None = None  # None = fires for every event kind
-    set_event_kind: bool = False  # only apply event_kind_id when true (distinguishes "all kinds" from "untouched")
+    event_kind_id: int | None = Field(default=None, description="Event kind to fire for; null = every kind. Only applied when set_event_kind is true.")
+    set_event_kind: bool = Field(default=False, description="Must be true for event_kind_id to change (including setting it to null = every kind).")
 
 
 class RoleRootOut(BaseModel):
