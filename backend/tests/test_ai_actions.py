@@ -5,6 +5,7 @@ the user (their permissions, nothing kept) and only runs on confirm."""
 import json
 
 from app.domains.ai import actions
+from app.domains.audit.models import AuditLog
 from app.domains.inventory.models import InventoryItem
 
 from tests.conftest import ensure_position
@@ -143,3 +144,37 @@ def test_an_outside_request_cannot_borrow_a_session(client, org):
     client.cookies.clear()
     r = client.get("/api/auth/me", headers={"x-ai-run": "guessed-key"})
     assert r.status_code == 401
+
+
+def test_ai_changes_are_logged_as_the_action_with_who_approved(client, login, org, db_session):
+    """An AI change shows up in the audit log as the change itself, marked as
+    made by the AI on the person's account and approved by them — not as a
+    separate 'action confirmed' entry."""
+    admin_id = login("admin").get("/api/auth/me").json()["id"]
+    item_id = _item(login)
+    headers = _token(login)  # a script / local MCP server token
+    # a route that writes its own audit entry: that entry gets stamped
+    out = _call(client, headers, "portal_change", method="DELETE", path=f"/api/inventory/{item_id}",
+                summary="Delete the Arduino")
+    r = login("admin").post("/api/ai/actions/confirm", json={"ids": [out["action_id"]]})
+    assert r.status_code == 200, r.text
+    db_session.expire_all()
+    rows = db_session.query(AuditLog).filter_by(ai_action_id=out["action_id"]).all()
+    assert [(x.domain, x.action, x.entity_id) for x in rows] == [("inventory", "item_deleted", item_id)]
+    assert rows[0].actor_id == admin_id and rows[0].approved_by_id == admin_id and rows[0].via == "mcp"
+    assert db_session.query(AuditLog).filter_by(domain="ai").count() == 0
+
+    # a route that keeps no audit entry gets a plain one naming the change
+    out = _call(client, headers, "portal_change", method="POST", path="/api/inventory",
+                body={"name": "Servo", "quantity": 2}, summary="Add 2 servos")
+    login("admin").post("/api/ai/actions/confirm", json={"ids": [out["action_id"]]})
+    db_session.expire_all()
+    servo = db_session.query(InventoryItem).filter_by(name="Servo").one()
+    row = db_session.query(AuditLog).filter_by(ai_action_id=out["action_id"]).one()
+    assert (row.domain, row.action, row.entity_type, row.entity_id) == ("inventory", "create_item", "inventory", servo.id)
+    assert json.loads(row.detail)["summary"] == "Add 2 servos"
+
+    page = login("admin").get("/api/audit", params={"ai": "true"}).json()
+    assert {e["via"] for e in page["items"]} == {"mcp"}
+    assert all(e["approved_by"] and e["actor"] == e["approved_by"] for e in page["items"])
+    assert page["total"] == 2

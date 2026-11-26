@@ -1,5 +1,5 @@
-import { ReloadOutlined } from '@ant-design/icons';
-import { Button, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { ReloadOutlined, RobotOutlined } from '@ant-design/icons';
+import { Button, Checkbox, Select, Space, Table, Tag, Typography, message } from 'antd';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -11,6 +11,30 @@ const DOMAIN_COLOR: Record<string, string> = {
   inventory: 'gold',
   events: 'purple',
 };
+
+/** How the AI reached the portal, in words. */
+export function channelLabel(via: string): string {
+  if (via === 'assistant') return 'portal assistant';
+  if (via === 'mcp') return 'MCP / script';
+  if (via.startsWith('agent:')) return `${via.slice(6) || 'agent'} (connected agent)`;
+  return via;
+}
+
+function ActorCell({ entry }: { entry: AuditEntry }) {
+  if (!entry.via) return <>{entry.actor}</>;
+  return (
+    <Space direction="vertical" size={0}>
+      <span>
+        <Tag icon={<RobotOutlined />} color="cyan" style={{ marginInlineEnd: 6 }}>AI</Tag>
+        via {entry.actor}
+      </span>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        {channelLabel(entry.via)} ·{' '}
+        {entry.approved_by ? `approved by ${entry.approved_by}` : 'ran directly, no approval'}
+      </Typography.Text>
+    </Space>
+  );
+}
 
 function detailSummary(detail: string): string {
   try {
@@ -24,6 +48,7 @@ function detailSummary(detail: string): string {
 
 export default function AuditLogPage() {
   const [domain, setDomain] = useState<string>('all');
+  const [aiOnly, setAiOnly] = useState(false);
   const [domains, setDomains] = useState<string[]>([]);
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [total, setTotal] = useState(0);
@@ -39,6 +64,7 @@ export default function AuditLogPage() {
       offset: String((page - 1) * pageSize),
     });
     if (domain !== 'all') params.set('domain', domain);
+    if (aiOnly) params.set('ai', 'true');
     api
       .get<AuditPage>(`/api/audit?${params}`)
       .then((r) => {
@@ -48,7 +74,7 @@ export default function AuditLogPage() {
       })
       .catch((e) => message.error(e.message))
       .finally(() => setLoading(false));
-  }, [domain, page, pageSize]);
+  }, [domain, aiOnly, page, pageSize]);
 
   useEffect(load, [load]);
 
@@ -65,6 +91,15 @@ export default function AuditLogPage() {
           </Typography.Text>
         </div>
         <Space>
+          <Checkbox
+            checked={aiOnly}
+            onChange={(e) => {
+              setAiOnly(e.target.checked);
+              setPage(1);
+            }}
+          >
+            Made by AI
+          </Checkbox>
           <Select
             style={{ minWidth: 160 }}
             value={domain}
@@ -104,7 +139,7 @@ export default function AuditLogPage() {
             width: 150,
             render: (d: string) => dayjs(d).format('DD MMM HH:mm'),
           },
-          { title: 'Actor', dataIndex: 'actor', width: 160 },
+          { title: 'Actor', width: 220, render: (_, r) => <ActorCell entry={r} /> },
           {
             title: 'Domain',
             dataIndex: 'domain',

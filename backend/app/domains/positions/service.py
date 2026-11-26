@@ -119,6 +119,13 @@ def resync_managers(db: Session) -> None:
 
 
 def audit(db: Session, actor_id: int, action: str, position_id: int | None, detail: dict) -> None:
+    from app.domains.audit.service import ai_stamp
+
+    stamp = ai_stamp(db)
+    if stamp is not None:  # made by the AI: say so, like the main audit log
+        detail = {**detail, "ai": {"via": stamp["via"], "approved_by_id": stamp["approved_by_id"],
+                                   "action_id": stamp["action_id"]}}
+        stamp["rows"] += 1
     db.add(
         OrgAuditLog(
             actor_id=actor_id,

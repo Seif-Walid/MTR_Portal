@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.domains.access import service as access
 from app.domains.ai.models import ActionStatus, AiConversation, AiMessage, AiPendingAction, AiToken
 from app.domains.ai.tools import TOOLS, _json
+from app.domains.audit.service import AI_STAMP
 from app.domains.audit.service import log as audit_log
 from app.domains.users.models import User
 
@@ -48,13 +49,22 @@ def mint_token(db: Session, user: User, conversation_id: int | None = None, labe
     return token, rec
 
 
+def channel(rec: AiToken) -> str:
+    """How the AI reached the portal, as the audit log records it: the portal's
+    own chat ("assistant"), a script or local MCP server ("mcp"), or a
+    connected agent ("agent:<its name>")."""
+    if rec.label.startswith(AGENT_LABEL):
+        return rec.label
+    return "assistant" if rec.label == "chat" else "mcp"
+
+
 def is_direct(rec: AiToken) -> bool:
     """Agents connected from outside (OAuth) act directly: their writes run
     at once. Chat and script tokens keep the propose → confirm flow."""
     return rec.label.startswith(AGENT_LABEL)
 
 
-def resolve_token(db: Session, token: str) -> tuple[User, int | None, bool]:
+def resolve_token(db: Session, token: str) -> tuple[User, int | None, bool, str]:
     rec = db.scalar(select(AiToken).where(AiToken.token_hash == _digest(token)))
     if rec is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid AI token")
@@ -68,7 +78,7 @@ def resolve_token(db: Session, token: str) -> tuple[User, int | None, bool]:
     if rec.last_used_at is None or now - _aware(rec.last_used_at) > _TOUCH_EVERY:
         rec.last_used_at = now
         db.commit()
-    return user, rec.conversation_id, is_direct(rec)
+    return user, rec.conversation_id, is_direct(rec), channel(rec)
 
 
 def agent_connections(db: Session, user: User) -> list[AiToken]:
@@ -116,18 +126,76 @@ def _fresh(db: Session, user: User) -> User:
     return db.get(User, uid)
 
 
-def _execute(db: Session, user: User, actions: list[tuple[int, str, dict]]) -> dict[int, dict]:
+def _execute(db: Session, user: User, actions: list[tuple[int, str, dict]],
+             provenance: dict[int, tuple[str, int | None, str]] | None = None) -> dict[int, dict]:
     """Run (id, tool, input) in order, threading results so later actions can
-    reference earlier ones. Raises on the first failure; never commits."""
+    reference earlier ones. Raises on the first failure; never commits.
+
+    `provenance` (action id -> (channel, approver id, summary)) is given for the real
+    run: every audit entry an action writes then says the AI made it on this
+    person's account, through what, and who approved it. An action whose route
+    keeps no audit entry of its own gets a plain one, so each AI change shows
+    up in the log like anyone else's."""
     refs: dict[int, dict] = {}
     for action_id, name, raw in actions:
         tool = TOOLS[name]
+        stamp = None
+        if provenance is not None:
+            via, approver, summary = provenance[action_id]
+            stamp = {"via": via, "approved_by_id": approver, "action_id": action_id, "rows": 0}
+            db.info[AI_STAMP] = stamp
         try:
-            refs[action_id] = _json(tool.run(db, user, tool.input_model.model_validate(raw), refs))
+            inp = tool.input_model.model_validate(raw)
+            refs[action_id] = _json(tool.run(db, user, inp, refs))
+            if stamp is not None and stamp["rows"] == 0:
+                domain, action, entity, entity_id, detail = audit_entry(name, inp, refs, refs[action_id])
+                audit_log(db, user.id, domain, action, entity, entity_id,
+                          {"summary": summary.split("\n")[0].strip(), **detail})
         except Exception as exc:  # noqa: BLE001 - annotate which action failed
             exc.ai_action_id = action_id  # type: ignore[attr-defined]
             raise
+        finally:
+            db.info.pop(AI_STAMP, None)
     return refs
+
+
+# what each named write tool changes, for its plain audit entry
+_TOOL_TARGET = {
+    "create_event": ("events", "event"),
+    "create_team": ("events", "event_team"),
+    "add_team_members": ("events", "event_team"),
+    "allocate_inventory": ("inventory", "allocation"),
+    "create_tasks": ("tasks", "task"),
+    "create_budget_lines": ("finance", "budget_line"),
+}
+
+
+def audit_entry(name: str, inp, refs: dict, result) -> tuple[str, str, str, int | None, dict]:
+    """(domain, action, entity type, entity id, detail) of the plain audit
+    entry for an AI action whose route wrote none itself."""
+    from app.domains.ai import actions
+
+    rid = result.get("id") if isinstance(result, dict) and isinstance(result.get("id"), int) else None
+    if name == "portal_change":
+        path = str(actions._resolve(inp.path, refs))
+        op = actions._match(inp.method, path) or {}
+        parts = [p for p in path.split("/")[2:] if p]
+        ids = [int(p) for p in parts if p.isdigit()]
+        words = [p for p in parts if not p.isdigit()]
+        before_id = [p for i, p in enumerate(parts[:-1]) if parts[i + 1].isdigit()]
+        entity = (before_id[-1] if before_id else (words[-1] if words else "record")).replace("-", "_")
+        if entity.endswith("ies"):  # name the record, not the collection
+            entity = entity[:-3] + "y"
+        elif entity.endswith("s") and not entity.endswith("ss"):
+            entity = entity[:-1]
+        action = "_".join((op.get("summary") or inp.method).lower().split())
+        detail = {"request": f"{inp.method} {path}"}
+        if inp.body:
+            detail["body"] = actions._resolve(inp.body, refs)
+        return (op.get("area") or (words[0] if words else "portal"), action, entity,
+                ids[-1] if ids else rid, detail)
+    domain, entity = _TOOL_TARGET.get(name, ("ai", name))
+    return domain, name, entity, rid, {"input": inp.model_dump(mode="json")}
 
 
 def _unescape(value):
@@ -142,7 +210,7 @@ def _unescape(value):
 
 
 def call_tool(db: Session, user: User, name: str, raw: dict, conversation_id: int | None,
-              direct: bool = False) -> dict:
+              direct: bool = False, via: str = "assistant") -> dict:
     tool = TOOLS.get(name)
     if tool is None:
         return {"error": f"Unknown tool {name}"}
@@ -163,7 +231,7 @@ def call_tool(db: Session, user: User, name: str, raw: dict, conversation_id: in
     # real), roll everything back, then store it as pending.
     user = _fresh(db, user)
     if direct:
-        return _run_now(db, user, name, tool, inp)
+        return _run_now(db, user, name, tool, inp, via)
     chain = [(a.id, a.tool, json.loads(a.input)) for a in _pending_chain(db, user, conversation_id)]
     chain.append((0, name, inp.model_dump(mode="json")))
     try:
@@ -181,7 +249,7 @@ def call_tool(db: Session, user: User, name: str, raw: dict, conversation_id: in
     user = _fresh(db, user)
     summary = tool.summarize(db, inp) if tool.summarize else name
     action = AiPendingAction(
-        user_id=user.id, conversation_id=conversation_id, tool=name,
+        user_id=user.id, conversation_id=conversation_id, tool=name, via=via,
         input=json.dumps(inp.model_dump(mode="json")), summary=summary,
     )
     db.add(action)
@@ -190,11 +258,11 @@ def call_tool(db: Session, user: User, name: str, raw: dict, conversation_id: in
             "note": "Awaiting the user's confirmation in the portal. Do not claim it is done."}
 
 
-def _run_now(db: Session, user: User, name: str, tool, inp) -> dict:
+def _run_now(db: Session, user: User, name: str, tool, inp, via: str) -> dict:
     """A directly connected agent's write: run it for real, as the person,
     recorded like a confirmed action (audit log, action history)."""
     summary = tool.summarize(db, inp) if tool.summarize else name
-    action = AiPendingAction(user_id=user.id, conversation_id=None, tool=name,
+    action = AiPendingAction(user_id=user.id, conversation_id=None, tool=name, via=via,
                              input=json.dumps(inp.model_dump(mode="json")), summary=summary)
     db.add(action)
     db.commit()
@@ -230,7 +298,11 @@ def confirm(db: Session, user: User, ids: list[int]) -> dict:
     rows = _owned(db, user, ids)
     try:
         db.info["ai_dry_run"] = False
-        results = _execute(db, user, [(a.id, a.tool, json.loads(a.input)) for a in rows])
+        # the confirming person approved it; a connected agent's direct write
+        # (via "agent:…") had no one to approve it
+        provenance = {a.id: (a.via, None if a.via.startswith(AGENT_LABEL) else user.id, a.summary)
+                      for a in rows}
+        results = _execute(db, user, [(a.id, a.tool, json.loads(a.input)) for a in rows], provenance)
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         failed_id = getattr(exc, "ai_action_id", None)
@@ -245,8 +317,6 @@ def confirm(db: Session, user: User, ids: list[int]) -> dict:
     now = datetime.now(timezone.utc)
     for a in rows:
         a.status, a.result, a.decided_at = ActionStatus.DONE, json.dumps(results[a.id]), now
-        audit_log(db, user.id, "ai", "action_confirmed", "ai_action", a.id,
-                  {"tool": a.tool, "summary": a.summary, "conversation": a.conversation_id, "via": "ai"})
     for conv in {a.conversation_id for a in rows}:
         done = [a for a in rows if a.conversation_id == conv]
         # first line for people, second line (ids created) for the agent

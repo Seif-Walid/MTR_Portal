@@ -24,6 +24,16 @@ class AuditLog(Base):
     entity_type: Mapped[str] = mapped_column(String(50))  # e.g. inventory_item, event, user
     entity_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
     detail: Mapped[str] = mapped_column(Text, default="")  # JSON: before/after/context
+    # Set when the AI made this change on actor_id's account: the channel it
+    # came through ("assistant" = portal chat, "mcp" = a script / local MCP
+    # server, "agent:<name>" = a connected agent such as Claude Desktop), the
+    # person who approved it (NULL when a connected agent ran it directly), and
+    # the assistant action it belongs to.
+    via: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    approved_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    ai_action_id: Mapped[int | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
     )

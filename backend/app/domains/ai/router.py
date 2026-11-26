@@ -76,13 +76,13 @@ def get_provider():
 def token_user(
     db: Annotated[Session, Depends(get_db)],
     authorization: Annotated[str | None, Header()] = None,
-) -> tuple[User, int | None, bool]:
+) -> tuple[User, int | None, bool, str]:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing AI token")
     return service.resolve_token(db, authorization.split(" ", 1)[1].strip())
 
 
-TokenUser = Annotated[tuple[User, int | None, bool], Depends(token_user)]
+TokenUser = Annotated[tuple[User, int | None, bool, str], Depends(token_user)]
 
 
 class ToolCall(BaseModel):
@@ -98,7 +98,7 @@ def list_tools(auth: TokenUser) -> list[dict]:
 def conversation_history(auth: TokenUser, db: DB) -> list[dict]:
     """The token's conversation before its latest user message (which the
     provider gets on its own, with any portal notes folded in)."""
-    user, conversation_id, _ = auth
+    user, conversation_id, _, _ = auth
     conv = db.get(AiConversation, conversation_id) if conversation_id is not None else None
     if conv is None or conv.user_id != user.id:
         return []
@@ -109,8 +109,8 @@ def conversation_history(auth: TokenUser, db: DB) -> list[dict]:
 
 @router.post("/tools/{name}")
 def run_tool(name: str, payload: ToolCall, auth: TokenUser, db: DB) -> Any:
-    user, conversation_id, direct = auth
-    return service.call_tool(db, user, name, payload.arguments, conversation_id, direct)
+    user, conversation_id, direct, via = auth
+    return service.call_tool(db, user, name, payload.arguments, conversation_id, direct, via)
 
 
 # ----------------------------------------------------------------- status
