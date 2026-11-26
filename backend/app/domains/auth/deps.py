@@ -15,6 +15,10 @@ def _viewing_as(db: Session, user: User) -> User:
     from app.domains.access.service import privileges_for
 
     viewer.record(user.id, privileges_for(db, user))
+    # whoever this request acts as: the automatic audit trail records them
+    from app.domains.audit.auto import ACTOR
+
+    db.info[ACTOR] = user.id
     return user
 
 

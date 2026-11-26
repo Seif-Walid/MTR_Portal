@@ -158,3 +158,25 @@ def test_block_times_validated(login, org):
     assert r.status_code == 400
     r = login("cto").post("/api/timeblocks", json={**base, "start_time": "16:00", "end_time": "15:00"})
     assert r.status_code == 400
+
+
+def test_manual_block_changes_reach_the_audit_log(login, org):
+    """Routes that write no audit entry of their own are still audited: every
+    row a signed-in person creates, edits or deletes lands in the log."""
+    team = _team_with_member(login, org)
+    block = login("cto").post("/api/timeblocks", json={
+        "team_type": "event", "event_team_id": team["id"], "title": "Build night",
+        "start_date": "2026-09-07", "end_date": "2026-09-13", "weekday_mask": 0,
+    }).json()
+    login("cto").patch(f"/api/timeblocks/{block['id']}", json={"title": "Pool test"})
+    assert login("cto").delete(f"/api/timeblocks/{block['id']}").status_code == 204
+
+    items = login("admin").get("/api/audit", params={"entity_type": "time_block"}).json()["items"]
+    assert [(i["action"], i["actor"], i["entity_id"]) for i in items] == [
+        ("deleted", org["cto"].full_name, block["id"]),
+        ("updated", org["cto"].full_name, block["id"]),
+        ("created", org["cto"].full_name, block["id"]),
+    ]
+    assert all(i["domain"] == "timeblocks" for i in items)
+    import json as _json
+    assert _json.loads(items[1]["detail"])["changes"]["title"] == ["Build night", "Pool test"]

@@ -162,7 +162,8 @@ def test_ai_changes_are_logged_as_the_action_with_who_approved(client, login, or
     rows = db_session.query(AuditLog).filter_by(ai_action_id=out["action_id"]).all()
     assert [(x.domain, x.action, x.entity_id) for x in rows] == [("inventory", "item_deleted", item_id)]
     assert rows[0].actor_id == admin_id and rows[0].approved_by_id == admin_id and rows[0].via == "mcp"
-    assert db_session.query(AuditLog).filter_by(domain="ai").count() == 0
+    # no separate "action confirmed" entry (connecting the agent token is its own change)
+    assert db_session.query(AuditLog).filter(AuditLog.domain == "ai", AuditLog.entity_type != "ai_token").count() == 0
 
     # a route that keeps no audit entry gets a plain one naming the change
     out = _call(client, headers, "portal_change", method="POST", path="/api/inventory",
