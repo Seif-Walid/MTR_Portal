@@ -94,6 +94,9 @@ def test_signed_in_agent_reads_and_writes_directly(client, login, db_session):
     assert result["isError"] is False, result
     item = db_session.query(InventoryItem).filter_by(name="Hosted MCP part").one()
     assert item.quantity == 3  # written at once, no confirmation step
+    from app.domains.audit.models import AuditLog
+    row = db_session.query(AuditLog).filter_by(entity_id=item.id, domain="inventory").one()
+    assert row.via == "agent:Claude Code" and row.approved_by_id is None  # the agent ran it itself
 
     bad = _rpc(client, token, "tools/call", {"name": "portal_change", "arguments": {
         "method": "DELETE", "path": "/api/inventory/999999", "summary": "Delete a missing item"}}, rid=4)

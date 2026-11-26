@@ -550,6 +550,10 @@ export interface AuditEntry {
   entity_id: number | null;
   detail: string; // JSON string
   created_at: string;
+  // set when the AI made the change on the actor's account
+  via: string | null; // "assistant" | "mcp" | "agent:<name>"
+  approved_by: string | null; // null with via = a connected agent that ran it directly
+  ai_action_id: number | null;
 }
 
 export interface AuditPage {

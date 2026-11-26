@@ -71,6 +71,8 @@ class AiPendingAction(Base):
         ForeignKey("ai_conversations.id", ondelete="SET NULL"), nullable=True, index=True
     )
     tool: Mapped[str] = mapped_column(String(60))
+    # channel the AI used: "assistant" | "mcp" | "agent:<name>" (see AuditLog.via)
+    via: Mapped[str] = mapped_column(String(120), default="assistant")
     input: Mapped[str] = mapped_column(Text)  # validated JSON
     summary: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default=ActionStatus.PENDING, index=True)

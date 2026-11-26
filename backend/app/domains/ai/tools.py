@@ -460,7 +460,7 @@ def _budget_write(db: Session, user: User, inp: BudgetIn, refs: dict) -> dict:
         ids.append(row.id)
     from app.domains.audit.service import log as audit_log
 
-    audit_log(db, user.id, "finance", "budget_lines_added", "event", event_id, {"count": len(ids), "via": "ai"})
+    audit_log(db, user.id, "finance", "budget_lines_added", "event", event_id, {"count": len(ids)})
     return {"budget_line_ids": ids, "event_id": event_id, "season_id": season_id}
 
 
