@@ -42,7 +42,21 @@ function ActorCell({ entry }: { entry: AuditEntry }) {
 function detailSummary(detail: string): string {
   try {
     const d = JSON.parse(detail) as Record<string, unknown>;
-    const parts = Object.entries(d).map(([k, v]) => `${k}: ${JSON.stringify(v)}`);
+    const show = (v: unknown) => (typeof v === 'string' ? `"${v}"` : JSON.stringify(v));
+    const parts: string[] = [];
+    for (const [k, v] of Object.entries(d)) {
+      // automatic entries: {changes: {field: [before, after]}} and {values: {field: value}}
+      if (k === 'changes' && v && typeof v === 'object') {
+        for (const [f, pair] of Object.entries(v as Record<string, unknown>)) {
+          const [before, after] = Array.isArray(pair) ? pair : [undefined, pair];
+          parts.push(`${f}: ${show(before)} → ${show(after)}`);
+        }
+      } else if (k === 'values' && v && typeof v === 'object') {
+        for (const [f, val] of Object.entries(v as Record<string, unknown>)) parts.push(`${f}: ${show(val)}`);
+      } else {
+        parts.push(`${k}: ${show(v)}`);
+      }
+    }
     return parts.join(' · ');
   } catch {
     return detail;

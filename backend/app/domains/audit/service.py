@@ -8,6 +8,9 @@ from app.domains.audit.models import AuditLog
 # making right now, so every entry written meanwhile records that the AI did
 # it, through what, and who approved it — see app.domains.ai.service.
 AI_STAMP = "ai_audit_stamp"
+# Set in Session.info once a route writes its own entry in the current
+# transaction; the automatic trail (audit.auto) then leaves that change to it.
+EXPLICIT = "audit_explicit"
 
 
 def ai_stamp(db: Session) -> dict | None:
@@ -39,4 +42,5 @@ def log(
         entry.ai_action_id = stamp["action_id"]
         stamp["rows"] += 1
     db.add(entry)
+    db.info[EXPLICIT] = True
     return entry

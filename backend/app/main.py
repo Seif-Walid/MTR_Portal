@@ -14,6 +14,7 @@ from app.domains.ai.oauth import router as oauth_router, well_known as oauth_wel
 from app.domains.ai.router import router as ai_router
 from app.domains.applications.router import router as applications_router
 from app.domains.archive.router import router as archive_router
+from app.domains.audit import auto as _audit_auto  # noqa: F401 - registers the automatic audit trail
 from app.domains.audit.router import router as audit_router
 from app.domains.bulk.router import router as bulk_router
 from app.domains.calendar.router import router as calendar_router
