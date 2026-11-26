@@ -29,8 +29,11 @@ function ActorCell({ entry }: { entry: AuditEntry }) {
         via {entry.actor}
       </span>
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        {channelLabel(entry.via)} ·{' '}
-        {entry.approved_by ? `approved by ${entry.approved_by}` : 'ran directly, no approval'}
+        {channelLabel(entry.via)}
+        {/* approval by the account owner goes without saying; name anyone else */}
+        {!entry.approved_by
+          ? ' · ran directly, no approval'
+          : entry.approved_by !== entry.actor && ` · approved by ${entry.approved_by}`}
       </Typography.Text>
     </Space>
   );
