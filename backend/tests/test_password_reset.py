@@ -3,27 +3,12 @@ single use, and a reset signs every session out."""
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
-from app.domains.auth import router as auth_router
 from app.domains.auth.models import AuthSession, PasswordResetToken
-from tests.conftest import PASSWORD
-
-
-@pytest.fixture()
-def outbox(monkeypatch):
-    sent = []
-
-    def fake_send(to, subject, text, html=None, **kw):
-        sent.append({"to": to, "subject": subject, "text": text, "html": html})
-        return True
-
-    monkeypatch.setattr(auth_router, "send_email", fake_send)
-    return sent
+from tests.conftest import PASSWORD, link_token
 
 
 def _token_from(mail) -> str:
-    return mail["text"].split("reset-password?token=", 1)[1].split()[0]
+    return link_token(mail)
 
 
 def test_forgot_sends_link_and_reset_works(client, org, outbox, db_session):

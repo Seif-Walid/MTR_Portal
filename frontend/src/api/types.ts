@@ -501,7 +501,7 @@ export interface FileImportPreview {
 export interface OrgTreeNode {
   id: number;
   full_name: string;
-  email: string;
+  email: string | null; // hidden unless you administer people
   department: string | null;
   level: string | null; // effective access level name
   manager_id: number | null;

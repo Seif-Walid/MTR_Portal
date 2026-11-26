@@ -24,8 +24,8 @@ def test_team_lead_sees_own_subtree_rooted_at_self_view_only(login, org):
     assert len(tree) == 1
     root = tree[0]
     assert root["id"] == org["team_lead"].id
-    child_emails = {c["email"] for c in root["children"]}
-    assert child_emails == {"stud@t.local", "comp@t.local"}
+    assert {c["id"] for c in root["children"]} == {org["student"].id, org["comp_member"].id}
+    assert all(c["email"] is None for c in root["children"])  # contacts are for people admins
     # user management is a privilege now, not a subtree perk — without
     # users.manage the whole view is read-only
     assert not any(c["can_manage"] for c in root["children"])

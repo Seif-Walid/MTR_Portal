@@ -15,15 +15,22 @@ def _ask(client, email="new.person@gmail.com", password="secret123", **extra):
     })
 
 
-def _let_in(client, db_session, org, email, password) -> dict:
-    """Ask, get accepted by the admin, sign in — the cookies of that session."""
-    from tests.conftest import As
+def _let_in(client, db_session, org, email, password, outbox) -> dict:
+    """Ask, get accepted by the admin, follow the emailed link to choose a
+    password, sign in — the cookies of that session."""
+    from tests.conftest import As, link_token
 
     assert _ask(client, email, password).status_code == 202
     app = db_session.scalar(select(Application).where(Application.email == email))
     admin = As(client, org["admin"].email)
     assert admin.post(f"/api/applications/{app.id}/add-to-roster").status_code == 200
     client.cookies.clear()
+    # the password typed into the request doesn't work on its own ...
+    assert client.post("/api/auth/login", json={"email": email, "password": password}).status_code == 401
+    # ... the link mailed to the address does
+    mail = [m for m in outbox if m["to"] == email][-1]
+    assert client.post("/api/auth/reset-password",
+                       json={"token": link_token(mail), "new_password": password}).status_code == 204
     r = client.post("/api/auth/login", json={"email": email, "password": password})
     assert r.status_code == 200, r.text
     return dict(r.cookies)
@@ -48,14 +55,14 @@ def test_request_entry_creates_no_account(client, db_session, org):
 
 def test_request_shows_in_applications_and_asking_again_updates_it(client, db_session, login, org):
     assert _ask(client).status_code == 202
-    assert _ask(client, password="another123", year="Year 2").status_code == 202
+    assert _ask(client, year="Year 2").status_code == 202  # the asker, same password
     rows = [a for a in login("admin").get("/api/applications").json() if a["email"] == "new.person@gmail.com"]
     assert len(rows) == 1 and rows[0]["source"] == "portal" and rows[0]["year"] == "Year 2"
     assert "password_hash" not in rows[0]
 
 
-def test_accepted_request_signs_in_with_chosen_password(client, db_session, org):
-    cookies = _let_in(client, db_session, org, "joiner@gmail.com", "secret123")
+def test_accepted_request_signs_in_through_emailed_link(client, db_session, org, outbox):
+    cookies = _let_in(client, db_session, org, "joiner@gmail.com", "secret123", outbox)
     me = client.get("/api/auth/me", cookies=cookies).json()
     assert me["email"] == "joiner@gmail.com"
     assert me["profile"]["mtr_id"].startswith("MTR-")  # numbered on the way in
@@ -75,8 +82,12 @@ def test_declined_request_never_signs_in(client, db_session, login, org):
     assert client.post("/api/auth/login", json={"email": "nope@gmail.com", "password": "secret123"}).status_code == 401
 
 
-def test_request_entry_for_existing_account_rejected(client, org):
-    assert _ask(client, org["cto"].email).status_code == 409
+def test_request_entry_for_existing_account_looks_like_any_other(client, org):
+    """Same answer as a brand-new email, so the form can't list members."""
+    known = _ask(client, org["cto"].email)
+    unknown = _ask(client, "brand-new@gmail.com")
+    assert known.status_code == unknown.status_code == 202
+    assert known.json() == unknown.json() == {"status": "pending"}
 
 
 def test_request_entry_validation(client, org):
@@ -91,8 +102,8 @@ def test_register_endpoint_is_gone(client, org):
     assert r.status_code in (404, 405)
 
 
-def test_change_password_flow(client, db_session, org):
-    cookies = _let_in(client, db_session, org, "pw@gmail.com", "secret123")
+def test_change_password_flow(client, db_session, org, outbox):
+    cookies = _let_in(client, db_session, org, "pw@gmail.com", "secret123", outbox)
 
     # wrong current password rejected
     bad = client.post(

@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
+from app.core import viewer
 from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.events.models import Event, EventCategory, EventStatus, EventTeam
@@ -26,7 +27,7 @@ router = APIRouter(prefix="/team", tags=["team"])
 class TreeNode(BaseModel):
     id: int
     full_name: str
-    email: str
+    email: str | None  # hidden unless the viewer administers people (app/core/viewer.py)
     department: str | None
     level: str | None  # effective access level name — the org's reflection
     manager_id: int | None
@@ -66,7 +67,7 @@ def org_tree(db: DB, user: CurrentUser) -> list[TreeNode]:
         return TreeNode(
             id=u.id,
             full_name=u.full_name,
-            email=u.email,
+            email=u.email if viewer.may_see_email(u.id) else None,
             department=u.department,
             level=lvl.name if lvl else None,
             manager_id=u.manager_id,

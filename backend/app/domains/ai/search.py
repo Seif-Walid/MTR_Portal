@@ -19,6 +19,7 @@ import numpy as np
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.core import viewer
 from app.domains.access import service as access
 from app.domains.ai.embeddings import get_embedder
 from app.domains.ai.models import AiEmbedding
@@ -83,10 +84,12 @@ def _people(db: Session, user: User) -> Iterable[Row]:
     if not access.has_privilege(db, user, "people.view"):
         return []
     rows = []
+    contacts = viewer.sees_contacts(access.privileges_for(db, user))
     for person in db.scalars(select(User).where(User.is_active)):
         text = " | ".join(p for p in (person.full_name, person.department, person.major) if p)
         rows.append(Row(person.id, text, {
-            "name": person.full_name, "department": person.department, "email": person.email,
+            "name": person.full_name, "department": person.department,
+            "email": person.email if contacts or person.id == user.id else None,
         }))
     return rows
 

@@ -5,14 +5,15 @@ members.edit. The website itself posts through /public/applications."""
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from sqlalchemy import select
 
 from app.domains.access import service as access
 from app.domains.applications import service
-from app.domains.applications.models import Application, ApplicationStatus
+from app.domains.applications.models import Application, ApplicationSource, ApplicationStatus
 from app.domains.applications.schemas import ApplicationOut, ApplicationPatch, RosterMatch
 from app.domains.audit.service import log as audit_log
+from app.domains.auth import links
 from app.domains.auth.deps import DB, CurrentUser
 from app.domains.users.roster import new_member, next_mtr_id
 
@@ -88,9 +89,11 @@ def update_application(application_id: int, payload: ApplicationPatch, db: DB, u
 
 
 @router.post("/{application_id}/add-to-roster")
-def add_to_roster(application_id: int, db: DB, user: CurrentUser) -> ApplicationOut:
+def add_to_roster(application_id: int, background: BackgroundTasks, db: DB, user: CurrentUser) -> ApplicationOut:
     """Accept the applicant onto the roster (for an entry request: let them
-    in — their account takes the password they chose when asking). Someone already there by email or
+    in — they get an email with a link to choose their password; the
+    password typed into the request is never used, because nothing proved
+    the sender owns the email, or that the phone it matched on is theirs). Someone already there by email or
     phone (a member, or anyone who has signed in) is linked rather than added
     twice; otherwise a new member — an unclaimed account — is created with the
     next MTR ID and the application's contact details."""
@@ -107,8 +110,6 @@ def add_to_roster(application_id: int, db: DB, user: CurrentUser) -> Application
     if matches:
         m = matches[0][0]
         action = "linked"
-        if a.password_hash and not m.claimed:
-            m.hashed_password = a.password_hash  # an entry request: their chosen password
     else:
         m = new_member(
             db,
@@ -121,13 +122,12 @@ def add_to_roster(application_id: int, db: DB, user: CurrentUser) -> Application
             data_confidence="manual",
             source_records=1,
         )
-        if a.password_hash:
-            m.hashed_password = a.password_hash  # an entry request: they can sign in now
         db.add(m)
         db.flush()
         audit_log(db, user.id, "members", "created", "member", m.id,
                   {"name": m.full_name, "mtr_id": m.mtr_id, "from_application": a.id})
         action = "added"
+    is_entry = a.source == ApplicationSource.PORTAL
     a.member_id = m.id
     a.password_hash = None
     if a.status != ApplicationStatus.ACCEPTED:
@@ -137,5 +137,8 @@ def add_to_roster(application_id: int, db: DB, user: CurrentUser) -> Application
     audit_log(db, user.id, "applications", action, "application", a.id,
               {"name": a.full_name, "member_id": m.id, "mtr_id": m.mtr_id})
     db.commit()
+    if is_entry and not m.claimed:
+        # an entry request: the link goes to the member's own address on file
+        links.email_password_link(db, m, background, setup=True)
     db.refresh(a)
     return _out(a, service.roster_index(db))

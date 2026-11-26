@@ -28,7 +28,8 @@ from app.domains.courses import models as _course_models  # noqa: F401
 from app.domains.ai import models as _ai_models  # noqa: F401
 from app.domains.tasks import models as _task_models
 from app.domains.users import models as _user_models
-from app.core.security import hash_password
+from app.core.config import settings
+from app.core.security import UNUSABLE_PASSWORD, hash_password, verify_password
 from app.domains.events.models import (
     Event,
     EventCategory,
@@ -258,12 +259,23 @@ def seed_admin(db: Session, levels: dict[str, AccessLevel]) -> User:
     usable (and can never be locked out) on a fresh database. Email/password
     come from SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD (defaults below)."""
     email = os.getenv("SEED_ADMIN_EMAIL", "admin@org.local")
-    password = os.getenv("SEED_ADMIN_PASSWORD", DEV_PASSWORD)
+    password = os.getenv("SEED_ADMIN_PASSWORD") or (None if settings.cookie_secure else DEV_PASSWORD)
     top = min(levels.values(), key=lambda lvl: lvl.rank)
     admin = db.scalar(select(User).where(User.email == email))
+    if password is None:
+        # Behind real HTTPS (production, staging) the published dev password
+        # is never usable: this repository is public, so "portal123" is a
+        # password everyone knows. Without SEED_ADMIN_PASSWORD the bootstrap
+        # account gets no usable password at all (recover it through a real
+        # admin or by setting SEED_ADMIN_PASSWORD), and an existing one still
+        # on the dev password is locked.
+        if admin is not None and verify_password(DEV_PASSWORD, admin.hashed_password):
+            admin.hashed_password = UNUSABLE_PASSWORD
+        password = None
     if admin is None:
         admin = User(
-            email=email, full_name="Technical Admin", hashed_password=hash_password(password),
+            email=email, full_name="Technical Admin",
+            hashed_password=hash_password(password) if password else UNUSABLE_PASSWORD,
             access_level_id=top.id,
         )
         db.add(admin)
@@ -367,7 +379,12 @@ def run(demo: bool = False) -> None:
                   "mech.lead@org.local, sw.emp@org.local, pm@org.local, "
                   "teamlead@org.local, student@org.local, comp@org.local (guest)")
         else:
-            pw = "SEED_ADMIN_PASSWORD" if os.getenv("SEED_ADMIN_PASSWORD") else f"'{DEV_PASSWORD}'"
+            if os.getenv("SEED_ADMIN_PASSWORD"):
+                pw = "from SEED_ADMIN_PASSWORD"
+            elif settings.cookie_secure:
+                pw = "none set — production never uses the dev password"
+            else:
+                pw = f"'{DEV_PASSWORD}', local dev only"
             print("Seeded the access ladder + admin bootstrap account (no sample data).")
             print(f"Admin login: {admin.email}  (password: {pw})")
             print("Add real users, teams and inventory through the app. "

@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core import viewer
 from app.domains.access import service as access
 from app.domains.ai import actions
 from app.domains.ai import search as semantic
@@ -122,8 +123,10 @@ def _find_person(db: Session, user: User, inp: FindPersonIn) -> dict:
         )
         scored.append((score, person))
     scored.sort(key=lambda s: s[0], reverse=True)
+    contacts = viewer.sees_contacts(access.privileges_for(db, user))
     return {"matches": [
-        {"user_id": p.id, "name": p.full_name, "department": p.department, "email": p.email,
+        {"user_id": p.id, "name": p.full_name, "department": p.department,
+         "email": p.email if contacts or p.id == user.id else None,
          "score": round(s, 3)}
         for s, p in scored[:5] if s >= 0.5
     ], "note": "If more than one match is plausible, ask the user which person they mean."}
