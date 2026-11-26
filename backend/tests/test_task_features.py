@@ -261,6 +261,16 @@ def test_board_order_is_remembered_without_touching_updated_at(login, org):
     assert theirs[hidden["id"]]["board_rank"] is None
 
 
+def test_board_order_refuses_a_list_spanning_columns(login, org):
+    a = make_task(login, "mech_lead", org, "mech_emp")
+    b = make_task(login, "mech_lead", org, "mech_emp")
+    r = login("mech_emp").patch(f"/api/tasks/{b['id']}/status", json={"status": "in_progress"})
+    assert r.status_code == 200, r.text
+    r = login("mech_emp").put("/api/tasks/board-order", json={"ids": [a["id"], b["id"]]})
+    assert r.status_code == 400, r.text
+    assert login("mech_emp").get(f"/api/tasks/{a['id']}").json()["board_rank"] is None
+
+
 def _submit(login, who, task_id):
     for to in ("in_progress", "submitted"):
         r = login(who).patch(f"/api/tasks/{task_id}/status", json={"status": to})

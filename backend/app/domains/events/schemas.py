@@ -112,7 +112,7 @@ class EventDetailOut(EventOut):
 class EventCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     full_name: str | None = Field(default=None, max_length=255)
-    kind_id: int | None = None  # which event kind; defaults to Event
+    kind_id: int | None = Field(default=None, description="Event kind (Competition, Training, R&D...); omit for the default kind.")
     description: str = ""
     start_date: date | None = None
     end_date: date | None = None
@@ -138,11 +138,10 @@ class EventEdit(BaseModel):
     status: EventStatus | None = None
     # Competition-wide Hall-of-Fame placements. `awards` replaces the whole list;
     # `clear_awards` empties it (to NULL). Leave both unset to keep as-is.
-    awards: list[str] | None = None
+    awards: list[str] | None = Field(default=None, description="Replaces the whole awards list.")
     clear_awards: bool = False
     applications_open: bool | None = None
-    # The site's pitch for the event; an empty string clears it.
-    public_summary: str | None = None
+    public_summary: str | None = Field(default=None, description="The public website's pitch for the event; an empty string clears it.")
 
 
 class CategoryCreate(BaseModel):
@@ -155,8 +154,7 @@ class CategoryEdit(BaseModel):
 
 class TeamCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    # Optional: create it as a sub-team of this team (same category).
-    parent_team_id: int | None = None
+    parent_team_id: int | None = Field(default=None, description="Create it as a sub-team of this team (same category).")
     role_root_position_id: int | None = None
 
 
@@ -165,9 +163,7 @@ class TeamEdit(BaseModel):
     # Per-team Hall-of-Fame placement. `award` sets it; `clear_award` blanks it.
     award: str | None = Field(default=None, max_length=255)
     clear_award: bool = False
-    # Move the team: `parent_team_id` nests it inside that team (same
-    # category); `clear_parent` makes it a top-level team again.
-    parent_team_id: int | None = None
+    parent_team_id: int | None = Field(default=None, description="Nest the team inside this team (same category); use clear_parent to make it top-level.")
     clear_parent: bool = False
 
 

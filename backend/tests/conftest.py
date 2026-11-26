@@ -57,6 +57,35 @@ def _isolate_google_settings(monkeypatch):
     monkeypatch.setattr(settings, "google_client_secret", "")
 
 
+@pytest.fixture(autouse=True)
+def _fresh_throttles():
+    """Sign-in throttles live in process memory; every test starts clean."""
+    from app.core import throttle
+
+    throttle.login_failures.reset()
+    throttle.account_forms.reset()
+    yield
+
+
+@pytest.fixture()
+def outbox(monkeypatch):
+    """Every password link the portal would have mailed."""
+    from app.domains.auth import links
+
+    sent = []
+
+    def fake_send(to, subject, text, html=None, **kw):
+        sent.append({"to": to, "subject": subject, "text": text, "html": html})
+        return True
+
+    monkeypatch.setattr(links, "send_email", fake_send)
+    return sent
+
+
+def link_token(mail) -> str:
+    return mail["text"].split("reset-password?token=", 1)[1].split()[0]
+
+
 @pytest.fixture()
 def db_session():
     engine = create_engine(

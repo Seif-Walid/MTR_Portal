@@ -1,6 +1,8 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+from app.core import viewer
 
 from app.core.schemas import Email
 
@@ -13,6 +15,12 @@ class UserBrief(BaseModel):
     full_name: str
     department: str | None
     mtr_id: str | None = None
+
+    @field_serializer("email")
+    def _redact_email(self, email: str | None) -> str | None:
+        # Someone else's email only for viewers who administer people (see
+        # app/core/viewer.py) — a people picker needs names, not inboxes.
+        return email if viewer.may_see_email(self.id) else None
 
 
 class LevelBrief(BaseModel):
@@ -120,4 +128,4 @@ class UserUpdate(BaseModel):
     access_level_id: int | None = None
     clear_access_level: bool = False
     # Roster fields. Present -> the sent ones are set on the person.
-    profile: MemberProfileIn | None = None
+    profile: MemberProfileIn | None = Field(default=None, description="Roster fields; only the ones sent are changed.")

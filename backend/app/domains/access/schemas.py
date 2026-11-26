@@ -17,10 +17,10 @@ class LevelOut(BaseModel):
 class LevelCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     privileges: list[str] = []
-    rank: int | None = None  # 1-based position in the ladder; appended if omitted
+    rank: int | None = Field(default=None, description="1-based place in the ladder (1 = most powerful); omit to append at the bottom.")
 
 
 class LevelEdit(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
-    privileges: list[str] | None = None
-    rank: int | None = None
+    privileges: list[str] | None = Field(default=None, description="Replaces the whole privilege list.")
+    rank: int | None = Field(default=None, description="1-based place in the ladder (1 = most powerful).")

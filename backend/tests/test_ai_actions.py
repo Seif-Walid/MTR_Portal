@@ -49,6 +49,32 @@ def test_find_actions_returns_the_route_and_its_body(client, login, org):
     assert len(everything) == len(actions.operations())
 
 
+def test_body_keeps_fields_named_title_and_their_descriptions():
+    ops = {(o["method"], o["path"]): o for o in actions.operations()}
+    task = actions.describe(ops[("POST", "/api/tasks")], True)["body"]
+    assert "title" in task["properties"] and "title" in task["required"]
+    block = actions.describe(ops[("POST", "/api/timeblocks")], True)["body"]["properties"]
+    assert "title" in block
+    assert "Thursday=8" in block["weekday_mask"]["description"]
+
+
+def test_hidden_meanings_reach_the_assistant():
+    """Values whose meaning isn't obvious from the type must say so in the
+    catalogue — the assistant never sees Python comments."""
+    ops = {(o["method"], o["path"]): o for o in actions.operations()}
+
+    def body(method, path):
+        return actions.describe(ops[(method, path)], True)["body"]["properties"]
+
+    assert "REPLACES" in body("PATCH", "/api/org/positions/{position_id}")["occupant_ids"]["description"]
+    assert "EVERY" in body("POST", "/api/notifications/mark-read")["ids"]["description"]
+    edit = actions.describe(ops[("PATCH", "/api/finance/entries/{kind}/{entry_id}")], True)
+    assert "unit_cost" in edit["doc"] and "payee_party_id" in edit["doc"]
+    tasks = actions.describe(ops[("GET", "/api/tasks")], True)["params"]
+    status = next(p for p in tasks if p["name"] == "status_filter")
+    assert "in_progress" in str(status)
+
+
 def test_change_is_only_proposed_then_runs_on_confirm(client, login, org, db_session):
     item_id = _item(login)
     headers = _token(login)

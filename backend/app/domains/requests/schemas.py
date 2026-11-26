@@ -46,7 +46,7 @@ class RequestCreate(BaseModel):
 class RequestAccept(BaseModel):
     # None = the recipient takes the task themselves; otherwise delegate into
     # the recipient's own subtree.
-    assignee_id: int | None = None
+    assignee_id: int | None = Field(default=None, description="Delegate the task to someone below the recipient; omit and the recipient takes it themselves.")
 
 
 class RequestDecline(BaseModel):

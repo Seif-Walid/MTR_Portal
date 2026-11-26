@@ -155,7 +155,7 @@ export default function LoginPage() {
       if (result === 'signed-in') return navigate(afterLogin());
       switchMode('signin');
       setEmail(em);
-      setNotice("Request sent. Someone on the team will review it — once it's accepted you can sign in here with this email and password.");
+      setNotice("Request sent. Someone on the team will review it — once it's accepted we'll email you a link to set your password. If the team already added you, that link is in your inbox now.");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Something went wrong');
     } finally {

@@ -123,7 +123,7 @@ def test_edit_template_can_change_its_when_event(login, org):
 
     r = login("admin").patch(f"/api/org/roles/templates/{tpl['id']}",
                              json={"event": "nonsense"})
-    assert r.status_code == 400, r.text
+    assert r.status_code == 422, r.text
 
 
 def test_edit_without_event_leaves_when_untouched(login, org):

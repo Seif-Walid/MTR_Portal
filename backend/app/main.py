@@ -3,9 +3,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from starlette.routing import Route
-from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.borrowed import BorrowMiddleware
+from app.core.cors import SplitCORSMiddleware
+from app.core.viewer import ViewerMiddleware
 from app.core.config import settings
 from app.domains.access.router import router as access_router
 from app.domains.ai.mcp_http import PATH as MCP_PATH, hosted as hosted_mcp
@@ -45,13 +46,12 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Organization Operations Portal", version="1.0.0", lifespan=lifespan)
 app.add_middleware(BorrowMiddleware)
+app.add_middleware(ViewerMiddleware)  # whose emails this response may show
 
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.all_cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    SplitCORSMiddleware,  # the website: /api/public/* only, never with cookies
+    portal_origins=[o for o in settings.cors_origins if o not in settings.public_site_origins],
+    public_origins=settings.public_site_origins,
 )
 
 # Every domain mounts here as a sibling router sharing auth,

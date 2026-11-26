@@ -1,3 +1,4 @@
+from typing import Literal
 import uuid
 from pathlib import Path
 
@@ -18,7 +19,7 @@ from app.domains.hierarchy.service import can_assign_task
 from app.domains.notifications.models import NotificationType
 from app.domains.notifications.service import notify
 from app.domains.drive import service as drive
-from app.domains.tasks.models import AttachmentKind, Task, TaskAttachment
+from app.domains.tasks.models import AttachmentKind, Task, TaskAttachment, TaskStatus
 from app.domains.tasks.schemas import (
     AttachmentOut,
     BlockedChange,
@@ -63,8 +64,8 @@ def _out(db: DB, user: User, task: Task) -> TaskOut:
 def list_tasks(
     db: DB,
     user: CurrentUser,
-    view: str = "assigned",  # assigned | created | all
-    status_filter: str | None = None,
+    view: Literal["assigned", "created", "all"] = "assigned",
+    status_filter: TaskStatus | None = None,
     assignee_id: int | None = None,
     event_team_id: int | None = None,
 ) -> list[TaskOut]:
@@ -287,21 +288,30 @@ def get_batch(batch_id: str, db: DB, user: CurrentUser) -> list[TaskOut]:
 
 
 class BoardOrder(BaseModel):
-    # one board column, top to bottom, as the person sees it
-    ids: list[int] = Field(max_length=500)
+    ids: list[int] = Field(max_length=500, description=(
+        "EVERY task id in ONE board column (all with the same status), in the "
+        "new order top to bottom. Each id gets its position as its rank, so a "
+        "partial list (e.g. just the task to move) ties with the cards already "
+        "there: read the column first with GET /api/tasks and send it whole."
+    ))
 
 
 @router.put("/board-order", status_code=status.HTTP_204_NO_CONTENT)
 def set_board_order(payload: BoardOrder, db: DB, user: CurrentUser) -> None:
-    """Remember how a board column is arranged. Only tasks the person can see
-    are touched; arranging cards is not an edit, so `updated_at` stays put."""
-    visible = set(
-        db.scalars(
-            visible_tasks_query(db, user)
-            .where(Task.id.in_(payload.ids))
-            .with_only_columns(Task.id)
+    """Remember how one board column (one status) is arranged, top to bottom.
+    Only tasks the person can see are touched; arranging cards is not an
+    edit, so `updated_at` stays put."""
+    rows = db.execute(
+        visible_tasks_query(db, user)
+        .where(Task.id.in_(payload.ids))
+        .with_only_columns(Task.id, Task.status)
+    ).all()
+    if len({row.status for row in rows}) > 1:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Order one column at a time: these tasks have different statuses.",
         )
-    )
+    visible = {row.id for row in rows}
     for rank, task_id in enumerate(payload.ids):
         if task_id in visible:
             db.execute(

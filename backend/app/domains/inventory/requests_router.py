@@ -1,3 +1,4 @@
+from typing import Literal
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, status
@@ -39,7 +40,10 @@ def _get_request_or_404(db: DB, user, request_id: int) -> InventoryRequest:
 
 @router.get("")
 def list_requests(
-    db: DB, user: CurrentUser, view: str = "mine", status_filter: str | None = None
+    db: DB,
+    user: CurrentUser,
+    view: Literal["mine", "to_review", "all"] = "mine",
+    status_filter: InventoryRequestStatus | None = None,
 ) -> list[InventoryRequestOut]:
     """view=mine (default): my own requests. view=to_review: submitted requests
     a manager can act on (staff only). view=all: staff see every request."""

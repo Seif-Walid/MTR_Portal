@@ -83,13 +83,22 @@ def pending_entry(db: Session, email: str, password: str) -> bool:
     return app is not None and app.password_hash is not None and verify_password(password, app.password_hash)
 
 
-def request_entry(db: Session, payload, sender: str | None) -> Application:
-    """File (or refresh) a portal "Request entry" as an application for a
-    reviewer to accept or decline. Asking again while one is still open
-    updates it instead of adding another."""
+def check_entry_phone(payload) -> str:
+    """The one Request-entry rule the schema can't express. Checked before the
+    email is looked up, so the answer never depends on whether it's a member."""
     phone = (payload.phone or "").strip()
     if not 8 <= len("".join(ch for ch in phone if ch.isdigit())) <= 15:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Enter a phone number we can reach on WhatsApp")
+    return phone
+
+
+def request_entry(db: Session, payload, sender: str | None) -> Application | None:
+    """File (or refresh) a portal "Request entry" as an application for a
+    reviewer to accept or decline. Asking again while one is still open
+    updates it instead of adding another — but only for whoever filed it
+    (same password): anyone else typing that email changes nothing, so a
+    stranger can't rewrite someone's request. Returns None when ignored."""
+    phone = check_entry_phone(payload)
     now = _now()
     answers = {
         "full_name": " ".join(payload.full_name.split()),
@@ -102,6 +111,8 @@ def request_entry(db: Session, payload, sender: str | None) -> Application:
     }
     app = open_entry_request(db, payload.email)
     if app is not None:
+        if app.password_hash is None or not verify_password(payload.password, app.password_hash):
+            return None
         for k, v in answers.items():
             setattr(app, k, v)
         app.updated_at = now

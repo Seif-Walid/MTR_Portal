@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class NotificationOut(BaseModel):
@@ -16,4 +16,4 @@ class NotificationOut(BaseModel):
 
 
 class MarkReadIn(BaseModel):
-    ids: list[int] | None = None  # None = mark all read
+    ids: list[int] | None = Field(default=None, description="Notifications to mark read. Omitted or null marks EVERY notification read.")

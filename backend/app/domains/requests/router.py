@@ -1,3 +1,4 @@
+from typing import Literal
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, status
@@ -41,7 +42,7 @@ def _get_visible(db: DB, user: User, request_id: int) -> WorkRequest:
 
 
 @router.get("")
-def list_requests(db: DB, user: CurrentUser, box: str = "all") -> list[RequestOut]:
+def list_requests(db: DB, user: CurrentUser, box: Literal["all", "sent", "received"] = "all") -> list[RequestOut]:
     query = select(WorkRequest)
     if box == "sent":
         query = query.where(WorkRequest.requester_id == user.id)

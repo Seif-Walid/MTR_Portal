@@ -64,22 +64,23 @@ def test_participations_on_member(login, org, db_session):
     assert stats["totals"]["participations"] == 1 and stats["events"][0]["participants"] == 1
 
 
-def test_signup_claims_roster_account(client, db_session, org):
+def test_request_entry_never_claims_roster_account(client, db_session, org, outbox):
+    """Typing a member's email into Request entry must not set their password
+    or sign anyone in (that was an account takeover): the inbox gets a link."""
     m = make_member(db_session, "Roster Person", mtr_id="MTR-060", email="person@gmail.com",
                     joined_at=datetime(2025, 1, 1, tzinfo=timezone.utc))
     db_session.commit()
     r = client.post("/api/auth/request-entry", json={
-        "email": "Person@gmail.com", "full_name": "Person", "password": "longenough1",
+        "email": "Person@gmail.com", "full_name": "Thief", "password": "longenough1",
+        "phone": "01000000000",
     })
-    assert r.status_code == 201, r.text
-    assert r.json()["id"] == m.id and r.json()["profile"]["mtr_id"] == "MTR-060"
+    assert r.status_code == 202, r.text
+    assert r.json() == {"status": "pending"}
+    assert "portal_session" not in r.cookies and client.get("/api/auth/me").status_code == 401
     db_session.refresh(m)
-    assert m.claimed
-    # once claimed, the email is taken like any other
-    client.cookies.clear()
-    assert client.post("/api/auth/request-entry", json={
-        "email": "person@gmail.com", "full_name": "Thief", "password": "longenough1",
-    }).status_code == 409
+    assert not m.claimed
+    assert [m["to"] for m in outbox] == ["person@gmail.com"]
+    assert client.post("/api/auth/login", json={"email": "person@gmail.com", "password": "longenough1"}).status_code == 401
 
 
 def test_unclaimed_member_cannot_password_login(client, db_session, org):

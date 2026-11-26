@@ -4,6 +4,7 @@ as the signed-in holder (finance.handle_cash) and the season setup
 (bulk/registry.py, finance.edit) for corrections."""
 
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
@@ -110,9 +111,9 @@ class FundingIn(BaseModel):
     amount: float
     method_id: int | None = None
     received_on: date | None = None
-    funding_id: int | None = None  # settle an expected line
+    funding_id: int | None = Field(default=None, description="An expected funding line this money settles.")
     party_id: int | None = None
-    party_name: str | None = Field(default=None, max_length=255)  # new contact on the spot
+    party_name: str | None = Field(default=None, max_length=255, description="Creates a new contact with this name when party_id is not given.")
     source: str | None = Field(default=None, max_length=255)
     type_id: int | None = None
     note: str | None = Field(default=None, max_length=2000)
@@ -192,15 +193,25 @@ def my_cash(db: DB, user: CurrentUser) -> dict:
 
 
 @router.get("/ledger")
-def ledger(db: DB, user: CurrentUser, season_id: int | None = None, kind: str | None = None,
+def ledger(db: DB, user: CurrentUser, season_id: int | None = None,
+           kind: Literal["dues", "funding", "spending", "handover"] | None = None,
            holder_id: int | None = None, mine: bool = False, limit: int = 300) -> dict:
     access.require_privilege(db, user, "finance.view")
     return entries.ledger(db, user, season_id=season_id, kind=kind, holder_id=holder_id, mine=mine,
                           can_edit_any=_edit_any(db, user), limit=min(max(limit, 1), 2000))
 
 
-@router.patch("/entries/{kind}/{entry_id}")
-def update_entry(kind: str, entry_id: int, payload: dict, db: DB, user: CurrentUser) -> dict:
+_EDITABLE_DOC = (
+    "Change some fields of one logged money entry. The body holds only the fields "
+    "to change. Allowed fields per kind — "
+    + "; ".join(f"{k}: {', '.join(sorted(v))}" for k, v in entries.EDITABLE.items())
+    + ". Dates are YYYY-MM-DD."
+)
+
+
+@router.patch("/entries/{kind}/{entry_id}", description=_EDITABLE_DOC)
+def update_entry(kind: Literal["dues", "funding", "spending", "handover"], entry_id: int,
+                 payload: dict, db: DB, user: CurrentUser) -> dict:
     access.require_privilege(db, user, "finance.handle_cash")
     for k in ("paid_on", "spent_on", "received_on", "transferred_on"):
         if isinstance(payload.get(k), str):
@@ -214,7 +225,8 @@ def update_entry(kind: str, entry_id: int, payload: dict, db: DB, user: CurrentU
 
 
 @router.delete("/entries/{kind}/{entry_id}")
-def delete_entry(kind: str, entry_id: int, db: DB, user: CurrentUser) -> dict:
+def delete_entry(kind: Literal["dues", "funding", "spending", "handover"], entry_id: int,
+                 db: DB, user: CurrentUser) -> dict:
     access.require_privilege(db, user, "finance.handle_cash")
     entries.delete_entry(db, user, kind, entry_id, _edit_any(db, user))
     return {"ok": True}

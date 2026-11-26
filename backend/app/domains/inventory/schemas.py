@@ -3,7 +3,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domains.events.schemas import EventBrief
-from app.domains.inventory.models import AllocationPurpose, Condition
+from app.domains.inventory.models import AllocationPurpose, Condition, LocationKind
 from app.domains.users.schemas import UserBrief
 
 
@@ -102,7 +102,7 @@ class LocationOut(BaseModel):
 
 class LocationCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    kind: str = Field(default="other", max_length=20)
+    kind: LocationKind = LocationKind.OTHER
     notes: str = ""
 
 

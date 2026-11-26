@@ -1,5 +1,3 @@
-import hashlib
-import html as html_lib
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
@@ -11,12 +9,13 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core import throttle, viewer
 from app.core.config import settings
-from app.core.mail import send_email
 from app.core.security import hash_password, new_session_token, verify_password
 from app.domains.access import service as access
 from app.domains.applications import service as applications
 from app.domains.auth.deps import DB, CurrentUser
+from app.domains.auth import links
 from app.domains.auth.models import AuthSession, PasswordResetToken
 from app.domains.drive import service as drive
 from app.domains.auth.schemas import (
@@ -29,7 +28,6 @@ from app.domains.auth.schemas import (
 from app.domains.hierarchy.service import taskable_user_ids
 from app.domains.positions.models import Position, PositionOccupant
 from app.domains.users.models import User
-from app.domains.users.roster import unclaimed_account
 from app.domains.users.schemas import MeOut, MemberProfileOut, SelfProfileIn
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -47,6 +45,8 @@ def _google_enabled() -> bool:
 def _me_payload(db: Session, user: User) -> MeOut:
     levels = access.held_levels(db, user)
     level = levels[0] if levels else None
+    privileges = access.privileges_of_levels(db, levels)
+    viewer.record(user.id, privileges)  # their own email, even before a session exists
     seats = db.scalars(
         select(Position.title)
         .join(PositionOccupant, PositionOccupant.position_id == Position.id)
@@ -61,7 +61,7 @@ def _me_payload(db: Session, user: User) -> MeOut:
         manager_id=user.manager_id,
         level=level,
         levels=[lvl.name for lvl in levels],
-        privileges=sorted(access.privileges_of_levels(db, levels)),
+        privileges=sorted(privileges),
         # "has_team" gates the UI's New-task button: anyone they may actually
         # task, which now includes their event teams, not just direct reports
         has_team=len(taskable_user_ids(db, user) - {user.id}) > 0,
@@ -100,14 +100,19 @@ def auth_config() -> dict[str, bool]:
 
 
 @router.post("/login")
-def login(payload: LoginIn, response: Response, db: DB) -> MeOut:
-    user = db.scalar(select(User).where(User.email == payload.email.lower()))
+def login(payload: LoginIn, request: Request, response: Response, db: DB) -> MeOut:
+    email = payload.email.lower()
+    sender = applications.client_hash(request)
+    keys = (f"ip:{sender}" if sender else None, f"email:{email}")
+    throttle.login_failures.check(*keys)
+    user = db.scalar(select(User).where(User.email == email))
     if user is None and applications.pending_entry(db, payload.email, payload.password):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "Your request for entry is still waiting for review — you can sign in once it's accepted",
         )
     if user is None or not verify_password(payload.password, user.hashed_password):
+        throttle.login_failures.fail(*keys)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is deactivated")
@@ -115,25 +120,35 @@ def login(payload: LoginIn, response: Response, db: DB) -> MeOut:
     return _me_payload(db, user)
 
 
-@router.post("/request-entry", status_code=status.HTTP_201_CREATED, response_model=None)
-def request_entry(payload: RequestEntryIn, request: Request, response: Response, db: DB) -> MeOut | dict:
-    """Nobody can make an account for themselves. A member an admin already
-    added (never signed in yet) activates their account here by choosing a
-    password, and is signed in. Anyone else files an entry request: it shows
-    up in Applications, and only when someone with members.edit accepts it
-    does the account exist (with the password chosen here)."""
+@router.post("/request-entry", status_code=status.HTTP_202_ACCEPTED)
+def request_entry(payload: RequestEntryIn, request: Request, background: BackgroundTasks, db: DB) -> dict:
+    """Nobody can make an account for themselves. Anyone without an account
+    files an entry request: it shows up in Applications, and only when someone
+    with members.edit accepts it does the account exist (with the password
+    chosen here).
+
+    If the email already has an account — including one an admin added that
+    was never set up — the form never sets a password or signs anyone in:
+    whoever typed the email has not proved they own it. Instead the inbox gets
+    a one-hour link to choose a password (the same link as "Forgot password").
+    The answer is the same "pending" in every case, so the form can't be used
+    to learn which emails are members."""
     email = payload.email.lower()
-    user = unclaimed_account(db, email)
+    sender = applications.client_hash(request)
+    throttle.account_forms.check(f"ip:{sender}" if sender else None)
+    throttle.account_forms.fail(f"ip:{sender}" if sender else None)
+    applications.check_entry_phone(payload)  # before the lookup: same rule for everyone
+    user = db.scalar(select(User).where(User.email == email))
     if user is not None:
-        user.hashed_password = hash_password(payload.password)
-        db.commit()
-        db.refresh(user)
-        _issue_session(db, response, user.id)
-        return _me_payload(db, user)
-    if db.scalar(select(User).where(User.email == email)):
-        raise HTTPException(status.HTTP_409_CONFLICT, "An account with this email already exists — sign in instead")
-    applications.request_entry(db, payload, applications.client_hash(request))
-    response.status_code = status.HTTP_202_ACCEPTED
+        _email_password_link(db, user, background, setup=not user.claimed)
+        return {"status": "pending"}
+    try:
+        applications.request_entry(db, payload, sender)
+    except HTTPException as exc:
+        # the per-connection application cap only exists on this branch;
+        # answering it differently would tell members from non-members
+        if exc.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
+            raise
     return {"status": "pending"}
 
 
@@ -181,61 +196,23 @@ def change_password(payload: ChangePasswordIn, db: DB, user: CurrentUser) -> Non
     db.commit()
 
 
-RESET_TTL = timedelta(hours=1)
-RESET_COOLDOWN = timedelta(minutes=2)
-
-
-def _hash_reset_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def _aware(dt: datetime) -> datetime:
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)  # SQLite drops tzinfo
-
-
-def _send_reset_email(to: str, name: str, link: str) -> None:
-    text = (
-        f"Hi {name},\n\n"
-        "Someone asked to reset the password for your MindTech Robotics portal account.\n"
-        f"Open this link within an hour to choose a new one:\n\n{link}\n\n"
-        "If it wasn't you, ignore this email; your password stays the same."
-    )
-    html = (
-        f"<p>Hi {html_lib.escape(name)},</p>"
-        "<p>Someone asked to reset the password for your MindTech Robotics portal account. "
-        "Open this link within an hour to choose a new one:</p>"
-        f'<p><a href="{html_lib.escape(link)}">Reset my password</a></p>'
-        "<p>If it wasn't you, ignore this email; your password stays the same.</p>"
-    )
-    send_email(to, "Reset your MindTech portal password", text, html)
+_email_password_link = links.email_password_link
+_hash_reset_token = links.hash_token
+_aware = links.aware
 
 
 @router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
-def forgot_password(payload: ForgotPasswordIn, background: BackgroundTasks, db: DB) -> None:
+def forgot_password(payload: ForgotPasswordIn, request: Request, background: BackgroundTasks, db: DB) -> None:
     """Email a one-hour reset link. Always 204, whether or not the email has an
     account, so the endpoint can't be used to probe who's registered; the mail
     goes out in the background so response timing doesn't leak it either."""
+    sender = applications.client_hash(request)
+    throttle.account_forms.check(f"ip:{sender}" if sender else None)
+    throttle.account_forms.fail(f"ip:{sender}" if sender else None)
     user = db.scalar(select(User).where(User.email == payload.email.lower()))
-    if user is None or not user.is_active:
+    if user is None:
         return
-    now = datetime.now(timezone.utc)
-    latest = db.scalar(
-        select(PasswordResetToken.created_at)
-        .where(PasswordResetToken.user_id == user.id)
-        .order_by(PasswordResetToken.created_at.desc())
-        .limit(1)
-    )
-    if latest is not None and now - _aware(latest) < RESET_COOLDOWN:
-        return  # one email per cooldown window, so the form can't spam an inbox
-    token = secrets.token_urlsafe(32)
-    db.add(
-        PasswordResetToken(
-            token_hash=_hash_reset_token(token), user_id=user.id, expires_at=now + RESET_TTL
-        )
-    )
-    db.commit()
-    link = f"{settings.frontend_url}/reset-password?token={token}"
-    background.add_task(_send_reset_email, user.email, user.full_name, link)
+    _email_password_link(db, user, background, setup=not user.claimed)
 
 
 @router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
