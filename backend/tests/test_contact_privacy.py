@@ -141,3 +141,15 @@ def test_org_tree_hides_emails_from_members(login, org):
     assert len(seen) > 1
     assert all(e is None for uid, e in seen.items() if uid != org["team_lead"].id)
     assert seen[org["team_lead"].id] == org["team_lead"].email
+
+
+def test_website_gets_public_api_only_and_never_with_cookies(client, org):
+    site = {"Origin": "https://mindtechrobotics.com"}
+    pub = client.get("/api/public/events", headers=site)
+    assert pub.headers.get("access-control-allow-origin") == "https://mindtechrobotics.com"
+    assert "access-control-allow-credentials" not in pub.headers
+    pre = client.options("/api/users/directory", headers={**site, "Access-Control-Request-Method": "GET"})
+    assert "access-control-allow-origin" not in pre.headers
+    assert "access-control-allow-origin" not in client.get("/api/auth/me", headers=site).headers
+    evil = client.get("/api/public/events", headers={"Origin": "https://evil.example"})
+    assert "access-control-allow-origin" not in evil.headers
