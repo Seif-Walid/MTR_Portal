@@ -53,7 +53,7 @@ export default function NotificationsBell() {
   };
 
   const content = (
-    <div style={{ width: 360, maxHeight: 420, overflow: 'auto' }}>
+    <div style={{ width: 'min(360px, calc(100vw - 56px))', maxHeight: 'min(420px, calc(100vh - 120px))', overflow: 'auto' }}>
       {items.length === 0 ? (
         <EmptyState compact phrase="You're all caught up." />
       ) : (
@@ -72,7 +72,7 @@ export default function NotificationsBell() {
                 onClick={() => openTarget(n)}
               >
                 <List.Item.Meta
-                  title={<Typography.Text style={{ fontSize: 13 }}>{n.message}</Typography.Text>}
+                  title={<Typography.Text style={{ fontSize: 13, overflowWrap: 'anywhere' }}>{n.message}</Typography.Text>}
                   description={dayjs(n.created_at).fromNow()}
                 />
               </List.Item>
@@ -84,7 +84,10 @@ export default function NotificationsBell() {
   );
 
   return (
-    <Popover content={content} trigger="click" open={open} onOpenChange={onOpenChange} placement="bottomRight">
+    <Popover content={content} trigger="click" open={open} onOpenChange={onOpenChange} placement="bottomRight"
+      // keep it on screen on narrow phones: slide sideways instead of hanging off the edge
+      align={{ overflow: { adjustX: true, adjustY: true, shiftX: 16 } }}
+    >
       <Badge count={count} size="small">
         <Button aria-label={count ? `Notifications, ${count} unread` : "Notifications"} aria-haspopup="dialog" aria-expanded={open} type="text" icon={<BellOutlined style={{ fontSize: 18 }} />} />
       </Badge>

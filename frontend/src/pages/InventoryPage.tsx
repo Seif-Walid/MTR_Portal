@@ -277,7 +277,7 @@ export default function InventoryPage() {
           {
             title: 'In use', width: 110,
             render: (_, i) => (
-              <Popover title="Usage breakdown" content={<UsageBreakdown item={i} unit />} trigger="hover">
+              <Popover title="Usage breakdown" content={<UsageBreakdown item={i} unit />} trigger="hover" align={{ overflow: { adjustX: true, adjustY: true, shiftX: 16 } }}>
                 <Typography.Text strong onClick={(e) => e.stopPropagation()} style={{ cursor: 'help', borderBottom: '1px dashed currentColor', fontFamily: MONO }}>{i.in_use}</Typography.Text>
               </Popover>
             ),

@@ -215,10 +215,10 @@ export default function ImportFromFileModal({
                   />
                 </Form.Item>
                 <Form.Item>
-                  <Space>
-                    <Switch checked={upsert} onChange={setUpsert} />
-                    <Typography.Text>Update existing items (matched by asset tag or name)</Typography.Text>
-                  </Space>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                    <Switch checked={upsert} onChange={setUpsert} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <Typography.Text style={{ minWidth: 0 }}>Update existing items (matched by asset tag or name)</Typography.Text>
+                  </div>
                 </Form.Item>
               </Form>
 
