@@ -12,6 +12,7 @@ import '@fontsource-variable/noto-sans-arabic/wght.css';
 
 import App from './App';
 import { AuthProvider } from './auth/AuthContext';
+import { PwaUpdater } from './lib/pwa';
 import { antdTheme } from './theme/circuitTheme';
 import { ThemeModeProvider, useThemeMode } from './theme/ThemeContext';
 import { installTokens } from './theme/tokens';
@@ -35,6 +36,7 @@ function ThemedApp() {
   return (
     <ConfigProvider theme={antdTheme(mode)}>
       <AntApp>
+        <PwaUpdater />
         <BrowserRouter>
           <AuthProvider>
             <App />

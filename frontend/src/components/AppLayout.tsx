@@ -1,11 +1,12 @@
-import { GoogleOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons';
-import { ConfigProvider, Dropdown, message } from 'antd';
+import { DownloadOutlined, GoogleOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons';
+import { App as AntApp, ConfigProvider, Dropdown, message } from 'antd';
 import { AnimatePresence, LayoutGroup, motion, MotionConfig } from 'motion/react';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { useLocation, useNavigate, useOutlet, useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
 import { can, useAuth } from '../auth/AuthContext';
+import { useInstallApp } from '../lib/pwa';
 import { useThemeMode } from '../theme/ThemeContext';
 import { RouteEmpty } from './EmptyState';
 import { LogoImage } from './Logo';
@@ -154,6 +155,8 @@ function AnimatedOutlet() {
 
 export default function AppLayout() {
   const { me, logout } = useAuth();
+  const { modal } = AntApp.useApp();
+  const { mode: installMode, install } = useInstallApp();
   const navigate = useNavigate();
   const location = useLocation();
   const clock = useClock();
@@ -299,6 +302,11 @@ export default function AppLayout() {
       ...(googleEnabled && !me.google_linked
         ? [{ key: 'link-google', icon: <GoogleOutlined />, label: 'Link Google account', onClick: () => { window.location.href = '/api/auth/google/login'; } }]
         : []),
+      ...(installMode === 'prompt'
+        ? [{ key: 'install', icon: <DownloadOutlined />, label: 'Install app', onClick: () => { void install(); } }]
+        : installMode === 'ios'
+          ? [{ key: 'install', icon: <DownloadOutlined />, label: 'Install app', onClick: () => modal.info({ title: 'Install on iPhone / iPad', content: 'In Safari, tap the Share button, then "Add to Home Screen".' }) }]
+          : []),
       { type: 'divider' as const },
       { key: 'logout', icon: <LogoutOutlined />, label: 'Log out', onClick: () => logout().then(() => navigate('/login')) },
     ],
