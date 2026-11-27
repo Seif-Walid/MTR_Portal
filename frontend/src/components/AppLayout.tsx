@@ -80,6 +80,8 @@ const TITLES: Record<string, [string, string]> = {
   '/applications': ['People', 'Applications'],
   '/finance': ['Money', 'Finance'],
   '/courses': ['Learning', 'Courses'],
+  '/assistant': ['Workspace', 'Assistant'],
+  '/profile': ['Account', 'Profile'],
 };
 
 

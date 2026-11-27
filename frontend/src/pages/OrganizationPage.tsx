@@ -98,14 +98,14 @@ function PositionModal({ target, holders, levels, kinds, open, onClose, onSaved 
   return (
     <Modal open={open} onCancel={onClose} title={title} footer={null} destroyOnHidden>
       {showAutomaticSwitch && (
-        <Space align="center" style={{ marginBottom: 16 }}>
-          <Switch checked={automatic} onChange={setAutomatic} />
-          <Typography.Text>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
+          <Switch checked={automatic} onChange={setAutomatic} style={{ flexShrink: 0, marginTop: 1 }} />
+          <Typography.Text style={{ minWidth: 0 }}>
             {underTemplate
               ? `Automatic role — pick this role's own condition instead of inheriting "${target?.template?.title_template}"'s.`
               : 'Automatic role — seats itself when a event/team/member event happens, chained together with any other automatic roles for the same event, instead of a position you assign by hand.'}
           </Typography.Text>
-        </Space>
+        </div>
       )}
       <Form form={form} layout="vertical" onFinish={submit}>
         {underTemplate && target?.template ? (

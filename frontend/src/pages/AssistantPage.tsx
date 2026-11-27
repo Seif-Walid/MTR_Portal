@@ -332,7 +332,12 @@ export default function AssistantPage() {
     return () => window.removeEventListener('focus', onFocus);
   }, [current, loadOrphans, open]);
 
-  useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth' }); }, [current?.messages.length, live?.text]);
+  useEffect(() => {
+    // Only follow the thread once it has something in it; on an empty thread this
+    // used to scroll the whole window and slide the page heading under the header.
+    if (!current?.messages.length && !live) return;
+    bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [current?.messages.length, live?.text]);
 
   const create = async (mode: AiMode) => {
     const c = await api.post<AiConversation>('/api/ai/conversations', { mode });

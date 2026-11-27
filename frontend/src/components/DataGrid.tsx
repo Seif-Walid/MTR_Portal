@@ -1316,7 +1316,7 @@ export default function DataGrid({
   };
 
   const shortcuts = (
-    <div style={{ fontSize: 13, display: 'grid', gridTemplateColumns: 'auto auto', gap: '4px 16px' }}>
+    <div style={{ fontSize: 13, display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: '4px 16px', maxWidth: 'min(460px, calc(100vw - 56px))', maxHeight: 'min(440px, 38vh)', overflowY: 'auto' }}>
       {[
         ['Type', 'Replace the cell'],
         ['Enter / F2 / double-click', 'Edit the cell'],
@@ -1434,7 +1434,7 @@ export default function DataGrid({
               <Button aria-label="Upload a spreadsheet" icon={<UploadOutlined />} loading={uploading} onClick={() => fileInput.current?.click()} />
             </Tooltip>
           )}
-          <Popover content={shortcuts} title="Working in the sheet" placement="bottomRight" trigger="click">
+          <Popover content={shortcuts} title="Working in the sheet" placement="bottomRight" trigger="click" arrow={false} align={{ overflow: { adjustX: true, adjustY: true, shiftX: 16, shiftY: 16 } }}>
             <Button aria-label="Keyboard shortcuts and help" icon={<QuestionCircleOutlined />} />
           </Popover>
           <input ref={fileInput} type="file" accept=".xlsx,.xlsm,.csv" style={{ display: 'none' }} onChange={onPickFile} />

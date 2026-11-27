@@ -9,6 +9,9 @@
 
 html, body { background: var(--background); }
 body {
+  /* the browser's default 8px margin pushed the page 8px past the viewport
+     whenever a modal locked scrolling (antd sets body width to 100%) */
+  margin: 0;
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: 14px;
@@ -263,10 +266,19 @@ a:focus-visible, button:focus-visible, summary:focus-visible,
 
 /* ── Responsive safety nets ───────────────────────────────────────────── */
 .ant-modal { max-width: calc(100vw - 24px); }
+/* floating panels never wider than the phone they open on */
+.ant-popover, .ant-dropdown, .ant-select-dropdown { max-width: calc(100vw - 16px); }
 .ant-drawer-content-wrapper { max-width: 100vw; }
 .ant-space, .ant-space-item { min-width: 0; }
 @media (max-width: 420px) {
   .ant-space-item > .ant-select, .ant-space-item > .ant-picker, .ant-space-item > .ant-input-number { max-width: 100%; }
+}
+/* Date ranges on a phone: antd shows two months side by side (~560px), which
+   hangs off the screen. Show one month and give it both prev/next arrows. */
+@media (max-width: 640px) {
+  .ant-picker-dropdown-range .ant-picker-panels > :not(:first-child) { display: none; }
+  .ant-picker-dropdown-range .ant-picker-panels > :first-child :is(.ant-picker-header-next-btn, .ant-picker-header-super-next-btn) { visibility: visible !important; }
+  .ant-picker-dropdown { max-width: calc(100vw - 16px); }
 }
 @media (max-width: 560px) {
   .ant-card-head-wrapper { flex-wrap: wrap; row-gap: 8px; }
