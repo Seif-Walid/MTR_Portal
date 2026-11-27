@@ -26,14 +26,14 @@ export default defineConfig({
         theme_color: '#1f63e0',
         categories: ['productivity', 'education'],
         icons: [
-          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-          { src: '/icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: '/icons/icon-192.png?v=2', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icons/icon-512.png?v=2', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/icons/maskable-512.png?v=2', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
         shortcuts: [
-          { name: 'Tasks', url: '/tasks', icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }] },
-          { name: 'Calendar', url: '/calendar', icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }] },
-          { name: 'Assistant', url: '/assistant', icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }] },
+          { name: 'Tasks', url: '/tasks', icons: [{ src: '/icons/icon-192.png?v=2', sizes: '192x192' }] },
+          { name: 'Calendar', url: '/calendar', icons: [{ src: '/icons/icon-192.png?v=2', sizes: '192x192' }] },
+          { name: 'Assistant', url: '/assistant', icons: [{ src: '/icons/icon-192.png?v=2', sizes: '192x192' }] },
         ],
       },
       workbox: {
