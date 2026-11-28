@@ -135,6 +135,25 @@ export interface TeamOption {
   shared_with_me: boolean;
 }
 
+/** One event the person's tasks fall under — a tab on the Tasks page. */
+export interface TaskScopeTeam {
+  team_id: number;
+  name: string;
+  path_name: string;
+  parent_team_id: number | null;
+  category_name: string;
+  depth: number;
+  task_count: number;
+}
+
+export interface TaskScope {
+  event_id: number;
+  name: string;
+  kind_name: string | null;
+  task_count: number;
+  teams: TaskScopeTeam[];
+}
+
 export type RequestStatus = 'pending' | 'accepted' | 'declined';
 
 export interface WorkRequest {

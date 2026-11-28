@@ -25,10 +25,13 @@ export default function NewTaskModal({
   open,
   onClose,
   onCreated,
+  teamId,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
+  /** Opened from inside a team's tab: start on "whole team" with it picked. */
+  teamId?: number | null;
 }) {
   const { me } = useAuth();
   const [form] = Form.useForm<FormValues>();
@@ -47,10 +50,17 @@ export default function NewTaskModal({
       api.get<UserBrief[]>('/api/users/assignable').then(setAssignable).catch(() => {});
       api
         .get<TeamBlock[]>('/api/team/mine')
-        .then((blocks) => setTeams(blocks.filter((b) => b.kind === 'event')))
+        .then((blocks) => {
+          const eventTeams = blocks.filter((b) => b.kind === 'event');
+          setTeams(eventTeams);
+          if (teamId != null && eventTeams.some((t) => t.team_id === teamId)) {
+            setTarget('team');
+            form.setFieldValue('event_team_id', teamId);
+          }
+        })
         .catch(() => {});
     }
-  }, [open]);
+  }, [open, teamId, form]);
 
   // Which team the task belongs to: the teams every selected assignee is on.
   // One candidate is picked automatically ("we're on the same team, obviously
