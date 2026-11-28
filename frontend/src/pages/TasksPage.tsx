@@ -74,6 +74,7 @@ export default function TasksPage() {
 
   const scope = scopes?.find((sc) => sc.event_id === eventId) ?? null;
   const team = scope?.teams.find((t) => t.team_id === teamId) ?? null;
+  const modalScope = useMemo(() => (scope ? { event: scope, teamId: team?.team_id ?? null } : null), [scope, team]);
 
   // a tab that no longer applies (other view, event archived, team removed)
   // would silently hide every task — fall back to the wider scope instead
@@ -201,7 +202,7 @@ export default function TasksPage() {
       )}
       </AnimatePresence>
 
-      <NewTaskModal open={creating} onClose={() => setCreating(false)} onCreated={load} teamId={teamId} />
+      <NewTaskModal open={creating} onClose={() => setCreating(false)} onCreated={load} scope={modalScope} />
       <TaskDrawer taskId={openTaskId} onClose={() => openTask(null)} onChanged={load} />
     </>
   );

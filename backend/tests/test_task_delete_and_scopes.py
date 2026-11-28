@@ -50,3 +50,12 @@ def test_scopes_list_event_with_teams_and_counts(login, org):
     assert len(by_team) == 1
     everything = login("cto").get("/api/tasks", params={"view": "created"}).json()
     assert len(everything) == 2
+
+
+def test_assignable_narrows_to_a_team(login, org):
+    _, team = _team_with_members(login, org, ["sw_emp"])
+    everyone = {u["id"] for u in login("cto").get("/api/users/assignable").json()}
+    on_team = {u["id"] for u in login("cto").get(
+        "/api/users/assignable", params={"team_id": team["id"]}).json()}
+    assert org["sw_emp"].id in on_team
+    assert on_team < everyone
