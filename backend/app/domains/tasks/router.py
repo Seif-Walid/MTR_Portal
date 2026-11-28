@@ -2,7 +2,7 @@ from typing import Literal
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, status
+from fastapi import APIRouter, HTTPException, Query, UploadFile, status
 from fastapi import Request
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -13,8 +13,8 @@ from app.domains.audit.models import AuditLog
 from app.domains.audit.service import log as audit_log
 from app.domains.access import service as access
 from app.domains.auth.deps import DB, CurrentUser
-from app.domains.events.models import EventTeam
-from app.domains.events.service import team_member_user_ids
+from app.domains.events.models import EventCategory, EventTeam
+from app.domains.events.service import sub_team_ids, team_member_user_ids
 from app.domains.hierarchy.service import can_assign_task
 from app.domains.notifications.models import NotificationType
 from app.domains.notifications.service import notify
@@ -29,15 +29,18 @@ from app.domains.tasks.schemas import (
     TaskEdit,
     TaskHistoryEntryOut,
     TaskOut,
+    TaskScopeOut,
     TeamOptionOut,
 )
 from app.domains.tasks.service import (
     MoveRules,
     add_comment,
     change_status,
+    delete_task,
     get_task_or_404,
     set_blocked,
     shared_team_options,
+    task_scopes,
     visible_tasks_query,
 )
 from app.domains.users.models import User
@@ -60,15 +63,11 @@ def _out(db: DB, user: User, task: Task) -> TaskOut:
     return _outs(db, user, [task])[0]
 
 
-@router.get("")
-def list_tasks(
-    db: DB,
-    user: CurrentUser,
-    view: Literal["assigned", "created", "all"] = "assigned",
-    status_filter: TaskStatus | None = None,
-    assignee_id: int | None = None,
-    event_team_id: int | None = None,
-) -> list[TaskOut]:
+View = Literal["assigned", "created", "all"]
+
+
+def _filtered(db: DB, user: User, view: View, status_filter: TaskStatus | None,
+              assignee_id: int | None):
     query = visible_tasks_query(db, user)
     if view == "assigned":
         query = query.where(Task.assignee_id == user.id)
@@ -78,8 +77,30 @@ def list_tasks(
         query = query.where(Task.status == status_filter)
     if assignee_id is not None:
         query = query.where(Task.assignee_id == assignee_id)
+    return query
+
+
+@router.get("")
+def list_tasks(
+    db: DB,
+    user: CurrentUser,
+    view: View = "assigned",
+    status_filter: TaskStatus | None = None,
+    assignee_id: int | None = None,
+    event_team_id: int | None = None,
+    event_id: int | None = Query(default=None, description="Only tasks on this event's teams."),
+    team_id: int | None = Query(default=None, description="Only tasks on this event team or any of its sub-teams."),
+) -> list[TaskOut]:
+    query = _filtered(db, user, view, status_filter, assignee_id)
     if event_team_id is not None:
         query = query.where(Task.event_team_id == event_team_id)
+    if team_id is not None:
+        query = query.where(Task.event_team_id.in_({team_id} | sub_team_ids(db, team_id)))
+    if event_id is not None:
+        teams = select(EventTeam.id).join(
+            EventCategory, EventTeam.category_id == EventCategory.id
+        ).where(EventCategory.event_id == event_id)
+        query = query.where(Task.event_team_id.in_(teams))
     tasks = db.scalars(query.order_by(Task.updated_at.desc())).unique()
     return _outs(db, user, tasks)
 
@@ -184,6 +205,20 @@ def do_create_tasks(db: DB, user: User, payload: TaskCreate) -> list[Task]:
     return tasks
 
 
+@router.get("/scopes")
+def list_scopes(
+    db: DB,
+    user: CurrentUser,
+    view: View = "assigned",
+    status_filter: TaskStatus | None = None,
+) -> list[TaskScopeOut]:
+    """The events (and their teams) the person's tasks fall under, with task
+    counts for the same view/status filter as GET /tasks — one tab per event
+    on the Tasks page. Declared before /{task_id} so the literal path wins."""
+    query = _filtered(db, user, view, status_filter, None)
+    return [TaskScopeOut(**row) for row in task_scopes(db, user, query)]
+
+
 @router.get("/team-options")
 def team_options(db: DB, user: CurrentUser, assignee_ids: str = "") -> list[TeamOptionOut]:
     """Which teams a task to these people could belong to — the live teams
@@ -234,6 +269,15 @@ def edit_task(task_id: int, payload: TaskEdit, db: DB, user: CurrentUser) -> Tas
     db.commit()
     db.refresh(task)
     return _out(db, user, task)
+
+
+@router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_task(task_id: int, db: DB, user: CurrentUser) -> None:
+    """Delete a task for good — needs the `tasks.delete` privilege. Its
+    comments and attachments go with it; the audit log keeps a record."""
+    task = get_task_or_404(db, user, task_id)
+    delete_task(db, user, task)
+    db.commit()
 
 
 @router.patch("/{task_id}/blocked")

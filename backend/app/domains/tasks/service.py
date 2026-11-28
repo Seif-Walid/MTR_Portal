@@ -288,3 +288,101 @@ def add_comment(db: Session, user: User, task: Task, body: str) -> Task:
     db.commit()
     db.refresh(task)
     return task
+
+
+def delete_task(db: Session, user: User, task: Task) -> None:
+    """Removes a task for good. Gated only by the `tasks.delete` privilege
+    (plus being able to see the task at all) — being the assigner is not
+    enough, so a level without the privilege can never remove work.
+
+    The audit row keeps the title/assignee so the trail survives the task.
+    Does not commit."""
+    from app.core.config import settings
+    from app.domains.notifications.models import Notification
+    from app.domains.tasks.models import AttachmentKind
+
+    access.require_privilege(db, user, "tasks.delete")
+    audit_log(
+        db, user.id, "tasks", "deleted", "task", task.id,
+        {
+            "title": task.title,
+            "assignee": task.assignee.full_name,
+            "status": task.status,
+            "by": user.full_name,
+        },
+    )
+    # nothing else may keep pointing at the row (SQLite doesn't enforce the
+    # notifications cascade unless foreign keys are switched on)
+    db.query(Notification).filter(Notification.task_id == task.id).delete(
+        synchronize_session=False
+    )
+    db.query(WorkRequest).filter(WorkRequest.created_task_id == task.id).update(
+        {WorkRequest.created_task_id: None}, synchronize_session=False
+    )
+    stored = [
+        a.stored_name for a in task.attachments
+        if a.kind == AttachmentKind.FILE and a.stored_name
+    ]
+    db.delete(task)
+    db.flush()
+    for name in stored:
+        try:
+            (settings.upload_dir / name).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def task_scopes(db: Session, user: User, base_query) -> list[dict]:
+    """The events the person's tasks fall under, each with its live teams and
+    how many of the (already filtered) visible tasks sit on each — what the
+    Tasks page turns into one tab per event with team chips inside.
+
+    An event shows up when a visible task belongs to one of its teams, or
+    when the person is on one of its live teams (so a team with no work yet
+    still has its tab). Archived events never appear."""
+    from collections import Counter
+
+    rows = db.execute(base_query.with_only_columns(Task.event_team_id)).scalars().all()
+    per_team = Counter(tid for tid in rows if tid is not None)
+    team_ids = set(per_team) | my_team_ids(db, user)
+    if not team_ids:
+        return []
+    event_ids = set(db.scalars(
+        select(EventCategory.event_id)
+        .join(EventTeam, EventTeam.category_id == EventCategory.id)
+        .where(EventTeam.id.in_(team_ids))
+    ))
+    events = db.scalars(
+        select(Event)
+        .where(Event.id.in_(event_ids), Event.status != EventStatus.ARCHIVED)
+        .order_by(Event.start_date.desc().nulls_last(), Event.name)
+    ).unique().all()
+    from app.domains.events.models import tree_order
+
+    out = []
+    for ev in events:
+        live = [t for c in ev.categories for t in c.teams if t.deleted_at is None]
+        # a team's chip shows its sub-teams' tasks too, so its count rolls up
+        rolled: Counter = Counter()
+        for t in live:
+            for holder in [t, *t.ancestors()]:
+                rolled[holder.id] += per_team.get(t.id, 0)
+        teams = []
+        for t in tree_order(live):
+            teams.append({
+                "team_id": t.id,
+                "name": t.name,
+                "path_name": t.path_name,
+                "parent_team_id": t.parent_team_id,
+                "category_name": t.category.name,
+                "depth": len(t.ancestors()),
+                "task_count": rolled[t.id],
+            })
+        out.append({
+            "event_id": ev.id,
+            "name": ev.name,
+            "kind_name": ev.kind.name if ev.kind is not None else None,
+            "task_count": sum(per_team.get(t.id, 0) for t in live),
+            "teams": teams,
+        })
+    return out

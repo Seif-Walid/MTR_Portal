@@ -112,3 +112,21 @@ class TaskHistoryEntryOut(BaseModel):
     action: str
     detail: str  # JSON string
     created_at: datetime
+
+
+class TaskScopeTeamOut(BaseModel):
+    team_id: int
+    name: str
+    path_name: str
+    parent_team_id: int | None
+    category_name: str
+    depth: int
+    task_count: int
+
+
+class TaskScopeOut(BaseModel):
+    event_id: int
+    name: str
+    kind_name: str | None
+    task_count: int
+    teams: list[TaskScopeTeamOut]

@@ -136,3 +136,52 @@
   .tb-card__avatar { transition: opacity 140ms var(--ease-out); }
   .tb-card:has(.tb-card__moves):is(:hover, :focus-within) .tb-card__avatar { opacity: 0; }
 }
+
+/* Tasks page: one tab per event ("All projects" first), team chips inside */
+.tk-scopes { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.tk-tabs {
+  display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  padding-bottom: 2px; border-bottom: 1px solid var(--border-light);
+}
+.tk-tab {
+  position: relative; z-index: 0; flex: none; display: inline-flex; align-items: center; gap: 8px;
+  height: 38px; padding: 0 14px; border: 0; background: none; cursor: pointer;
+  font: 500 14px var(--font-sans); color: var(--text-secondary);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  transition: color 160ms var(--ease-out), background 160ms var(--ease-out);
+}
+.tk-tab:hover { color: var(--text-primary); background: color-mix(in srgb, var(--surface-alt) 60%, transparent); }
+.tk-tab[aria-selected='true'] { color: var(--text-primary); }
+.tk-tab:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.tk-tab__thumb {
+  position: absolute; inset: auto 8px 0; height: 3px; z-index: -1;
+  border-radius: var(--radius-full); background: var(--primary);
+}
+.tk-tab__kind {
+  font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.tk-tab__name { white-space: nowrap; }
+.tk-tab__count, .tk-team__count {
+  min-width: 20px; padding: 0 7px; border-radius: var(--radius-full); text-align: center;
+  background: var(--surface-alt); color: var(--text-secondary);
+  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.tk-teams { display: flex; flex-wrap: wrap; gap: 6px; overflow: hidden; }
+.tk-teams__none { align-self: center; font-size: 13px; color: var(--text-tertiary); }
+.tk-team {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 6px 0 12px;
+  border: 1px solid var(--border-light); border-radius: var(--radius-full);
+  background: var(--surface); cursor: pointer; font: 500 13px var(--font-sans); color: var(--text-secondary);
+  transition: border-color 160ms var(--ease-out), color 160ms var(--ease-out), background 160ms var(--ease-out), transform 120ms var(--ease-out);
+}
+.tk-team:hover { color: var(--text-primary); border-color: var(--border); }
+.tk-team:active { transform: scale(.97); }
+.tk-team[aria-pressed='true'] {
+  color: var(--text-primary); border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+}
+.tk-team[aria-pressed='true'] .tk-team__count { background: color-mix(in srgb, var(--primary) 22%, transparent); }
+.tk-team:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.tk-team__nest { color: var(--text-tertiary); letter-spacing: -1px; }
+@media (prefers-reduced-motion: reduce) { .tk-tab, .tk-team { transition: none; } }

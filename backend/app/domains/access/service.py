@@ -30,6 +30,7 @@ PRIVILEGES: list[tuple[str, str]] = [
     ("tasks.use", "Use tasks"),
     ("tasks.assign", "Assign tasks"),
     ("tasks.assign_any", "Assign tasks to anyone"),
+    ("tasks.delete", "Delete tasks"),
     ("org.view", "View organization"),
     ("org.edit", "Edit organization"),
     ("people.view", "View team & directory"),

@@ -1,4 +1,4 @@
-import { CloudOutlined, LinkOutlined, PaperClipOutlined, StopOutlined, UploadOutlined } from '@ant-design/icons';
+import { CloudOutlined, DeleteOutlined, LinkOutlined, PaperClipOutlined, StopOutlined, UploadOutlined } from '@ant-design/icons';
 import {
   Alert,
   Avatar,
@@ -8,6 +8,7 @@ import {
   Drawer,
   Input,
   List,
+  Popconfirm,
   Progress,
   Space,
   Typography,
@@ -20,7 +21,7 @@ import { Link } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
 import type { Attachment, Task, TaskHistoryEntry, TaskStatus } from '../api/types';
-import { useAuth } from '../auth/AuthContext';
+import { can, useAuth } from '../auth/AuthContext';
 import { MOVE_LABELS, PriorityTag, STATUS_META, StatusTag } from './tags';
 import EmptyState from './EmptyState';
 
@@ -250,8 +251,43 @@ export default function TaskDrawer({
       ].sort((a, b) => a.at.localeCompare(b.at))
     : [];
 
+  const removeTask = async () => {
+    if (!task) return;
+    setBusy(true);
+    try {
+      await api.delete(`/api/tasks/${task.id}`);
+      message.success('Task deleted');
+      onChanged();
+      onClose();
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : 'Could not delete the task');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <Drawer open={taskId !== null} onClose={onClose} width={560} title={task?.title ?? 'Task'}>
+    <Drawer
+      open={taskId !== null}
+      onClose={onClose}
+      width={560}
+      title={task?.title ?? 'Task'}
+      extra={
+        task && can(me, 'tasks.delete') ? (
+          <Popconfirm
+            title="Delete this task?"
+            description={`"${task.title}" and its comments and files are removed for good.`}
+            okText="Delete"
+            okButtonProps={{ danger: true }}
+            onConfirm={removeTask}
+          >
+            <Button danger icon={<DeleteOutlined />} loading={busy} aria-label="Delete task">
+              Delete
+            </Button>
+          </Popconfirm>
+        ) : null
+      }
+    >
       {task && (
         <>
           <Space wrap>
