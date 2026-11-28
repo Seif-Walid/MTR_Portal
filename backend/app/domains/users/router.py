@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
 from app.core.security import hash_password
@@ -22,16 +22,40 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.get("/assignable")
-def assignable_users(db: DB, user: CurrentUser) -> list[UserBrief]:
+def assignable_users(
+    db: DB,
+    user: CurrentUser,
+    team_id: int | None = Query(default=None, description="Only people on this event team (sub-teams included)."),
+    event_id: int | None = Query(default=None, description="Only people on any team of this event."),
+) -> list[UserBrief]:
     """Everyone the current user may assign tasks to — themselves plus whoever
     they're connected to in the org (reporting line, seats below theirs, teams
     they lead); everyone active if they hold `tasks.assign_any`. Mirrors
-    hierarchy.can_assign_task, which is what actually enforces it."""
+    hierarchy.can_assign_task, which is what actually enforces it.
+
+    With team_id / event_id the list narrows to that team's or event's people,
+    for assigning from inside a team's tab instead of the whole roster."""
     if access.has_privilege(db, user, "tasks.assign_any"):
         query = select(User).where(User.is_active)
     else:
         ids = taskable_user_ids(db, user)
         query = select(User).where(User.id.in_(ids), User.is_active)
+    if team_id is not None or event_id is not None:
+        from app.domains.events.models import EventCategory, EventTeam
+        from app.domains.events.service import team_member_user_ids
+
+        if team_id is not None:
+            team_ids = [team_id]
+        else:
+            team_ids = list(db.scalars(
+                select(EventTeam.id)
+                .join(EventCategory, EventTeam.category_id == EventCategory.id)
+                .where(EventCategory.event_id == event_id, EventTeam.deleted_at.is_(None))
+            ))
+        members: set[int] = set()
+        for tid in team_ids:
+            members |= team_member_user_ids(db, tid)
+        query = query.where(User.id.in_(members))
     return [UserBrief.model_validate(u) for u in db.scalars(query.order_by(User.full_name))]
 
 

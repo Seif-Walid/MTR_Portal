@@ -3,7 +3,7 @@ import type { Dayjs } from 'dayjs';
 import { useEffect, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
-import type { Task, TeamBlock, TeamOption, UserBrief } from '../api/types';
+import type { Task, TaskScope, TeamBlock, TeamOption, UserBrief } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { personLabel } from '../lib/people';
 
@@ -25,42 +25,58 @@ export default function NewTaskModal({
   open,
   onClose,
   onCreated,
-  teamId,
+  scope,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
-  /** Opened from inside a team's tab: start on "whole team" with it picked. */
-  teamId?: number | null;
+  /** Opened from inside an event's tab (and maybe one team's chip): people
+   * and teams are picked from that event/team instead of the whole roster. */
+  scope?: { event: TaskScope; teamId: number | null } | null;
 }) {
   const { me } = useAuth();
   const [form] = Form.useForm<FormValues>();
   const [assignable, setAssignable] = useState<UserBrief[]>([]);
-  const [teams, setTeams] = useState<TeamBlock[]>([]);
+  const [teams, setTeams] = useState<{ team_id: number; label: string }[]>([]);
+  const [narrow, setNarrow] = useState(true);
   const [target, setTarget] = useState<Target>('people');
   const [teamOptions, setTeamOptions] = useState<TeamOption[]>([]);
   const [busy, setBusy] = useState(false);
   const picked = Form.useWatch('assignee_ids', form);
   const peopleTeamId = Form.useWatch('people_team_id', form);
 
+  const scopeTeamId = scope?.teamId ?? null;
+  const scopeTeam = scope?.event.teams.find((t) => t.team_id === scopeTeamId) ?? null;
+  const narrowed = !!scope && narrow;
+  const scopeEventId = scope?.event.event_id ?? null;
+
   useEffect(() => {
     if (open) {
+      setNarrow(true);
       setTarget('people');
       setTeamOptions([]);
-      api.get<UserBrief[]>('/api/users/assignable').then(setAssignable).catch(() => {});
-      api
-        .get<TeamBlock[]>('/api/team/mine')
-        .then((blocks) => {
-          const eventTeams = blocks.filter((b) => b.kind === 'event');
-          setTeams(eventTeams);
-          if (teamId != null && eventTeams.some((t) => t.team_id === teamId)) {
-            setTarget('team');
-            form.setFieldValue('event_team_id', teamId);
-          }
-        })
-        .catch(() => {});
+      if (scope) {
+        setTeams(scope.event.teams.map((t) => ({ team_id: t.team_id, label: `${t.path_name} · ${t.category_name}` })));
+        if (scopeTeamId != null) form.setFieldValue('event_team_id', scopeTeamId);
+      } else {
+        api
+          .get<TeamBlock[]>('/api/team/mine')
+          .then((blocks) => setTeams(blocks
+            .filter((b) => b.kind === 'event' && b.team_id != null)
+            .map((b) => ({ team_id: b.team_id as number, label: `${b.name} · ${b.event_name}` }))))
+          .catch(() => {});
+      }
     }
-  }, [open, teamId, form]);
+  }, [open, scopeEventId, scopeTeamId, form]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // who can be picked: the open team's / event's people, or everyone you may task
+  useEffect(() => {
+    if (!open) return;
+    const qs = narrowed
+      ? scopeTeamId != null ? `?team_id=${scopeTeamId}` : `?event_id=${scopeEventId}`
+      : '';
+    api.get<UserBrief[]>(`/api/users/assignable${qs}`).then(setAssignable).catch(() => {});
+  }, [open, narrowed, scopeTeamId, scopeEventId]);
 
   // Which team the task belongs to: the teams every selected assignee is on.
   // One candidate is picked automatically ("we're on the same team, obviously
@@ -73,11 +89,19 @@ export default function NewTaskModal({
       form.setFieldValue('people_team_id', undefined);
       return;
     }
+    if (narrowed && scopeTeam) {
+      setTeamOptions([{ team_id: scopeTeam.team_id, name: scopeTeam.path_name, event_name: scope!.event.name,
+        category_name: scopeTeam.category_name, shared_with_me: true }]);
+      form.setFieldValue('people_team_id', scopeTeam.team_id);
+      return;
+    }
     let stale = false;
     api
       .get<TeamOption[]>(`/api/tasks/team-options?assignee_ids=${ids.join(',')}`)
-      .then((options) => {
+      .then((all) => {
         if (stale) return;
+        const inEvent = new Set(scope?.event.teams.map((t) => t.team_id) ?? []);
+        const options = narrowed ? all.filter((o) => inEvent.has(o.team_id)) : all;
         setTeamOptions(options);
         const current = form.getFieldValue('people_team_id') as number | undefined;
         if (options.length === 1) form.setFieldValue('people_team_id', options[0].team_id);
@@ -88,7 +112,7 @@ export default function NewTaskModal({
     return () => {
       stale = true;
     };
-  }, [picked, target, form]);
+  }, [picked, target, form, narrowed, scopeTeam?.team_id, scopeEventId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = async (values: FormValues) => {
     setBusy(true);
@@ -147,14 +171,22 @@ export default function NewTaskModal({
           <>
             <Form.Item
               name="assignee_ids"
-              label="Yourself or people connected below you — your reports, seats under yours, or a team you lead. Pick one or more to assign the same task"
+              label={narrowed
+                ? `People on ${scopeTeam ? scopeTeam.path_name : scope!.event.name} — pick one or more to assign the same task`
+                : 'Yourself or people connected below you — your reports, seats under yours, or a team you lead. Pick one or more to assign the same task'}
+              extra={scope && (
+                <Button type="link" size="small" style={{ padding: 0 }}
+                  onClick={() => { setNarrow(!narrow); form.setFieldValue('assignee_ids', []); }}>
+                  {narrow ? 'Pick from everyone instead' : `Only people on ${scopeTeam ? scopeTeam.path_name : scope.event.name}`}
+                </Button>
+              )}
               rules={[{ required: true, message: 'Pick at least one assignee' }]}
             >
               <Select
                 mode="multiple"
                 showSearch
                 optionFilterProp="label"
-                placeholder={assignable.length ? 'Select one or more people' : 'No one to assign to'}
+                placeholder={assignable.length ? 'Select one or more people' : narrowed ? 'No one on this team you can task yet' : 'No one to assign to'}
                 options={assignable.map((u) => ({
                   value: u.id,
                   label: u.id === me?.id ? `${personLabel(u)} · you` : personLabel(u),
@@ -208,11 +240,8 @@ export default function NewTaskModal({
               <Select
                 showSearch
                 optionFilterProp="label"
-                placeholder={teams.length ? 'Select a team' : "You're not on any event team"}
-                options={teams.map((t) => ({
-                  value: t.team_id as number,
-                  label: `${t.name} · ${t.event_name}`,
-                }))}
+                placeholder={teams.length ? 'Select a team' : scope ? 'This event has no teams yet' : "You're not on any event team"}
+                options={teams.map((t) => ({ value: t.team_id, label: t.label }))}
               />
             </Form.Item>
             <Form.Item name="team_visible" valuePropName="checked">
