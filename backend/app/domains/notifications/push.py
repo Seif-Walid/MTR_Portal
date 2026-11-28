@@ -109,17 +109,59 @@ TITLES = {
 }
 
 
-def payload_for(n: Notification) -> dict:
+def _task_details(task) -> str:
+    """'Due Sun 30 Nov · High priority' — the facts worth a glance."""
+    bits = []
+    if task.due_date:
+        bits.append(f"Due {task.due_date:%a %d %b}")
+    pr = str(getattr(task.priority, "value", task.priority) or "").lower()
+    if pr in ("high", "urgent", "critical"):
+        bits.append(f"{pr.title()} priority")
+    if getattr(task, "is_blocked", False):
+        bits.append("Blocked")
+    return " · ".join(bits)
+
+
+def payload_for(db: Session, n: Notification) -> dict:
+    """Title = what happened + to what; body = who/what changed, then the key
+    facts. Android/desktop show the title bold and the first body line when
+    collapsed, the rest when expanded."""
+    kind = TITLES.get(str(n.type), "MindTech Portal")
+    title, body = kind, n.message
+    if n.task_id:
+        from app.domains.tasks.models import Task
+
+        task = db.get(Task, n.task_id)
+        if task is not None:
+            title = f"{kind} · {task.title}"[:120]
+            # the message repeats the title in quotes; drop that echo
+            body = n.message.replace(f": '{task.title}'", "").replace(f" '{task.title}'", "")
+            details = _task_details(task)
+            if details:
+                body = f"{body}\n{details}"
     return {
-        "title": TITLES.get(n.type, "MindTech Portal"),
-        "body": n.message,
+        "title": title,
+        "body": body[:400],
         "url": target_url(n),
         "tag": f"{n.type}:{n.task_id or n.request_id or ''}",
+        "kind": str(n.type),
     }
 
 
 def queue(db: Session, n: Notification) -> None:
-    db.info.setdefault(_PENDING_KEY, []).append((n.user_id, payload_for(n)))
+    db.info.setdefault(_PENDING_KEY, []).append((n.user_id, payload_for(db, n), n))
+
+
+def _with_ids(batch: list) -> list[tuple[int, dict]]:
+    """Add each notification's id (known once flushed) so the device can
+    mark exactly that one read."""
+    from sqlalchemy import inspect
+
+    out = []
+    for uid, payload, n in batch:
+        ident = inspect(n).identity
+        out.append((uid, {**payload, "id": ident[0]} if ident else payload))
+    return out
 
 
 # --- delivery -------------------------------------------------------------
@@ -221,7 +263,7 @@ def _send_pending(session: Session) -> None:
     batch = session.info.pop(_PENDING_KEY, None)
     if batch:
         try:
-            start_delivery(batch)
+            start_delivery(_with_ids(batch))
         except Exception:
             log.exception("could not start push delivery")
 

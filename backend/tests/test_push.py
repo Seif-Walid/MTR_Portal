@@ -70,12 +70,15 @@ def test_task_assignment_is_pushed_after_commit(login, org, db_session, pushes):
     task = make_task(login, "ceo", org, "mech_emp", title="Fix the gripper")
     mine = [p for uid, p in pushes if uid == org["mech_emp"].id]
     assert mine and mine[0]["url"] == f"/tasks?task={task['id']}"
-    assert "Fix the gripper" in mine[0]["body"]
+    assert mine[0]["title"] == "New task · Fix the gripper"
+    assert "Fix the gripper" not in mine[0]["body"]  # not repeated
+    assert "assigned you a task" in mine[0]["body"]
+    assert isinstance(mine[0]["id"], int)  # lets the device mark exactly this one read
 
     sender = FakeSender()
     assert push.deliver(db_session, pushes, sender=sender) >= 1
     sent = json.loads(sender.calls[0]["data"])
-    assert sent["title"] == "New task" and sent["unread"] >= 1
+    assert sent["title"].startswith("New task") and sent["unread"] >= 1
     assert sender.calls[0]["subscription_info"]["endpoint"] == FCM
 
 
@@ -105,3 +108,13 @@ def test_other_origin_devices_are_never_pushed(login, org, db_session, monkeypat
 ])
 def test_endpoint_allowlist(ep, ok):
     assert push.endpoint_allowed(ep) is ok
+
+
+def test_task_facts_in_body(login, org, pushes):
+    r = login("ceo").post("/api/tasks", json={
+        "title": "Order motors", "assignee_ids": [org["mech_emp"].id],
+        "due_date": "2026-11-30", "priority": "high",
+    })
+    assert r.status_code == 201, r.text
+    body = [p for uid, p in pushes if uid == org["mech_emp"].id][0]["body"]
+    assert body.splitlines()[-1] == "Due Mon 30 Nov · High priority"
