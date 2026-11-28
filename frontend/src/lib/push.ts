@@ -98,7 +98,6 @@ export async function resyncPush(): Promise<void> {
 
 export const listDevices = () => api.get<PushDevice[]>('/api/notifications/push/devices');
 export const removeDevice = (id: number) => api.delete(`/api/notifications/push/devices/${id}`);
-export const sendTestPush = () => api.post<{ sent: number }>('/api/notifications/push/test');
 
 export function clearAppBadge() {
   const n = navigator as Navigator & { clearAppBadge?: () => Promise<void> };

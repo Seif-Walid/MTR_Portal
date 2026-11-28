@@ -10,14 +10,13 @@ import {
   listDevices,
   pushState,
   removeDevice,
-  sendTestPush,
   type PushDevice,
   type PushState,
 } from '../lib/push';
 
 dayjs.extend(relativeTime);
 
-/** "Notifications on this device" — turn push on/off here, send a test, and
+/** "Notifications on this device" — turn push on/off here and
  *  see / remove the other devices that get your notifications. */
 export default function PushSettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { message } = AntApp.useApp();
@@ -44,17 +43,6 @@ export default function PushSettingsModal({ open, onClose }: { open: boolean; on
       setDevices(await listDevices().catch(() => []));
     } catch (e) {
       message.error(e instanceof Error ? e.message : 'Could not change notifications');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const test = async () => {
-    setBusy(true);
-    try {
-      const { sent } = await sendTestPush();
-      if (sent) message.success(`Test sent to ${sent} device${sent === 1 ? '' : 's'}`);
-      else message.warning('No device accepted the test. Turn notifications on first.');
     } finally {
       setBusy(false);
     }
@@ -96,14 +84,7 @@ export default function PushSettingsModal({ open, onClose }: { open: boolean; on
         {(state === 'on' || state === 'off') && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
             <Typography.Text strong>On this device</Typography.Text>
-            <Space>
-              {state === 'on' && (
-                <Button size="small" onClick={test} loading={busy}>
-                  Send test
-                </Button>
-              )}
-              <Switch checked={state === 'on'} loading={busy} onChange={toggle} aria-label="Notifications on this device" />
-            </Space>
+            <Switch checked={state === 'on'} loading={busy} onChange={toggle} aria-label="Notifications on this device" />
           </div>
         )}
 
