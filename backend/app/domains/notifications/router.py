@@ -118,14 +118,3 @@ def push_device_remove(device_id: int, db: DB, user: CurrentUser) -> dict[str, b
     db.commit()
     return {"ok": True}
 
-
-@router.post("/push/test")
-def push_test(db: DB, user: CurrentUser) -> dict[str, int]:
-    """Send a test notification to every device of mine, right now."""
-    sent = push.deliver(db, [(user.id, {
-        "title": "Notifications are on ✓",
-        "body": "New tasks, comments and requests will show up here.\nTap to open the portal.",
-        "url": "/home",
-        "tag": "push-test",
-    })])
-    return {"sent": sent}
