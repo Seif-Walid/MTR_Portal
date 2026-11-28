@@ -44,6 +44,8 @@ export default defineConfig({
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//, /^\/\.well-known\//],
         cleanupOutdatedCaches: true,
+        // push notifications: show them, open the right page on tap
+        importScripts: ['/push-sw.js'],
       },
     }),
   ],

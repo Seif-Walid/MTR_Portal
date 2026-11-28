@@ -67,6 +67,17 @@ def _fresh_throttles():
     yield
 
 
+@pytest.fixture(autouse=True)
+def pushes(monkeypatch):
+    """Push batches the portal would have sent after each commit. Never runs
+    the real delivery thread (it would open the app's own database)."""
+    from app.domains.notifications import push
+
+    queued: list = []
+    monkeypatch.setattr(push, "start_delivery", lambda batch: queued.extend(batch))
+    return queued
+
+
 @pytest.fixture()
 def outbox(monkeypatch):
     """Every password link the portal would have mailed."""
