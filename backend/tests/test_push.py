@@ -118,3 +118,36 @@ def test_task_facts_in_body(login, org, pushes):
     assert r.status_code == 201, r.text
     body = [p for uid, p in pushes if uid == org["mech_emp"].id][0]["body"]
     assert body.splitlines()[-1] == "Due Mon 30 Nov · High priority"
+
+
+def test_attachment_picks_side_picture(login, org, db_session):
+    from app.domains.tasks.models import TaskAttachment
+
+    task = make_task(login, "ceo", org, "mech_emp", title="Wire it")
+    assert push.attachment_for(db_session, task["id"]) is None  # -> logo on the side
+
+    def add(**kw):
+        db_session.add(TaskAttachment(task_id=task["id"], uploaded_by_id=org["ceo"].id, **kw))
+        db_session.commit()
+        return push.attachment_for(db_session, task["id"])
+
+    assert add(kind="file", filename="photo.jpg", content_type="image/jpeg", size=2000, stored_name="a1")["kind"] == "image"
+    assert add(kind="file", filename="huge.png", content_type="image/png", size=50_000_000, stored_name="a2")["kind"] == "file"
+    assert add(kind="file", filename="spec.pdf", content_type="application/pdf", size=10, stored_name="a3")["kind"] == "pdf"
+    att = add(kind="link", filename="EasyEDA", url="https://easyeda.com/x", content_type="text/uri-list")
+    assert att == {"kind": "link", "name": "EasyEDA"}
+
+
+def test_attachment_named_in_pushed_body(login, org, db_session):
+    from app.domains.tasks.models import TaskAttachment
+
+    login("mech_emp").post("/api/notifications/push/subscribe", json=SUB)
+    task = make_task(login, "ceo", org, "mech_emp", title="Wire it")
+    db_session.add(TaskAttachment(task_id=task["id"], uploaded_by_id=org["ceo"].id, kind="file",
+                                  filename="board.png", content_type="image/png", size=900, stored_name="b1"))
+    db_session.commit()
+    sender = FakeSender()
+    push.deliver(db_session, [(org["mech_emp"].id, {"title": "t", "body": "b", "url": "/", "tag": "x", "task_id": task["id"]})], sender=sender)
+    data = json.loads(sender.calls[0]["data"])
+    assert data["body"].endswith("📎 board.png")
+    assert data["attachment"]["src"].startswith("/api/tasks/attachments/")

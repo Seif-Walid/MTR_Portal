@@ -145,7 +145,42 @@ def payload_for(db: Session, n: Notification) -> dict:
         "url": target_url(n),
         "tag": f"{n.type}:{n.task_id or n.request_id or ''}",
         "kind": str(n.type),
+        "task_id": n.task_id,
     }
+
+
+IMAGE_PREVIEW_MAX = 5 * 1024 * 1024  # the device downloads it; keep it light
+
+
+def attachment_for(db: Session, task_id: int | None) -> dict | None:
+    """The task's newest attachment, for the picture at the side: an image
+    shows itself, a PDF / link / other file shows a matching icon. Looked
+    up at send time, so files added right after the task count too."""
+    if not task_id:
+        return None
+    from app.domains.tasks.models import AttachmentKind, TaskAttachment
+
+    a = db.scalars(
+        select(TaskAttachment)
+        .where(TaskAttachment.task_id == task_id)
+        .order_by(TaskAttachment.created_at.desc(), TaskAttachment.id.desc())
+        .limit(1)
+    ).first()
+    if a is None:
+        return None
+    ctype = (a.content_type or "").lower()
+    if a.kind == AttachmentKind.LINK:
+        kind = "link"
+    elif ctype.startswith("image/") and ctype != "image/svg+xml" and 0 < (a.size or 0) <= IMAGE_PREVIEW_MAX:
+        kind = "image"
+    elif ctype == "application/pdf" or a.filename.lower().endswith(".pdf"):
+        kind = "pdf"
+    else:
+        kind = "file"
+    out = {"kind": kind, "name": a.filename[:120]}
+    if kind == "image":
+        out["src"] = f"/api/tasks/attachments/{a.id}"  # the device fetches it signed in
+    return out
 
 
 def queue(db: Session, n: Notification) -> None:
@@ -211,9 +246,18 @@ def deliver(db: Session, batch: Iterable[tuple[int, dict]], sender: Sender | Non
         ).all()
     )
 
+    attachments: dict[int, dict | None] = {}
+    for _, payload in batch:
+        tid = payload.get("task_id")
+        if tid and tid not in attachments:
+            attachments[tid] = attachment_for(db, tid)
+
     sent = 0
     now = datetime.now(timezone.utc)
     for uid, payload in batch:
+        att = attachments.get(payload.get("task_id"))
+        if att:
+            payload = {**payload, "attachment": att, "body": f"{payload['body']}\n📎 {att['name']}"}
         for s in by_user.get(uid, []):
             if s.id is None or not endpoint_allowed(s.endpoint):
                 continue
