@@ -36,3 +36,41 @@ class Notification(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+
+class PushSubscription(Base):
+    """One browser/device that asked for push notifications (Web Push).
+
+    `origin` is the portal address the device subscribed on. A server only
+    pushes to devices of its own origin, so a staging copy of the prod
+    database never pings real people's phones."""
+
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    endpoint: Mapped[str] = mapped_column(Text, unique=True)
+    p256dh: Mapped[str] = mapped_column(String(200))
+    auth: Mapped[str] = mapped_column(String(100))
+    origin: Mapped[str] = mapped_column(String(200))
+    device: Mapped[str] = mapped_column(String(120), default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PushKey(Base):
+    """The server's Web Push (VAPID) signing key pair, made on first use so a
+    deploy needs no extra secrets. Single row, id = 1."""
+
+    __tablename__ = "push_keys"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    private_pem: Mapped[str] = mapped_column(Text)
+    public_key: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )

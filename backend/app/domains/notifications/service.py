@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.mail import send_email
+from app.domains.notifications import push
 from app.domains.notifications.models import Notification, NotificationType
 
 log = logging.getLogger(__name__)
@@ -31,7 +32,8 @@ def notify(
         user_id=user_id, type=type_, message=message, task_id=task_id, request_id=request_id
     )
     db.add(n)
-    if type_ == NotificationType.TASK_ASSIGNED and task_id is not None:
+    push.queue(db, n)
+    if type_ ==NotificationType.TASK_ASSIGNED and task_id is not None:
         _queue_task_assigned_email(db, user_id, task_id)
     return n
 

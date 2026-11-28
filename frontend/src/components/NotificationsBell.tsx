@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { api } from '../api/client';
 import type { AppNotification } from '../api/types';
+import { clearAppBadge, onServiceWorkerMessage, pushState } from '../lib/push';
 import EmptyState from './EmptyState';
 
 dayjs.extend(relativeTime);
@@ -28,8 +29,16 @@ export default function NotificationsBell() {
   useEffect(() => {
     refreshCount();
     const timer = setInterval(refreshCount, 30_000);
-    return () => clearInterval(timer);
+    // a push arrived: update now instead of waiting for the next poll
+    const off = onServiceWorkerMessage((m) => { if (m.type === 'notifications-changed') refreshCount(); });
+    return () => { clearInterval(timer); off(); };
   }, [refreshCount]);
+
+  // offer push notifications to people who haven't turned them on here
+  const [pushOffer, setPushOffer] = useState(false);
+  useEffect(() => {
+    if (open) pushState().then((s) => setPushOffer(s === 'off' || s === 'ios-install')).catch(() => {});
+  }, [open]);
 
   const onOpenChange = async (next: boolean) => {
     setOpen(next);
@@ -43,6 +52,7 @@ export default function NotificationsBell() {
     await api.post('/api/notifications/mark-read', {});
     setItems((prev) => prev.map((n) => ({ ...n, is_read: true })));
     setCount(0);
+    clearAppBadge();
   };
 
   const openTarget = (n: AppNotification) => {
@@ -54,6 +64,17 @@ export default function NotificationsBell() {
 
   const content = (
     <div style={{ width: 'min(360px, calc(100vw - 56px))', maxHeight: 'min(420px, calc(100vh - 120px))', overflow: 'auto' }}>
+      {pushOffer && (
+        <Button
+          block
+          size="small"
+          type="dashed"
+          style={{ marginBottom: 8 }}
+          onClick={() => { setOpen(false); window.dispatchEvent(new Event('open-push-settings')); }}
+        >
+          Get these on your phone or computer
+        </Button>
+      )}
       {items.length === 0 ? (
         <EmptyState compact phrase="You're all caught up." />
       ) : (

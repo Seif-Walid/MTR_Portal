@@ -1,4 +1,4 @@
-import { DownloadOutlined, GoogleOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons';
+import { BellOutlined, DownloadOutlined, GoogleOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons';
 import { App as AntApp, ConfigProvider, Dropdown, message } from 'antd';
 import { AnimatePresence, LayoutGroup, motion, MotionConfig } from 'motion/react';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
@@ -7,10 +7,12 @@ import { useLocation, useNavigate, useOutlet, useSearchParams } from 'react-rout
 import { api } from '../api/client';
 import { can, useAuth } from '../auth/AuthContext';
 import { useInstallApp } from '../lib/pwa';
+import { forgetDeviceOnServer, onServiceWorkerMessage, resyncPush } from '../lib/push';
 import { useThemeMode } from '../theme/ThemeContext';
 import { RouteEmpty } from './EmptyState';
 import { LogoImage } from './Logo';
 import NotificationsBell from './NotificationsBell';
+import PushSettingsModal from './PushSettingsModal';
 
 /* ==========================================================================
    App shell — "Workbench". Light/dark from role tokens; interaction in the
@@ -158,6 +160,23 @@ export default function AppLayout() {
   const { modal } = AntApp.useApp();
   const { mode: installMode, install } = useInstallApp();
   const navigate = useNavigate();
+  const [pushOpen, setPushOpen] = useState(false);
+
+  // tapping a push notification while the portal is open routes in place
+  useEffect(() => onServiceWorkerMessage((msg) => {
+    if (msg.type === 'open-url' && msg.url) {
+      const u = new URL(msg.url);
+      if (u.origin === window.location.origin) navigate(u.pathname + u.search + u.hash);
+    }
+  }), [navigate]);
+  // this device's notifications follow whoever is signed in now
+  useEffect(() => { if (me) void resyncPush(); }, [me?.id]);
+  // the bell's "turn on" link
+  useEffect(() => {
+    const open = () => setPushOpen(true);
+    window.addEventListener('open-push-settings', open);
+    return () => window.removeEventListener('open-push-settings', open);
+  }, []);
   const location = useLocation();
   const clock = useClock();
   // read the breakpoint synchronously so phones never paint the rail open first
@@ -302,13 +321,14 @@ export default function AppLayout() {
       ...(googleEnabled && !me.google_linked
         ? [{ key: 'link-google', icon: <GoogleOutlined />, label: 'Link Google account', onClick: () => { window.location.href = '/api/auth/google/login'; } }]
         : []),
+      { key: 'notifications', icon: <BellOutlined />, label: 'Notifications', onClick: () => setPushOpen(true) },
       ...(installMode === 'prompt'
         ? [{ key: 'install', icon: <DownloadOutlined />, label: 'Install app', onClick: () => { void install(); } }]
         : installMode === 'ios'
           ? [{ key: 'install', icon: <DownloadOutlined />, label: 'Install app', onClick: () => modal.info({ title: 'Install on iPhone / iPad', content: 'In Safari, tap the Share button, then "Add to Home Screen".' }) }]
           : []),
       { type: 'divider' as const },
-      { key: 'logout', icon: <LogoutOutlined />, label: 'Log out', onClick: () => logout().then(() => navigate('/login')) },
+      { key: 'logout', icon: <LogoutOutlined />, label: 'Log out', onClick: () => forgetDeviceOnServer().then(logout).then(() => navigate('/login')) },
     ],
   };
 
@@ -538,6 +558,7 @@ export default function AppLayout() {
           <div style={{ flex: 1 }} />
           <div className="mtr-clock">{clock}</div>
           <NotificationsBell />
+          <PushSettingsModal open={pushOpen} onClose={() => setPushOpen(false)} />
           <Dropdown menu={userMenu} placement="bottomRight" trigger={['click']}>
             <button
               type="button"

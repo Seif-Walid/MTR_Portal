@@ -46,6 +46,8 @@ SKIP_TABLES = {
     "ai_files",
     "ai_pending_actions",  # confirmed actions get their own explicit entry
     "oauth_codes",
+    "push_subscriptions",  # device registrations, not data anyone edits
+    "push_keys",  # holds the server's private signing key
 }
 # columns that change as a side effect, never by intent
 SKIP_COLUMNS = {"updated_at", "created_at", "last_login", "last_login_at", "last_seen_at", "last_used_at"}
