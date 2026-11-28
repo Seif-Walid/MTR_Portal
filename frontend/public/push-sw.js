@@ -11,7 +11,7 @@ const ATTACHMENT_ICONS = {
   link: '/icons/att-link.png?v=1',
   file: '/icons/att-file.png?v=1',
 };
-const BADGE = '/icons/badge-96.png?v=1'; // white line-art, tinted by Android's status bar
+const BADGE = '/icons/monochrome-96.png'; // white line-art, tinted by Android's status bar
 
 async function tellWindows(msg) {
   const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
